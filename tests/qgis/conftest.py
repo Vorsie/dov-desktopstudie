@@ -13,11 +13,16 @@ pytest.importorskip("qgis.core")
 @pytest.fixture(scope="session")
 def qgs_app():
     """One standalone QgsApplication for the whole session: initQgis() loads the providers
-    (memory, wms, wcs, ogr) that every layer test needs."""
+    (memory, wms, wcs, ogr) that every layer test needs.
+
+    GUI-enabled (`QgsApplication([], True)`) although nothing here shows a window: rendering a
+    layout goes through the QApplication machinery behind fonts, pixmaps and SVG, which a GUI-less
+    QgsApplication (a QCoreApplication) does not have. The offscreen platform keeps it headless.
+    """
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     from qgis.core import QgsApplication
 
-    app = QgsApplication([], False)
+    app = QgsApplication([], True)
     app.initQgis()
     yield app
     app.exitQgis()
