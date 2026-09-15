@@ -39,12 +39,23 @@ een kaart toevoegen = één entry, geen code.
   opgeslagen antwoorden (met bron-URL en datum in een `README.md` ernaast).
 - **Virtuele boring: twee endpoints.** `doorprik` geeft één punt met absolute peilen (top/base in
   mTAW). `profielbevraging/lagen` geeft een hele lijn, maar per afstandsstap uitsluitend **diktes**
-  per laagcode (0.0 = laag afwezig) plus de pseudo-kolommen `dist` en `INV` - dus zelf stapelen van
-  bovenaf. Elke kolom is opgevuld tot één gemeenschappelijke modelbodem, gerapporteerd als
-  `minValue`, waardoor `minValue + som(diktes)` exact het gemodelleerde maaiveld is (live
-  geverifieerd tegen de doorprik op 17 punten over 78 km, 2026-09-15). Het G3Dv3-raster is 100 m:
-  fijner bevragen herhaalt dezelfde cel, dus een maaiveld dat *tussen* ankers wordt geïnterpoleerd
-  kantelt de laaggrenzen binnen één cel en springt terug op de celrand.
+  per laagcode (0.0 = laag afwezig) - dus zelf stapelen van bovenaf. Elke kolom is opgevuld tot één
+  gemeenschappelijke modelbodem, gerapporteerd als `minValue`, waardoor `minValue + som(diktes)`
+  exact het gemodelleerde maaiveld is (live geverifieerd tegen de doorprik op 17 punten over 78 km,
+  2026-09-15).
+  - Alleen `dist` (de afstand langs de lijn) is géén dikte. **`INV` is er wél een**: het is de
+    *onderopvulling* van modellen met `knownLowBoundary: true` (bv. `hcovv1`), van de echte
+    modelbodem tot `minValue`. Het telt dus mee in de som die het maaiveld geeft, maar wordt nooit
+    getekend. Op de fixture-lijn loopt `INV` van 0,00 tot 1,05 m; alleen mét `INV` komen de
+    doorprik-tops 8,38 / 11,55 / 14,59 / 17,79 / 21,36 mTAW eruit.
+  - `maxValue` is het hoogste maaiveld langs de lijn; gebruik het als zelfcontrole. Wijkt
+    `max(gestapelde maaivelden)` er meer dan 0,05 m van af, dan klopt de datum-aanname niet:
+    WARNING en terugvallen op de doorprik-ankers.
+  - Een kolom waarin élke dikte 0.0 is, ligt buiten het model: overslaan (chainage in de WARNING),
+    geen kolom van nul hoogte op de modelbodem tekenen.
+  - Het G3Dv3-raster is 100 m: fijner bevragen herhaalt dezelfde cel, dus een maaiveld dat *tussen*
+    ankers wordt geïnterpoleerd kantelt de laaggrenzen binnen één cel en springt terug op de
+    celrand.
 - **Een WMS-naam kan een stijl zijn, geen laag.** `pfas:no_regret_zones` staat wel in de
   GetCapabilities maar als `<Style>` van de laag `pfas:no_regret_huidig`; een GetMap erop geeft
   `LayerNotDefined`. Controleer een nieuwe kaartlaag altijd met een echte GetMap, niet met een
