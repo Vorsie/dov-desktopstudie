@@ -42,7 +42,7 @@ betaalde data); Word/docx-uitvoer.
 | Geocoder | `https://geo.api.vlaanderen.be/geolocation/v4/Location?q=<adres>&c=5` | JSON met `X_Lambert72`, `Y_Lambert72`, `FormattedAddress` |
 | DOV WFS | `https://www.dov.vlaanderen.be/geoserver/wfs` (2.0.0, `outputFormat=application/json`, `srsName=EPSG:31370`) | Punten: `dov-pub:Sonderingen`, `dov-pub:Boringen`, `interpretaties:lithologische_beschrijvingen`, `interpretaties:gecodeerde_lithologie`, `interpretaties:geotechnische_coderingen`, `gw_meetnetten:grondwaterlocaties_met_metingen`. Kaartvlakken: `bodemkaart:bodemtypes`, `quartair:quartair_samengesteld_50k_legende`, `quartair:quartair_200k`, `neo_paleo:tertiair_50k`, `hcov:hcov_0100_vk`, `gw_bescherming:gwkwb_kwbschaal`, `ovam:uitspraak_bodemonderzoeken`, `plastische_gronden:IndexPlastisch`, `erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014`, `dov-pub:Quartair_Isopachen`. `CQL_FILTER=INTERSECTS(geom, POLYGON(...))` werkt. |
 | DOV WMS | `https://www.dov.vlaanderen.be/geoserver/wms` (1.3.0) | o.a. `bodemkaart:bodemtypes`, `quartair:quartair_samengesteld`, `neo_paleo:tertiair_50k`, `hcov:hcov_0100_vk`, `gw_bescherming:gwkwb_kwbschaal`, `gxg:gxg`, `plastische_gronden:krimp_zwel`, `ovam:uitspraak_bodemonderzoeken`, `erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014`, `dov-pub:Quartair_Isopachen`. GetFeatureInfo (JSON) werkt; bbox-asvolgorde is x,y. |
-| CPT-XML | `https://www.dov.vlaanderen.be/data/sondering/<permkey>.xml` | `sondeonderzoek/penetratietest/meetdata/{lengte,diepte,qc,fs,u,Qt}`; qc en Qt in MPa, fs en u in kPa |
+| CPT-XML | `https://www.dov.vlaanderen.be/data/sondering/<permkey>.xml` | `sondeonderzoek/penetratietest/meetdata/{lengte,diepte|sondeerdiepte,qc,fs,u,Qt}`; qc in MPa, fs en u in kPa, Qt (totale weerstand) in kN; `diepte` (hellingsgecorrigeerd) verkiezen boven `lengte`; waarden mogen een `>`-prefix dragen (off-scale) |
 | Boring-XML, lithologie | `/data/boring/<permkey>.xml` (header), `/data/interpretatie/<id>.xml` | `lithologischebeschrijving/laag/{van,tot,beschrijving}` |
 | Peilputten | WFS-attributen (`peilmetingen_van/tot`, `aantal_dagen_sinds_laatste_meting`, `Aquifer_HCOVv2`, `onderkant_filter_m`, `stijghoogterapport`) + `/data/filter/<id>.xml` | `filtermeting/peilmeting/{datum,peil_mtaw,methode,betrouwbaarheid}` |
 | Virtuele boring | `https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/<model>?x=&y=&crs=EPSG:31370` | modellen `g3dv3_F` (formaties), `g3dv3_L` (leden), `g3dv3_P` (periodes), `g3dv3_T` (tijdvakken), `hcovv1`, `hcovv2_H`, `hcovv2_S`, `hcovv2_B`. `data[]` = `{name, top, base, thickness}` in mTAW; `layers[]` = `code`, `name`, `beschrijving`, `dovlayercolor`, `texturen`. Top van de eerste laag = maaiveld. Profiel-endpoint: `lagenmodel/<model>/profielbevraging/lagen?xValues=&yValues=&resolution=` (diktes per afstand). |
@@ -53,10 +53,14 @@ betaalde data); Word/docx-uitvoer.
 | Topokaart NGI | `https://cartoweb.wms.ngi.be/service`, laag `topo` | actueel. Historische NGI-reeks (1873–1989): geen officiële open WMS → leeg, gedocumenteerd config-slot |
 | Watertoets | `https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/overstromingsgevoelige_gebieden_{pluviaal,fluviaal,vanuit_de_zee}/MapServer/WMSServer`, laag `0` | WMS + GetFeatureInfo; licentie "geen beperkingen" |
 
+Geverifieerd maar (nog) niet in de catalogus: de watertoets-laag `vanuit_de_zee` en
+`geo.api.vlaanderen.be/GRB/wms`.
+
 Bekende eigenaardigheden van de DOV-services die de kern moet respecteren: `BBOX` en `CQL_FILTER`
-nooit samen in één GetFeature (bbox in de CQL opnemen); maximaal 500 features per antwoord → bbox
-recursief in kwadranten splitsen en op permkey ontdubbelen; DOV adverteert EPSG:6190 maar de
-coördinaten zijn Lambert 72; de WCS-GetCoverage komt als multipart (GML + tiff).
+nooit samen in één GetFeature (ruimtelijke predicaten in de CQL opnemen); grote resultaten via paging
+met `startIndex`/`count` (page_size 500; op 2026-09-15 geen harde serverlimiet meer waargenomen), over
+pagina's ontdubbelen op feature-id en afkapping door `max_features` loggen én in het rapport melden; DOV
+adverteert EPSG:6190 maar de coördinaten zijn Lambert 72; de WCS-GetCoverage komt als multipart (GML + tiff).
 
 ## 4. Architectuur (hybride: pure-Python kern + dunne QGIS-schil)
 
@@ -72,7 +76,7 @@ dov-desktopstudie/
 │   │   │                               Section, Signalering, StudyResult (+ provenance: url, tijdstip)
 │   │   ├── services/http.py            urllib-wrapper: timeout, retry, user-agent, schijfcache in de uitvoermap
 │   │   ├── services/geocoder.py        adres → L72-punt (+ kandidaten)
-│   │   ├── services/dov_wfs.py         GetFeature JSON; INTERSECTS/DWITHIN; bbox-split > 500; paging
+│   │   ├── services/dov_wfs.py         GetFeature JSON; INTERSECTS/DWITHIN; paging + ontdubbeling; afkapping gemeld
 │   │   ├── services/dov_xml.py         CPT-, boring-, interpretatie-, filter-XML → model (xml.etree; eenheden)
 │   │   ├── services/virtuele_boring.py doorprik per model; laagcatalogus (naam, kleur, texturen)
 │   │   ├── checks.py                   signaleringsregels: StudyResult → list[Signalering]
@@ -108,9 +112,9 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
    de zone, beide zijden verlengd (standaard 100 m); optioneel zelf tekenen of uit een laag kiezen.
 2. **Ophalen** (QgsTask → `core.study.run`): WFS-punten binnen `DWITHIN(straal)` (CPT, boringen,
    peilputten, interpretaties); XML-details voor de dichtstbijzijnde N per type (max 4 threads);
-   virtuele boringen op de centroid (`g3dv3_L`, `hcovv2_S`) en op M punten langs de doorsnedelijn
+   virtuele boringen op het representatieve punt van de zone (de centroid als die binnen de zone ligt, anders een punt op de breedste koorde; `g3dv3_L`, `hcovv2_S`) en op M punten langs de doorsnedelijn
    (`g3dv3_F`); kaartfeiten via WFS `INTERSECTS(zone)` per catalogus-entry met `wfs_typename`;
-   watertoets via GetFeatureInfo op centroid en hoekpunten. Elke bron faalt **geïsoleerd**: fout →
+   watertoets via GetFeatureInfo op het representatieve punt en de hoekpunten. Elke bron faalt **geïsoleerd**: fout →
    `Signalering("bron niet beschikbaar")` + log; het rapport gaat door.
 3. **Figuren** (kern, matplotlib Agg → PNG in `figuren/`): qc/fs/Rf-diagram per CPT, lithologiekolom
    per boring, virtuele-boringkolom, doorsnede (formaties in `dovlayercolor`, maaiveldlijn uit de
@@ -120,7 +124,9 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
    attributen en DOV-links), ook weggeschreven naar `data/studie.gpkg`; DHMV WCS-laag + zonale
    statistiek.
 5. **Rapport** (schil): één multi-page `QgsLayout` uit `paginasjabloon.qpt`. Kaartpagina = kaartitem
-   (zone-extent × factor; schaal per hoofdstuk instelbaar) + titel + schaalbalk + noordpijl + legenda
+   op de standaardschaal van de kaart uit de catalogus (`scale`, bv. 1:2 500 voor GRB, 1:25 000 voor
+   Ferraris omdat lage-resolutiekaarten verder uitgezoomd leesbaar zijn); de schil zoomt alleen verder
+   uit als de zone anders niet in het kader past + titel + schaalbalk + noordpijl + legenda
    (als `legend: true`) + infovak rechtsboven + infovak rechtsonder. Figuurpagina = afbeelding +
    onderschrift. Tabelpagina = `QgsLayoutItemTextTable`. Tekstpagina = HTML-label. Export via
    `QgsLayoutExporter` naar `rapport.pdf` en PNG per pagina (controle).
@@ -131,21 +137,24 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
 ## 6. Rapportstructuur (v1)
 
 0. Titelblad (logo, bedrijf, project, adres/coördinaten, datum, auteur, disclaimer "verzameling van
-   open data, geen interpretatie of ontwerp"), inhoud, bronnenlijst met licenties.
+   open data, geen interpretatie of ontwerp"), inhoud, bronnenlijst met licenties. Gerealiseerd als
+   `Report.meta` (titelblad-gegevens) plus hoofdstuk 8 (bronnen).
 1. **Ligging en topografie**: GRB, orthofoto, NGI-topo, DHMV-hillshade + DTM; feiten: gemeente,
    oppervlakte, centroid, maaiveld min/max/gemiddeld.
 2. **Historische kaarten**: Ferraris, Buurtwegen, Vandermaelen, Popp, ortho 1971, 1979–90, 2000–03
-   (zelfde extent, zone-omtrek erop); slot "NGI historische topokaarten (geen open WMS)".
+   (elk op de eigen catalogus-schaal, want lage-resolutiekaarten zijn verder uitgezoomd leesbaar; zone-omtrek
+   erop); slot "NGI historische topokaarten (geen open WMS)".
 3. **Geologie en bodem**: bodemkaart, Quartair (samengesteld 1/50 000) + Quartairdikte, Tertiair
    (1/50 000), HCOV, grondwaterkwetsbaarheid, GxG, watertoets pluviaal/fluviaal, erosie, krimp-zwel,
    OVAM-uitspraken; per kaart een tabel met de kaarteenheden die de zone snijden.
-4. **Virtuele boring** op het zwaartepunt: G3Dv3 formaties + leden (top/basis mTAW, dikte), HCOV;
-   kolomfiguur.
+4. **Virtuele boring** op het representatieve punt van de zone: G3Dv3 formaties + leden (top/basis
+   mTAW, dikte), HCOV; kolomfiguur.
 5. **Grondonderzoek DOV** binnen de straal: overzichtskaart met gelabelde punten; tabellen CPT /
    boringen / peilputten (afstand, diepte, datum, methode, uitvoerder, opdracht, DOV-link);
    bijlagen: qc-diagrammen (N dichtstbijzijnde CPT's, standaard 5), lithologiekolommen (N boringen,
    standaard 5), laatste peil per peilput.
-6. **Doorsnede**: doorsnedefiguur + inzetkaart met de lijn.
+6. **Doorsnede**: inzetkaart met de lijn (GRB, 1:5 000) + doorsnedefiguur (kolommen op hun echte
+   afstand langs de lijn, ook als een doorprik-punt ontbreekt; verticale overdrijving in de titel).
 7. **Samenvatting en aandachtspunten**: feitentabel + signaleringen (feit — bron — "aandachtspunt
    voor het grondonderzoek: …") + vaste tekst met beperkingen.
 
@@ -164,7 +173,12 @@ Zuiver data-gedreven, elk een pure functie in `checks.py`, geformuleerd in de wo
 - OVAM-bodemonderzoek in of naast de zone;
 - geen CPT binnen de straal / wel CPT binnen 50 m;
 - reliëfverschil in de zone groter dan 2 m;
-- bron niet bereikbaar.
+- bron niet bereikbaar;
+- `grondverschuiving_gevoelig`: gevoeligheid klasse ≥ 2;
+- `grondverschuiving_gekarteerd`: gekarteerde grondverschuiving in de zone;
+- `pfas_no_regret`: PFAS-no-regretzone over de zone;
+- `wfs_afgekapt`: WFS-resultaat afgekapt door max_features;
+- `doorsnede_onvolledig`: doorprik-punten mislukt.
 
 Historische kaarten krijgen een vaste manuele checklist-tekst (vijvers, waterlopen, bebouwing,
 vergravingen); er is geen beeldinterpretatie.

@@ -1,5 +1,9 @@
 # DOV Desktopstudie
 
+**Status:** v0.1 in ontwikkeling. De kern (data, figuren, JSON, `scripts/run_core.py`) is klaar;
+de QGIS-schil (dialoog, lagen, PDF) volgt. De installatie-instructies hieronder gelden zodra de
+schil er is.
+
 QGIS-plugin die een geotechnische desktopstudie voor een locatie in Vlaanderen automatisch
 samenstelt uit open data van [DOV](https://www.dov.vlaanderen.be) en
 [geopunt](https://www.geopunt.be). Je geeft een adres, een coördinaat (Lambert 72) of een polygoon

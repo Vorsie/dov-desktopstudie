@@ -1,0 +1,20 @@
+
+  {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "geometry": null,
+        "properties": {
+          "OBJECTID": "2057462",
+          "Shape": "Polygon",
+          "Id": "2057462",
+          "gridcode": "3",
+          "Shape_Length": "43109.500662",
+          "Shape_Area": "521336.625547"
+        },
+        "layerName": "Overstromingsgevoelige gebieden fluviaal"	
+      }
+    ]
+  }
+  

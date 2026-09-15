@@ -13,7 +13,7 @@ requires-python = ">=3.9"
 dependencies = ["numpy", "matplotlib"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "ruff>=0.6"]
+dev = ["pytest>=8", "ruff==0.16.*"]
 
 [tool.setuptools.packages.find]
 include = ["desktopstudie*"]
@@ -26,9 +26,10 @@ markers = [
 addopts = "-m 'not live'"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["UP006", "UP007", "UP035"]  # 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons
+# 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons; Optional[] ook toegestaan op runtime-plaatsen
+ignore = ["UP006", "UP007", "UP035", "UP045"]
