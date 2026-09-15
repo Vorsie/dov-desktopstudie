@@ -35,6 +35,17 @@ een kaart toevoegen = één entry, geen code.
 - **Layout-maten altijd via `compat.point_mm`/`size_mm`** (nooit `QgsUnitTypes.LayoutMillimeters`);
   **WMS/WCS-URI's alleen met live geverifieerde laag-, stijl- en formaatnamen** (`gxg:gxg` en
   `pfas:no_regret_zones` zijn stijlen, WCS-formaat is `GeoTIFF`).
+- **Tekst in een layout via `QgsTextFormat`, niet via `setFont`.** `QgsLayoutItemLabel.setFont`,
+  `QgsLayoutTable.setContentFont` en `setHeaderFont` zijn in 3.34 al `SIP_DEPRECATED` en verdwijnen
+  in 4.x; `setTextFormat`/`setContentTextFormat`/`setHeaderTextFormat` blijven. Een `QgsTextFormat`
+  draagt zijn eigen grootte: de puntgrootte op de `QFont` kiest alleen het lettertype.
+- **`QgsPrintLayout.initializeDefaults()` legt pagina 0 LIGGEND neer.** Het rapport is van kaft tot
+  kaft staand A4, dus pagina 0 moet expliciet op `Orientation.Portrait` worden gezet. Gebeurt dat
+  niet, dan valt op het titelblad alles onder 210 mm (inhoudsopgave, disclaimer) van het papier -
+  zonder enige foutmelding. `tests/qgis/test_layout.py` bewaakt het per pagina.
+- **`QgsLayoutItemScaleBar.applyDefaultSize()` overschrijft label en segmentlengte.** Roep het
+  eerst aan en zet daarna pas `setUnitLabel`/`setNumberOfSegments`/`setUnitsPerSegment`; omgekeerd
+  verdwijnen die instellingen stilzwijgend.
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
@@ -61,7 +72,8 @@ een kaart toevoegen = één entry, geen code.
     celrand.
 - **Een WMS-naam kan een stijl zijn, geen laag.** `pfas:no_regret_zones` staat wel in de
   GetCapabilities maar als `<Style>` van de laag `pfas:no_regret_huidig`; een GetMap erop geeft
-  `LayerNotDefined`. Net zo is `gxg:gxg` de stijl van `gxg:ghg_mmv_main` (live 2026-09-15).
+  `LayerNotDefined`. Net zo is `gxg:gxg` de stijl van de twee GxG-lagen `gxg:ghg_mmv_main` (GHG)
+  en `gxg:glg_mmv_main` (GLG), elk een eigen catalogusentry (live 2026-09-15).
   Controleer een nieuwe kaartlaag altijd met een echte GetMap, niet met een grep op de
   capabilities. `MapEntry.wms_style` draagt zo'n benoemde stijl; leeg = de laagstandaard.
 - **Een WCS vraagt om een dekkingsformaat, geen mimetype.** `format=GeoTIFF` (DescribeCoverage op
@@ -107,6 +119,21 @@ een kaart toevoegen = één entry, geen code.
   Vanuit PowerShell: `& "C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`.
   In de gewone venv wordt `tests/qgis` in zijn geheel overgeslagen (`pytest.importorskip("qgis.core")`
   in de conftest), dus `.venv\Scripts\python -m pytest tests -q` blijft groen zonder QGIS.
+- **Offscreen rendert zonder lettertypes: zet `QT_QPA_FONTDIR`.** Het `offscreen`-platform gebruikt
+  Qt's eigen lettertypedatabank en die zoekt in `<QGIS>/apps/Qt5/lib/fonts`, een map die niet
+  bestaat (`QFontDatabase: Cannot find font directory`). Elke letter komt dan als zwart blokje uit
+  de export terwijl de tests groen blijven - de layout klopt, alleen het lettertype ontbreekt. Voor
+  een echte export headless dus `QT_QPA_FONTDIR=C:\Windows\Fonts` (Linux-images:
+  `/usr/share/fonts`). Pagina's altijd als PNG bekijken vóór "klaar".
+- **Een `QgsProject` in een pytest-fixture crasht bij teardown.** Een project dat een fixture nog
+  vasthoudt, wordt tijdens de fixture-afbouw vrijgegeven en dat laat het proces op Windows
+  (QGIS 3.40.15) omvallen met een access violation *nadat* elke test al PASSED meldde: groene
+  uitvoer, exitcode 0xC0000005. Gebruik de `project`-fixture uit `tests/qgis/conftest.py`, die het
+  met `deleteLater()` aan Qt overlaat. Een project dat in de testbody zelf ontstaat en daar sterft,
+  is wel veilig.
+- **Een layout sterft met zijn items.** `layout.items()` of `pageCollection().itemsOnPage(i)` op
+  een tijdelijke layout (`build()...`) geeft wrappers die meteen daarna dood zijn ("wrapped C/C++
+  object ... has been deleted"). Hou de layout in een lokale variabele zolang je haar items leest.
   De headless flow (`scripts/run_headless.py`) bestaat nog niet; die komt met taak S6 van het
   schil-plan.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
