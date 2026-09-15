@@ -109,16 +109,26 @@ class HttpClient:
     def _retryable(self, exc: HttpError) -> bool:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
-    def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> bytes:
+    def get(self, url: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
+            retries: Optional[int] = None) -> bytes:
+        """Fetch one URL, through the disk cache when there is one.
+
+        `timeout` and `retries` override the client's own settings for this call alone. One fiche
+        out of a hundred deserves a short breath - waiting a full minute three times over for a
+        record that is down costs the whole study its time - while the WFS call that fills a whole
+        table keeps the patient defaults.
+        """
         full = build_url(url, params)
+        timeout = self.timeout if timeout is None else timeout
+        retries = self.retries if retries is None else max(0, retries)
         cached = self._cache_path(full)
         if cached and self.cache_mode == "use" and cached.exists():
             return cached.read_bytes()
         last: Optional[HttpError] = None
         attempt = 0
-        for attempt in range(self.retries + 1):
+        for attempt in range(retries + 1):
             try:
-                data = self._fetch(full, self.timeout, self.user_agent)
+                data = self._fetch(full, timeout, self.user_agent)
                 if cached and self.cache_mode != "off":
                     self._atomic_write(cached, data)
                     self._atomic_write(cached.with_suffix(".url"), full.encode("utf-8"))
@@ -127,9 +137,9 @@ class HttpClient:
                 last = exc
                 if not self._retryable(exc):
                     raise
-                if attempt < self.retries:
+                if attempt < retries:
                     if self.log:
-                        self.log.debug(f"retry {attempt + 1}/{self.retries} na {exc.status or 'netwerkfout'} "
+                        self.log.debug(f"retry {attempt + 1}/{retries} na {exc.status or 'netwerkfout'} "
                                         f"voor {full}")
                     self._sleep(self.backoff_s * (attempt + 1))
         if last is not None:
