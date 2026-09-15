@@ -209,7 +209,10 @@ def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], availab
     """
     if not columns:
         return []
-    cells = [[row[index] for row in rows] or [""] for index in range(len(columns))]
+    # A row with one cell too few is a bug in whoever built the table, but not one that may take
+    # the whole report down here: the missing cell is simply empty.
+    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
+             for index in range(len(columns))]
     wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
               for column, column_cells in zip(columns, cells)]
     if sum(wanted) <= available:
