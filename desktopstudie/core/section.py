@@ -19,7 +19,12 @@ from .model import (
     StudyZone,
     VirtualBorehole,
 )
-from .services.virtuele_boring import fetch_profile, fetch_virtual_borehole, parse_profile
+from .services.virtuele_boring import (
+    fetch_profile,
+    fetch_virtual_borehole,
+    parse_profile,
+    profile_surface_at,
+)
 
 # One profile column per 1/40th of the line, but never finer than 5 m: enough columns to read
 # as a continuous section without asking DOV for thousands of samples on a long line.
@@ -62,18 +67,33 @@ def _fetch_points(client, points: Sequence[Point], model: str, max_workers: int,
     return [vb for vb in results if vb is not None], failed
 
 
-def _build_profile(client, line: Tuple[Point, Point], anchors: Sequence[VirtualBorehole], model: str,
-                   length: float, log: Optional[Log]) -> SectionProfile:
-    """The dense profile, stacked on the surface the doorprik anchors define: the profile answer
-    holds thicknesses only, and its own layer sum sits ~0.3 m off the anchor stack, so the anchors
-    - not the model floor - fix the elevations."""
-    resolution_m = max(MIN_PROFILE_RESOLUTION_M, length / PROFILE_COLUMNS)
+def _anchor_surface(line: Tuple[Point, Point], anchors: Sequence[VirtualBorehole]):
+    """Fallback surface: linear interpolation between the doorprik anchors' own tops."""
     xs = geometry.chainages(line, [(vb.x, vb.y) for vb in anchors])
     surfaces = [vb.surface_mtaw for vb in anchors]
+
+    def surface_at(along: float) -> float:
+        return geometry.interpolate(along, xs, surfaces)
+
+    return surface_at
+
+
+def _build_profile(client, line: Tuple[Point, Point], anchors: Sequence[VirtualBorehole], model: str,
+                   length: float, log: Optional[Log]) -> SectionProfile:
+    """The dense profile, stacked from the top because the answer holds thicknesses only. Its own
+    datum is preferred: it reproduces the doorprik surface exactly (see `profile_surface_at`) and,
+    unlike a surface interpolated between anchors a hundred metres apart, it does not tilt the
+    layer boundaries inside a G3Dv3 grid cell. The anchors are the fallback for an answer without
+    a datum, and the layer order always comes from the first anchor."""
+    resolution_m = max(MIN_PROFILE_RESOLUTION_M, length / PROFILE_COLUMNS)
     order = [layer.code for layer in anchors[0].layers]
     payload = fetch_profile(client, model, line[0], line[1], resolution_m, log=log)
-    return parse_profile(payload, model, order, lambda along: geometry.interpolate(along, xs, surfaces),
-                         resolution_m)
+    surface_at = profile_surface_at(payload)
+    if surface_at is None:
+        if log:
+            log.warning(f"profiel {model} zonder eigen maaiveld-datum; terugval op de doorprik-ankers")
+        surface_at = _anchor_surface(line, anchors)
+    return parse_profile(payload, model, order, surface_at, resolution_m)
 
 
 def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequence[Cpt],
