@@ -3,11 +3,15 @@ de hele fase."""
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
 from desktopstudie.core import parallel
 from desktopstudie.core.logging_util import Log
+
+
+ITEM_S = 0.5  # lang genoeg om het verschil tussen een en twee rondes te meten
 
 
 def _log(lines):
@@ -74,3 +78,25 @@ def test_a_cancelled_batch_stops_instead_of_finishing_the_queue():
 
 def test_nothing_to_load_is_no_work_and_no_failures():
     assert parallel.load_each([], lambda item: None, "item") == 0
+
+
+def test_cancelling_does_not_wait_for_a_second_round_of_items():
+    """Afbreken hoort één lopende ronde te kosten, niet twee. Zodra een item klaar is geeft de pool
+    meteen een volgend item uit; wie dan pas afbreekt en daarna gewoon `with` laat afsluiten, wacht
+    ook op die tweede ronde. Met fiches van 15 s is dat een halve minuut stilte na "stop"."""
+    done = []
+    lock = threading.Lock()
+
+    def load_one(item):
+        time.sleep(ITEM_S)
+        with lock:
+            done.append(item)
+
+    began = time.monotonic()
+    with pytest.raises(parallel.Cancelled):
+        parallel.load_each(list(range(40)), load_one, "item", max_workers=4,
+                           should_cancel=lambda: bool(done))
+    elapsed = time.monotonic() - began
+
+    assert elapsed < ITEM_S * 1.5, f"{elapsed:.2f} s: er is op een tweede ronde gewacht"
+    assert len(done) < 40
