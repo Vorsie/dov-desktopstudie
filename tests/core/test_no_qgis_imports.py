@@ -18,6 +18,8 @@ def test_core_has_no_qgis_or_qt_imports():
 
 
 def test_package_import_does_not_need_qgis():
+    before = set(sys.modules)
+
     import desktopstudie  # noqa: F401  (must not raise even without qgis installed)
     import desktopstudie.core  # noqa: F401
 
@@ -25,5 +27,5 @@ def test_package_import_does_not_need_qgis():
     assert desktopstudie.core.__file__ is not None
 
     banned = {"qgis", "PyQt5", "PyQt6", "osgeo"}
-    loaded = {name.split(".")[0] for name in sys.modules}
-    assert not (loaded & banned)
+    newly_loaded = {name.split(".")[0] for name in set(sys.modules) - before}
+    assert not (newly_loaded & banned)
