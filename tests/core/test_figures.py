@@ -145,10 +145,58 @@ def test_draw_depth_column_avoids_label_collisions():
         # 6 heavily overlapping 0.3 m bands packed near the top of a 10 m column: without
         # collision avoidance their labels would all land on top of each other.
         bands = [(i * 0.05, i * 0.05 + 0.3, "#abcdef", f"laag {i}") for i in range(6)]
-        drawn_depth = common.draw_depth_column(ax, bands, max_depth_m=10.0)
+        drawn_depth, skipped = common.draw_depth_column(ax, bands, max_depth_m=10.0)
         ys = [t.get_position()[1] for t in ax.texts]
         step = 0.028 * drawn_depth
+        assert skipped == 0
         assert ys == sorted(ys)
         assert all(y2 - y1 >= step - 1e-9 for y1, y2 in zip(ys, ys[1:]))
+    finally:
+        plt.close(fig)
+
+
+def _crowded_column(n: int) -> Borehole:
+    """A borehole with `n` alternating thin/thick layers, each with a description long enough to
+    be shortened, i.e. the worst case for label placement in draw_depth_column."""
+    words = ["zand", "klei", "leem", "silt", "grind", "veen", "steen"]
+    layers = []
+    top = 0.0
+    for i in range(n):
+        base = top + (0.3 if i % 2 == 0 else 1.9)
+        layers.append(LithologyLayer(top, base, f"{words[i % len(words)]} laag {i} met een lange omschrijving erbij"))
+        top = base
+    return Borehole("k", "B-MANY", 0, 0, None, top, None, None, None, None, "", 50.0, lithology=layers)
+
+
+def _assert_labels_inside(fig, ax) -> None:
+    fig.canvas.draw()
+    box = ax.get_window_extent()
+    for text in ax.texts:
+        extent = text.get_window_extent()
+        assert extent.y1 <= box.y1 + 0.5, f"{text.get_text()!r} sticks out above the column"
+        assert extent.y0 >= box.y0 - 0.5, f"{text.get_text()!r} sticks out below the column"
+        assert extent.x1 <= box.x1 + 0.5, f"{text.get_text()!r} runs past the right edge of the column"
+
+
+def test_column_labels_never_leave_the_axes():
+    # 27 layers still fit; 40 no longer do, so some labels are dropped - but no label, in either
+    # column, may be drawn above the top edge, below the bottom edge or past the right edge.
+    for n_layers in (27, 40):
+        fig, ax = borehole_column._build_borehole_figure(_crowded_column(n_layers))
+        try:
+            assert ax.texts
+            _assert_labels_inside(fig, ax)
+        finally:
+            plt.close(fig)
+
+
+def test_draw_depth_column_reports_the_labels_it_had_to_skip():
+    fig, ax = plt.subplots()
+    try:
+        bands = [(i * 1.0, i * 1.0 + 1.0, "#abcdef", f"laag {i}") for i in range(60)]
+        drawn_depth, skipped = common.draw_depth_column(ax, bands, max_depth_m=60.0)
+        assert drawn_depth == 60.0
+        assert skipped > 0, "60 labels cannot fit in 60 m at the minimum label step"
+        assert skipped == 60 - len(ax.texts)
     finally:
         plt.close(fig)
