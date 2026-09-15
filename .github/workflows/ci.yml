@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the syntax floor for older QGIS Pythons; 3.12 is what QGIS 3.34/3.40 ship on
+        # Windows. Nothing is pinned: pip resolves the last numpy/matplotlib that supports 3.9.
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -e .[dev]
+      - run: ruff check .
+      - run: pytest tests/core -q  # live tests stay deselected by the addopts in pyproject.toml
