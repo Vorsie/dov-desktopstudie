@@ -4,14 +4,17 @@ missing, those anchors themselves as wide columns. Surface line over the column 
 zone marked outside the geology, projected investigations as vertical markers."""
 from __future__ import annotations
 
+import math
 import statistics
 import textwrap
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Set, Tuple
+
+from matplotlib.colors import to_rgb
 
 from .. import geometry
-from ..model import Section, VbLayer
-from .common import Rectangle, new_figure, save
+from ..model import ProjectedPoint, Section, VbLayer
+from .common import Rectangle, new_figure, note_skipped_labels, save
 
 DEFAULT_COLUMN_HALF_WIDTH_M = 25.0  # fallback when there is only one column to place
 SURFACE_LABEL = "maaiveld (G3Dv3)"
@@ -21,6 +24,17 @@ ANCHOR_COLOUR = "#333333"
 ZONE_COLOUR = "red"
 HEADROOM_M = 5.0  # air above the highest surface: room for the zone band and the test labels
 LEGEND_LABEL_CHARS = 48  # a full DOV formation name is far too long for a 6 pt legend entry
+TEST_LABEL_PT = 6
+TEST_LABEL_CHARS = 20
+LANES = 3  # rows of test labels above the axes; beyond three the header eats the section
+LANE_GAP_PT = 2.0  # air between one lane's longest label and the next lane's baseline
+BASE_OFFSET_PT = 2.0  # air between the axes top and the first lane
+TITLE_GAP_PT = 4.0
+DEFAULT_TITLE_PAD_PT = 6.0
+# Two DOV colours closer than this in RGB read as one on paper; the later formation gets a hatch.
+COLOUR_DISTANCE = 0.08
+HATCH = "//"
+HATCH_EDGE = "#777777"
 
 
 def _anchor_chainages(section: Section) -> List[float]:
@@ -41,9 +55,32 @@ def _column_half_width(xs: Sequence[float]) -> float:
     return statistics.median(gaps) / 2.0
 
 
+def _colour_distance(a: str, b: str) -> float:
+    return math.dist(to_rgb(a), to_rgb(b))
+
+
+def hatched_names(layer_lists: Sequence[Sequence[VbLayer]]) -> Set[str]:
+    """Formations whose DOV colour is within COLOUR_DISTANCE of one already used by another
+    formation. G3Dv3 hands out several flat yellows a few hundredths of an RGB step apart; printed
+    side by side they read as one unit, which is the one mistake a section must not invite. The
+    FIRST formation to claim a colour keeps it flat, so the drawing order decides who gets the
+    hatch and the same section always hatches the same units."""
+    claimed: Dict[str, str] = {}  # formation name -> its colour, in drawing order
+    hatched: Set[str] = set()
+    for layers in layer_lists:
+        for layer in layers:
+            if layer.name in claimed or layer.name in hatched:
+                continue
+            if any(_colour_distance(layer.color, other) < COLOUR_DISTANCE for other in claimed.values()):
+                hatched.add(layer.name)
+            else:
+                claimed[layer.name] = layer.color
+    return hatched
+
+
 def _draw_columns(ax, xs: Sequence[float], surfaces: Sequence[Optional[float]],
                   layer_lists: Sequence[Sequence[VbLayer]], half_width: float, max_depth_m: float,
-                  lw: float) -> Dict[str, str]:
+                  lw: float, hatched: Set[str]) -> Dict[str, str]:
     """One coloured column per (chainage, surface, layers) triple, clipped at `max_depth_m` below
     that column's own surface. Returns {layer name: colour} in drawing order, for the legend."""
     seen: Dict[str, str] = {}
@@ -53,8 +90,10 @@ def _draw_columns(ax, xs: Sequence[float], surfaces: Sequence[Optional[float]],
             if layer.top_mtaw <= floor:
                 break
             base = max(layer.base_mtaw, floor)
+            marked = layer.name in hatched
             ax.add_patch(Rectangle((x - half_width, base), 2 * half_width, layer.top_mtaw - base,
-                                       facecolor=layer.color, edgecolor="#555555", lw=lw))
+                                   facecolor=layer.color, edgecolor=HATCH_EDGE if marked else "#555555",
+                                   lw=lw, hatch=HATCH if marked else None))
             seen.setdefault(layer.name, layer.color)
     return seen
 
@@ -105,16 +144,65 @@ def _zone_proxy():
                          linestyle="--", lw=1.0)
 
 
-def _draw_legend(ax, surface_line, anchor_line, seen: Dict[str, str]) -> None:
+def _draw_legend(ax, surface_line, anchor_line, seen: Dict[str, str], hatched: Set[str]) -> None:
     handles = [surface_line, _zone_proxy()]
     labels = [SURFACE_LABEL, ZONE_LABEL]
     if anchor_line is not None:
         handles.append(anchor_line)
         labels.append(ANCHOR_LABEL)
-    handles += [Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#555555") for c in seen.values()]
+    handles += [Rectangle((0, 0), 1, 1, facecolor=colour, edgecolor="#555555",
+                          hatch=HATCH if name in hatched else None)
+                for name, colour in seen.items()]
     labels += [textwrap.shorten(name, LEGEND_LABEL_CHARS) for name in seen]
     ax.legend(handles, labels, fontsize=6, loc="upper left", bbox_to_anchor=(0, -0.12),
               ncol=2 if len(labels) <= 8 else 3)
+
+
+def _short_label(text: str) -> str:
+    """textwrap.shorten is no use here: a test number is a single word, and shorten replaces a word
+    that does not fit with a bare '[...]' - losing the whole name."""
+    return text if len(text) <= TEST_LABEL_CHARS else text[: TEST_LABEL_CHARS - 1] + "…"
+
+
+def _draw_test_labels(fig, ax, projected: Sequence[ProjectedPoint]) -> Tuple[int, float]:
+    """The projected tests' labels, above the axes instead of inside them: inside, a label covers
+    the very columns it annotates and, on a busy line, its neighbours as well.
+
+    Each label is turned upright, so it is about one character WIDE and its whole name TALL. That
+    is what fixes the lane height: a lane has to clear the longest label, because staggering two
+    neighbours by a few points would still leave them overlapping over the rest of their length.
+    A label goes in the lowest lane whose previous label is at least one label width away; a test
+    that finds no free lane is dropped and counted. Returns (dropped, the title padding in points
+    that the lanes actually used need)."""
+    if not projected:
+        return 0, 0.0
+    order = sorted(projected, key=lambda p: p.along_m)
+    anns = [ax.annotate(_short_label(p.label), xy=(p.along_m, 1.0), xycoords=("data", "axes fraction"),
+                        xytext=(0, BASE_OFFSET_PT), textcoords="offset points", rotation=90,
+                        rotation_mode="anchor", ha="left", va="center", fontsize=TEST_LABEL_PT,
+                        clip_on=False)
+            for p in order]
+    fig.canvas.draw()  # text extents are only real once the figure has been laid out once
+    px_per_pt = fig.dpi / 72.0
+    boxes = [ann.get_window_extent() for ann in anns]
+    lane_step_pt = max(box.height for box in boxes) / px_per_pt + LANE_GAP_PT
+    axes_px = ax.get_window_extent().width
+    x_lo, x_hi = ax.get_xlim()
+    label_width_m = (max(box.width for box in boxes) * (x_hi - x_lo) / axes_px) if axes_px else 0.0
+    last_in_lane: List[Optional[float]] = [None] * LANES
+    skipped = 0
+    highest_lane = 0
+    for point, ann in zip(order, anns):
+        lane = next((i for i in range(LANES)
+                     if last_in_lane[i] is None or point.along_m - last_in_lane[i] >= label_width_m), None)
+        if lane is None:
+            skipped += 1
+            ann.remove()
+            continue
+        last_in_lane[lane] = point.along_m
+        highest_lane = max(highest_lane, lane)
+        ann.set_position((0.0, BASE_OFFSET_PT + lane * lane_step_pt))
+    return skipped, BASE_OFFSET_PT + highest_lane * lane_step_pt + (lane_step_pt - LANE_GAP_PT) + TITLE_GAP_PT
 
 
 def _title(section: Section, fig, left: float, right: float, bottom: float, top: float,
@@ -149,7 +237,8 @@ def _build_section_figure(section: Section, max_depth_m: float = 60.0):
         layer_lists = [vb.layers for vb in section.boreholes]
         lw = 0.3
     half_width = _column_half_width(xs)
-    seen = _draw_columns(ax, xs, surfaces, layer_lists, half_width, max_depth_m, lw)
+    hatched = hatched_names(layer_lists)
+    seen = _draw_columns(ax, xs, surfaces, layer_lists, half_width, max_depth_m, lw, hatched)
     surface_line = _draw_surface_line(ax, xs, surfaces, half_width)
     top = max((s for s in surfaces if s is not None), default=0.0)
     _draw_zone(ax, section, top)
@@ -158,7 +247,6 @@ def _build_section_figure(section: Section, max_depth_m: float = 60.0):
         # a test without Z hangs from the modelled surface at its position along the line
         z = p.z_mtaw if p.z_mtaw is not None else geometry.interpolate(p.along_m, xs, surfaces)
         ax.plot([p.along_m, p.along_m], [z, z - (p.depth_m or 0.0)], color="black", lw=1.5)
-        ax.text(p.along_m, z + 0.5, p.label, rotation=90, fontsize=6, ha="center", va="bottom")
     left = (min(xs) if xs else 0.0) - half_width
     right = (max(xs) if xs else 0.0) + half_width
     bottom = top - max_depth_m
@@ -166,8 +254,12 @@ def _build_section_figure(section: Section, max_depth_m: float = 60.0):
     ax.set_ylim(bottom, top + HEADROOM_M)
     ax.set_xlabel("afstand langs de doorsnedelijn [m]")
     ax.set_ylabel("peil [mTAW]")
-    _draw_legend(ax, surface_line, anchor_line, seen)
-    ax.set_title(_title(section, fig, left, right, bottom, top, has_profile), fontsize=9)
+    _draw_legend(ax, surface_line, anchor_line, seen, hatched)
+    # the labels need the final x limits: their lanes are spaced in data units
+    skipped, title_pad = _draw_test_labels(fig, ax, section.projected)
+    note_skipped_labels(ax, skipped, what="proeflabels")
+    ax.set_title(_title(section, fig, left, right, bottom, top, has_profile), fontsize=9,
+                 pad=max(DEFAULT_TITLE_PAD_PT, title_pad))
     return fig, ax
 
 
