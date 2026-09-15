@@ -134,7 +134,10 @@ def _chapter_historisch() -> Chapter:
         "Manuele controle historische kaarten",
         "<p>Controleer op elke kaart: vroegere waterlopen, vijvers en moerassen; verdwenen bebouwing en "
         "funderingen; ophogingen, groeven en stortplaatsen; wijzigingen in perceelsstructuur. De plugin "
-        "interpreteert geen beelden.</p>"))
+        "interpreteert geen beelden.</p>"
+        "<p>Beoordeel daarnaast het risico op conventionele en toxische explosieven (WOI/WOII): "
+        "raadpleeg bommenkaart.be en, bij aanwijzingen, DOVO. Die bronnen zijn geen open data en "
+        "zitten niet in deze studie.</p>"))
     return hist
 
 
