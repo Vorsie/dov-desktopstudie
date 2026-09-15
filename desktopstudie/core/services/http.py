@@ -22,6 +22,18 @@ CACHE_MODES = ("use", "refresh", "off")
 RETRYABLE_STATUSES = (408, 429)
 
 
+def short_url(url: str) -> str:
+    """The URL without its query string, plus the WFS request and typeNames when it carries them.
+    A DOV GetFeature URL holds the whole CQL polygon: repeating that in every log line and in every
+    provenance message buries the failure itself, while the bare path alone would no longer say
+    WHICH layer failed. `HttpError.url` keeps the full URL for whoever has to retry it."""
+    base, _, query = url.partition("?")
+    values = urllib.parse.parse_qs(query)
+    lowered = {key.lower(): vals[0] for key, vals in values.items() if vals}
+    named = [lowered[key] for key in ("request", "typenames") if lowered.get(key)]
+    return f"{base} ({' '.join(named)})" if named else base
+
+
 class HttpError(Exception):
     def __init__(self, url: str, status: Optional[int], message: str):
         self.url = url
@@ -30,9 +42,10 @@ class HttpError(Exception):
         super().__init__(url, status, message)
 
     def __str__(self) -> str:
+        where = short_url(self.url)
         if self.status is not None:
-            return f"HTTP {self.status} voor {self.url}: {self.message}"
-        return f"netwerkfout voor {self.url}: {self.message}"
+            return f"HTTP {self.status} voor {where}: {self.message}"
+        return f"netwerkfout voor {where}: {self.message}"
 
 
 def build_url(url: str, params: Optional[Dict[str, Any]] = None) -> str:
