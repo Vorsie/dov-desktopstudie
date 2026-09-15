@@ -1,6 +1,6 @@
 """Cross-section along a line: a handful of doorprik anchors at sampled points, the dense DOV
-profile query stacked on the surface those anchors define, plus investigations projected onto the
-line when they lie within the corridor."""
+profile query stacked on the modelled surface (its own datum, with the anchors as fallback), plus
+investigations projected onto the line when they lie within the corridor."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
