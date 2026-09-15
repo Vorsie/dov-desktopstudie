@@ -9,8 +9,10 @@ from desktopstudie.core.model import (
     Cpt,
     CptProfile,
     LithologyLayer,
+    ProfileColumn,
     ProjectedPoint,
     Section,
+    SectionProfile,
     VbLayer,
     VirtualBorehole,
 )
@@ -411,3 +413,73 @@ def test_saving_a_figure_does_not_need_pyplot(tmp_path):
     ax.plot([0, 1], [0, 1])
     assert _png_ok(common.save(fig, tmp_path / "plain.png"))
     assert plt.get_fignums() == []
+
+
+CROWDED_TESTS = [("GEO-64/286-S2", 100.0), ("GEO-64/286-S3", 103.0), ("GEO-64/097-S1", 130.0),
+                 ("GEO-64/097-S2", 140.0), ("GEO-73/488-SIII", 180.0), ("GEO-73/422-SXIII", 237.0),
+                 ("Gent-inventarisatie-p17/1", 290.0)]
+
+
+def _crowded_section() -> Section:
+    """The profile section with seven projected tests, two of them 3 m apart - closer than one
+    upright label is wide, so they cannot share a lane."""
+    section, _ = _profile_section()
+    section.projected = [ProjectedPoint("cpt", name, along, 5.0, 14.0, 20.0) for name, along in CROWDED_TESTS]
+    return section
+
+
+def _test_labels(ax):
+    """The labels of the projected tests: everything but the note counting the ones left out."""
+    return [t for t in ax.texts if not t.get_text().endswith("weggelaten")]
+
+
+def test_section_test_labels_do_not_overlap_each_other():
+    fig, ax = section_figure._build_section_figure(_crowded_section(), max_depth_m=60.0)
+    fig.canvas.draw()
+    labels = _test_labels(ax)
+    assert len(labels) >= 6, "at most one of seven labels may be dropped on this line"
+    boxes = [(t.get_text(), t.get_window_extent()) for t in labels]
+    for i, (name, box) in enumerate(boxes):
+        for other_name, other in boxes[i + 1:]:
+            assert not box.overlaps(other), f"{name!r} overlaps {other_name!r}"
+
+
+def test_section_test_labels_sit_above_the_axes_clear_of_the_title():
+    fig, ax = section_figure._build_section_figure(_crowded_section(), max_depth_m=60.0)
+    fig.canvas.draw()
+    axes_top = ax.get_window_extent().y1
+    title_box = ax.title.get_window_extent()
+    for text in _test_labels(ax):
+        box = text.get_window_extent()
+        assert box.y0 >= axes_top - 1.0, f"{text.get_text()!r} hangs into the plot"
+        assert not box.overlaps(title_box), f"{text.get_text()!r} runs into the title"
+
+
+def _colour_section(colour_a: str, colour_b: str) -> Section:
+    layers = [VbLayer("a", "Formatie van Gent", 20.0, 10.0, 10.0, colour_a, ""),
+              VbLayer("b", "Formatie van Rozebeke", 10.0, 0.0, 10.0, colour_b, "")]
+    columns = [ProfileColumn(along_m=x, surface_mtaw=20.0, layers=layers) for x in (0.0, 10.0)]
+    profile = SectionProfile(model="g3dv3_F", resolution_m=10.0, columns=columns)
+    return Section(line=((0.0, 0.0), (20.0, 0.0)), boreholes=[], projected=[], zone_from_m=0.0,
+                   zone_to_m=20.0, profile=profile)
+
+
+def _hatched_formations(ax):
+    """Which of the drawn layer colours carry a hatch, keyed by their legend label."""
+    legend = zip(ax.get_legend().get_texts(), ax.get_legend().legend_handles)
+    return {label.get_text() for label, handle in legend if getattr(handle, "get_hatch", bool)()}
+
+
+def test_two_formations_in_near_identical_colours_are_told_apart_by_a_hatch():
+    # DOV hands out several flat yellows a few hundredths of an RGB step apart; printed side by
+    # side they read as one unit, which is exactly the mistake a section must not invite.
+    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#f3de78"), max_depth_m=60.0)
+    assert _hatched_formations(ax) == {"Formatie van Rozebeke"}  # the later one gets the hatch
+    hatched = [p for p in ax.patches if p.get_hatch()]
+    assert hatched, "the columns themselves must carry the hatch, not just the legend"
+
+
+def test_formations_in_clearly_different_colours_stay_flat():
+    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#6b4f2a"), max_depth_m=60.0)
+    assert _hatched_formations(ax) == set()
+    assert not [p for p in ax.patches if p.get_hatch()]
