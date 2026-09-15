@@ -3,7 +3,7 @@ only facts + source + a fixed attention sentence for the ground investigation.""
 from __future__ import annotations
 
 import re
-from typing import Callable, List, Optional
+from typing import Callable, List, Optional, Tuple
 
 from .catalogue import WATERTOETS_LABELS
 from .model import Signalering, StudyResult, VirtualBorehole
@@ -14,11 +14,13 @@ WET_DRAINAGE = {"e", "f", "g", "h", "i"}
 SOFT_TEXTURES = {"V", "E", "U"}
 BUILT_UP_PREFIXES = ("OB", "ON", "OT", "OE")
 # DOV grades landslide susceptibility as klasse "1".."3" with a matching Dutch label - live
-# check 2026-09-15 over the Flemish Ardennes: exactly "lage"/"matige"/"hoge gevoeligheid".
-# From class 2 ("matige gevoeligheid") upwards the slope is worth investigating. The labels
-# are inflected, so match "hoge" as well as the dictionary form "hoog".
+# check 2026-09-15 over the Flemish Ardennes: exactly "lage"/"matige"/"hoge gevoeligheid". The
+# label carries the same grade as the digit, so it is ranked on the same 1..3 scale and a row
+# takes the worse of the two; from class 2 ("matige gevoeligheid") upwards the slope is worth
+# investigating. The labels are inflected, so match "hoge"/"lage" beside "hoog"/"laag", and test
+# the worst word first so "zeer hoge gevoeligheid" cannot be read as low.
 LANDSLIDE_MIN_CLASS = 2
-LANDSLIDE_WORDS = ("matig", "hoge", "hoog")
+LANDSLIDE_WORD_CLASSES = (("hoog", 3), ("hoge", 3), ("matig", 2), ("laag", 1), ("lage", 1))
 SEVERITIES = ("info", "aandacht")
 
 Rule = Callable[[StudyResult], List[Signalering]]
@@ -199,15 +201,21 @@ def check_ovam(result: StudyResult) -> List[Signalering]:
     return []
 
 
+def _landslide_grade(row) -> Tuple[int, str, str]:
+    """(grade, klasse, label) for one susceptibility row. The digit class and the Dutch label are
+    two spellings of the same grade, so the row takes whichever of the two is worse: a row labelled
+    "hoge gevoeligheid" without a digit class still outranks a plain class 2."""
+    klasse = str(row.get("klasse") or "")
+    label = str(row.get("gevoelighd") or "")
+    lowered = label.lower()
+    by_word = next((rank for word, rank in LANDSLIDE_WORD_CLASSES if word in lowered), 0)
+    by_class = int(klasse) if klasse.isdigit() else 0
+    return max(by_class, by_word), klasse, label
+
+
 def check_landslide_susceptibility(result: StudyResult) -> List[Signalering]:
-    graded = []
-    for row in _facts(result, "grondverschuiving_gevoeligheid"):
-        klasse = str(row.get("klasse") or "")
-        label = str(row.get("gevoelighd") or "")
-        by_class = klasse.isdigit() and int(klasse) >= LANDSLIDE_MIN_CLASS
-        by_word = any(word in label.lower() for word in LANDSLIDE_WORDS)
-        if by_class or by_word:
-            graded.append((int(klasse) if klasse.isdigit() else 0, klasse, label))
+    graded = [_landslide_grade(row) for row in _facts(result, "grondverschuiving_gevoeligheid")]
+    graded = [grade for grade in graded if grade[0] >= LANDSLIDE_MIN_CLASS]
     if not graded:
         return []
     _, klasse, label = max(graded, key=lambda item: item[0])
@@ -224,10 +232,13 @@ def check_mapped_landslides(result: StudyResult) -> List[Signalering]:
     rows = _facts(result, "grondverschuiving_gekarteerd")
     if not rows:
         return []
-    named = sorted({f"{r.get('naam') or 'zonder naam'} ({r.get('type') or 'type onbekend'})" for r in rows})
+    # one landslide is mapped as several polygons, so the row count and the number of distinct
+    # names are different figures; reporting only the first would overstate how many there are
+    named = sorted({f"{r.get('naam')} ({r.get('type') or 'type onbekend'})" for r in rows if r.get("naam")})
+    detail = f"{len(named)} met naam: {'; '.join(named)}" if named else "geen enkele met een naam"
     return [Signalering(
         "grondverschuiving_gekarteerd",
-        f"{len(rows)} gekarteerde grondverschuiving(en) in of naast de zone: {'; '.join(named)}.",
+        f"{len(rows)} gekarteerde grondverschuiving(en) in of naast de zone ({detail}).",
         "DOV grondverschuivingen",
         "Aandachtspunt voor het grondonderzoek: gekarteerde grondverschuiving in of naast de zone; "
         "het DOV-rapport van de verschuiving raadplegen en de hellingstabiliteit beoordelen.")]
