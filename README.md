@@ -39,6 +39,28 @@ Vereist QGIS 3.34 of nieuwer (ook QGIS 4.x). Er zijn geen extra Python-packages 
 3. Vul projectnaam, auteur, bedrijf en logo in en kies een uitvoermap.
 4. Start. De plugin haalt alles op, bouwt het QGIS-project en schrijft `rapport.pdf`.
 
+## Zonder QGIS-GUI
+
+Dezelfde studie draait zonder venster, met de Python van een QGIS-installatie (of in een
+QGIS-Docker-image). Handig voor een batch, een server of een controle vanop de commandolijn:
+
+```
+"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\run_headless.py ^
+    --adres "Kortrijksesteenweg 100 Gent" --buffer 50 --out uitvoer\gent
+python3 scripts/run_headless.py --x 104326 --y 192506 --buffer 50 --out uitvoer/gent --paginas
+```
+
+Kies de locatie met `--adres` of met `--x/--y` (Lambert 72). Verder: `--buffer` de straal van de
+zonecirkel, `--straal` de zoekstraal voor grondonderzoek, `--project/--projectnummer/--auteur/
+--bedrijf/--logo` voor het titelblad, `--cache use|refresh|off` voor de schijfcache,
+`--geen-legendas` om de aparte legendapagina's over te slaan en `--paginas` om elk blad ook als PNG
+weg te schrijven. De uitvoermap krijgt `rapport.pdf`, `studie.qgz`, `data/studie.gpkg`,
+`data/studie.json`, `figuren/` en `legendas/`.
+
+Afsluitcodes: 0 = volledig, 2 = geen bruikbare locatie (adres niet gevonden of niets opgegeven),
+3 = klaar maar met gaten: een mislukt product of een bron die niet antwoordde. Beide staan in de
+samenvatting die het script afdrukt, samen met de duur van de kern en van de schil.
+
 ## Bronnen en licenties
 
 Alle data komt van de Vlaamse overheid (Databank Ondergrond Vlaanderen, Digitaal Vlaanderen,
