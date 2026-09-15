@@ -89,3 +89,11 @@ def test_interpolate_ignores_samples_without_a_value():
     assert g.interpolate(5.0, [], []) == 0.0            # nothing to interpolate at all
     assert g.interpolate(5.0, [0.0], [None]) == 0.0
     assert g.interpolate(3.0, [3.0, 3.0], [8.0, 9.0]) == 8.0  # samples at the same x: the first wins
+
+
+def test_chainages_measure_each_point_by_its_real_position_not_its_index():
+    line = ((0.0, 0.0), (400.0, 0.0))
+    # the point at 120 m is missing, so index * spacing would put every later point too far left
+    points = [(0.0, 0.0), (40.0, 5.0), (80.0, -5.0), (160.0, 0.0), (400.0, 0.0)]
+    assert g.chainages(line, points) == pytest.approx([0.0, 40.0, 80.0, 160.0, 400.0])
+    assert g.chainages(line, []) == []
