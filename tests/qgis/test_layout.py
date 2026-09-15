@@ -489,14 +489,15 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
     blob = _png(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
-        def get(self, url, params=None):
+        def get(self, url, params=None, timeout=None, retries=None):
             asked.append(url)
             return blob
 
     entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("gxg_ghg")]
-    images = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
+    images, missing = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
 
     assert list(images) == ["gxg_ghg"]
+    assert missing == []
     assert len(asked) == 1 and "ghg_mmv_main" in asked[0]
 
 
@@ -629,8 +630,8 @@ def test_a_wide_table_lands_on_a_landscape_sheet_with_every_column_on_it(project
     metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Landscape)
     assert sheet.pageSize().width() > sheet.pageSize().height(), "brede tabel hoort liggend"
     table = _table_of(lay)
-    assert [column.heading() for column in table.columns] == page.columns
-    assert all(column.width() > 0 for column in table.columns), "elke kolom krijgt een eigen breedte"
+    assert [column.heading() for column in table.columns()] == page.columns
+    assert all(column.width() > 0 for column in table.columns()), "elke kolom krijgt een eigen breedte"
     assert table.totalWidth() <= metrics.content_w + 0.5, f"{table.totalWidth()} mm past niet"
     assert table.frames()[0].rect().width() <= metrics.content_w + 0.5
 
@@ -650,7 +651,7 @@ def test_a_narrow_table_stays_portrait_and_wraps_its_long_sentences(project, gen
     assert sheet.pageSize().height() > sheet.pageSize().width(), "vier kolommen passen staand"
     table = _table_of(lay)
     assert table.wrapBehavior() == QgsLayoutTable.WrapBehavior.WrapText
-    assert [column.heading() for column in table.columns] == page.columns
+    assert [column.heading() for column in table.columns()] == page.columns
     assert table.totalWidth() <= metrics.content_w + 0.5, f"{table.totalWidth()} mm past niet"
 
 
