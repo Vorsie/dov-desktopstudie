@@ -56,6 +56,11 @@ POINT_FIELDS = [("nummer", "string"), ("afstand_m", "double"), ("diepte_m", "dou
 # anyway - so on paper those are labelled and the rest are drawn as symbols. In QGIS every point
 # keeps its number: there the reader can zoom.
 FIGURED_LABEL = 'CASE WHEN "met_figuur" = 1 THEN "nummer" END'
+# Only these two kinds ever get a figure in the report, so only for these does "label the ones
+# with a figure" mean anything. A peilput would otherwise lose its number on every map page and
+# there would be no way left to tie a triangle to the peilputten table - and a zone holds a
+# handful of them, not two hundred.
+FIGURED_KINDS = ("sondering", "boring")
 DEPTH_ALIAS = "diepte / filterbasis (m)"
 LABEL_FIELD = "nummer"
 LABEL_SIZE_PT = 7.0
@@ -158,7 +163,8 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     happens to use, and the same study prints differently on another machine.
 
     `label_only_figured` labels only the points that have a figure in the report (see
-    FIGURED_LABEL); that is the version the report maps draw.
+    FIGURED_LABEL); that is the version the report maps draw. It applies to FIGURED_KINDS only -
+    for a kind that never gets a figure it would mean no labels at all.
     """
     colour, marker = POINT_STYLE[kind]
     symbol = QgsMarkerSymbol.createSimple(
@@ -167,8 +173,9 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
     layer.renderer().setSymbol(symbol)
     settings = QgsPalLayerSettings()
-    settings.fieldName = FIGURED_LABEL if label_only_figured else LABEL_FIELD
-    settings.isExpression = label_only_figured
+    figured_only = label_only_figured and kind in FIGURED_KINDS
+    settings.fieldName = FIGURED_LABEL if figured_only else LABEL_FIELD
+    settings.isExpression = figured_only
     text_format = QgsTextFormat()
     text_format.setSize(LABEL_SIZE_PT)
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
