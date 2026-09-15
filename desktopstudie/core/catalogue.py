@@ -45,61 +45,67 @@ class MapEntry:
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     enabled: bool = True
     note: str = ""
+    # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
+    # zone does not fit
+    scale: int = 5000
 
 
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
-         legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None) -> MapEntry:
+         legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
+         scale: int = 25000) -> MapEntry:
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE, legend=legend,
                     opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs, fact_fields=fields,
-                    value_labels=labels or {})
+                    value_labels=labels or {}, scale=scale)
 
 
-def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png") -> MapEntry:
+def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", scale: int = 5000) -> MapEntry:
     return MapEntry(id=map_id, chapter="historisch", title=title, wms_url=url, wms_layer=layer,
-                    attribution="Digitaal Vlaanderen / geopunt", image_format=fmt)
+                    attribution="Digitaal Vlaanderen / geopunt", image_format=fmt, scale=scale)
 
 
 CATALOGUE: List[MapEntry] = [
     # --- ligging en topografie ---
     MapEntry("grb", "ligging", "GRB-basiskaart", "https://geo.api.vlaanderen.be/GRB-basiskaart/wms", "GRB_BSK",
-             "Digitaal Vlaanderen - GRB-basiskaart"),
+             "Digitaal Vlaanderen - GRB-basiskaart", scale=2500),
     MapEntry("ortho", "ligging", "Orthofoto (meest recent)", "https://geo.api.vlaanderen.be/OMWRGBMRVL/wms", "Ortho",
-             "Digitaal Vlaanderen - Orthofotomozaiek middenschalig winter, meest recent", image_format="image/jpeg"),
+             "Digitaal Vlaanderen - Orthofotomozaiek middenschalig winter, meest recent", image_format="image/jpeg",
+             scale=2500),
     MapEntry("ngi_topo", "ligging", "Topografische kaart NGI (CartoWeb)", "https://cartoweb.wms.ngi.be/service", "topo",
-             "Nationaal Geografisch Instituut - CartoWeb.be", licence="NGI open data"),
+             "Nationaal Geografisch Instituut - CartoWeb.be", licence="NGI open data", scale=10000),
     MapEntry("dhmv_hillshade", "ligging", "Digitaal Hoogtemodel Vlaanderen II - hillshade",
-             "https://geo.api.vlaanderen.be/DHMV/wms", "DHMV_II_HILL_25cm", "Digitaal Vlaanderen - DHMV II"),
+             "https://geo.api.vlaanderen.be/DHMV/wms", "DHMV_II_HILL_25cm", "Digitaal Vlaanderen - DHMV II",
+             scale=5000),
     MapEntry("dhmv_dtm", "ligging", "Digitaal Hoogtemodel Vlaanderen II - DTM 1 m",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMVII_DTM_1m", "Digitaal Vlaanderen - DHMV II", opacity=0.6,
-             legend=True),
+             legend=True, scale=5000),
     # --- historische kaarten ---
-    _hist("ferraris", "Ferrariskaart (1777)", "https://geo.api.vlaanderen.be/HISTCART/wms", "ferraris"),
+    _hist("ferraris", "Ferrariskaart (1777)", "https://geo.api.vlaanderen.be/HISTCART/wms", "ferraris", scale=25000),
     _hist("abw", "Atlas der Buurtwegen (ca. 1840)", "https://geo.api.vlaanderen.be/HISTCART/wms", "abw"),
     _hist("vandermaelen", "Topografische kaart Vandermaelen (1846-1854)", "https://geo.api.vlaanderen.be/HISTCART/wms",
-          "vandermaelen"),
-    _hist("popp", "Popp-kaart (1842-1879)", "https://geo.api.vlaanderen.be/HISTCART/wms", "popp"),
+          "vandermaelen", scale=20000),
+    _hist("popp", "Popp-kaart (1842-1879)", "https://geo.api.vlaanderen.be/HISTCART/wms", "popp", scale=5000),
     _hist("ortho_1971", "Orthofoto 1971 (panchromatisch)", "https://geo.api.vlaanderen.be/OKZ/wms", "OKZPAN71VL",
-          "image/jpeg"),
+          "image/jpeg", scale=5000),
     _hist("ortho_1979_90", "Orthofoto 1979-1990", "https://geo.api.vlaanderen.be/OKZ/wms", "OKZRGB79_90VL",
-          "image/jpeg"),
+          "image/jpeg", scale=5000),
     _hist("ortho_2000_03", "Orthofoto 2000-2003", "https://geo.api.vlaanderen.be/OMW/wms", "OMWRGB00_03VL",
-          "image/jpeg"),
+          "image/jpeg", scale=5000),
     MapEntry("ngi_hist", "historisch", "Historische topografische kaarten NGI (1873-1989)", "", "",
              "Nationaal Geografisch Instituut", enabled=False,
              note="Geen officiele open WMS beschikbaar (alleen het Cartesius-portaal). Vul wms_url en "
-                  "wms_layer in en zet enabled=True zodra een service bestaat."),
+                  "wms_layer in en zet enabled=True zodra een service bestaat.", scale=25000),
     # --- geologie en bodem ---
     _dov("bodemkaart", "Bodemkaart van Vlaanderen", "bodemkaart:bodemtypes",
          ("Bodemtype", "Bodemserie", "Beknopte_omschrijving_bodemserie", "Textuurklasse", "Drainageklasse",
           "Gegeneraliseerde_legende"),
-         wfs="bodemkaart:bodemtypes"),
+         wfs="bodemkaart:bodemtypes", scale=10000),
     _dov("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", "quartair:quartair_samengesteld",
          ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende"),
     _dov("quartair_200k", "Quartairgeologische kaart 1/200 000", "quartair:quartair_200k",
-         ("type", "profiel"), wfs="quartair:quartair_200k"),
+         ("type", "profiel"), wfs="quartair:quartair_200k", scale=100000),
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False),
+         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, scale=50000),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k"),
     _dov("hcov", "HCOV 0100 - Quartaire aquifersystemen (voorkomen)", "hcov:hcov_0100_vk",
@@ -111,18 +117,20 @@ CATALOGUE: List[MapEntry] = [
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
-             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}),
+             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}, scale=10000),
     MapEntry("watertoets_fluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden fluviaal",
              WATERINFO_WMS_URL.format(kind="fluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
-             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}),
+             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}, scale=10000),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
-         ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014"),
+         ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
+         scale=10000),
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
          ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch"),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
-         ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken"),
+         ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
+         scale=5000),
 ]
 
 
