@@ -4,7 +4,16 @@ import pytest
 
 from desktopstudie.core.figures import borehole_column, common, cpt_figure, section_figure, vb_column
 from desktopstudie.core.figures.common import plt
-from desktopstudie.core.model import Borehole, Cpt, CptProfile, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
+from desktopstudie.core.model import (
+    Borehole,
+    Cpt,
+    CptProfile,
+    LithologyLayer,
+    ProjectedPoint,
+    Section,
+    VbLayer,
+    VirtualBorehole,
+)
 from desktopstudie.core.services.dov_xml import parse_cpt_profile
 from desktopstudie.core.services.virtuele_boring import parse_doorprik, parse_profile
 from tests.core.conftest import fixture_bytes, fixture_json
@@ -315,3 +324,33 @@ def test_section_without_a_profile_still_draws_the_anchor_columns(tmp_path):
 def test_section_profile_png_is_written(tmp_path):
     section, _ = _profile_section()
     assert _png_ok(section_figure.plot_section(section, tmp_path / "profile.png", max_depth_m=60.0))
+
+
+def test_a_crowded_borehole_figure_says_how_many_labels_it_left_out():
+    # 40 layers do not fit at the minimum label step, so some labels are dropped; a column with
+    # fewer labels than bands must say so, otherwise it reads as a borehole with fewer layers.
+    fig, ax = borehole_column._build_borehole_figure(_crowded_column(40))
+    try:
+        notes = [t.get_text() for t in ax.texts if t.get_text().endswith("laaglabels weggelaten")]
+        assert len(notes) == 1
+        assert notes[0].startswith(str(40 - (len(ax.texts) - 1)))  # the note counts every dropped label
+    finally:
+        plt.close(fig)
+
+
+def test_a_borehole_figure_whose_labels_all_fit_carries_no_note():
+    fig, ax = borehole_column._build_borehole_figure(_crowded_column(27))
+    try:
+        assert not any("weggelaten" in t.get_text() for t in ax.texts)
+    finally:
+        plt.close(fig)
+
+
+def test_a_crowded_virtual_borehole_figure_says_how_many_labels_it_left_out():
+    layers = [VbLayer(code=f"c{i}", name=f"Eenheid {i}", top_mtaw=20.0 - i, base_mtaw=19.0 - i,
+                      thickness_m=1.0, color="#abcdef", texture="") for i in range(40)]
+    fig, ax = vb_column._build_vb_figure(VirtualBorehole(0.0, 0.0, "g3dv3_F", layers), max_depth_m=60.0)
+    try:
+        assert any(t.get_text().endswith("laaglabels weggelaten") for t in ax.texts)
+    finally:
+        plt.close(fig)
