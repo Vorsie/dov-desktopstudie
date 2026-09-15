@@ -157,3 +157,18 @@ def test_a_catalogue_entry_without_label_tables_still_reads_like_a_mapping():
     entry = c.by_id("grb")
     assert entry.value_labels == {} and entry.field_labels == {}
     assert entry.value_labels.get("x", {}).get("y") is None
+
+
+def test_the_gxg_map_names_the_real_layer_and_carries_the_style():
+    # gxg:gxg is a STYLE of gxg:ghg_mmv_main, not a layer of its own: a GetMap on gxg:gxg answers
+    # with a ServiceException, exactly like pfas:no_regret_zones (both verified live 2026-09-15).
+    entry = c.by_id("gxg")
+    assert entry.wms_layer == "gxg:ghg_mmv_main"
+    assert entry.wms_style == "gxg:gxg"
+
+
+def test_a_map_without_an_explicit_style_asks_the_service_for_its_default():
+    # An empty styles parameter means "the layer default"; only maps whose wanted rendering is a
+    # named style fill wms_style in.
+    assert c.by_id("grb").wms_style == ""
+    assert [e.id for e in c.entries() if e.wms_style] == ["gxg"]
