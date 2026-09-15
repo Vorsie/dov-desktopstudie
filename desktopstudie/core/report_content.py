@@ -211,7 +211,12 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
     for row in rows_src or []:
-        cells = _cells(entry, row, fields)
+        # A URL carries no spaces, so a table cannot wrap one: it fits or it is cut off mid-word.
+        # The drawing links of the quartair sheets run to 145 characters and came out as
+        # "...DOV_Quartair_5000" on the page; folded, the file name that tells two of them apart
+        # survives. The whole URL stays in `MapFact.rows` and in studie.json.
+        cells = [short_url(cell) if cell.startswith("http") else cell
+                 for cell in _cells(entry, row, fields)]
         if cells not in rows:
             rows.append(cells)
     return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src))
