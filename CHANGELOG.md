@@ -15,3 +15,11 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   op het eigen maaiveld van het model, met de doorprik-punten als ankers en terugvalvlak.
 - Lege of mislukte bronnen (virtuele boring zonder lagen, profielbevraging, doorsnedepunten) worden
   als niet-beschikbaar gerapporteerd en de headless runner eindigt dan met exitcode 3.
+- QGIS-schil: lagen en groepen uit de catalogus en het datamodel, reliëf uit het DHMV (WCS),
+  een meerbladige layout uit de rapportboom met opgehaalde WMS-legenda's, export naar PDF,
+  bladen als PNG en een zelfstandig QGIS-project, en de pijplijn die dat aan elkaar knoopt
+  (`pipeline.run_pipeline`). Brede tabellen en brede figuren krijgen een liggend blad met
+  kolombreedtes uit hun eigen inhoud; kaartpagina's labelen alleen de proeven met een figuur.
+- GeoPackage en projectbestand worden vóór de PDF geschreven, en elke bron die de schil zelf
+  raadpleegt (DHMV, WMS-lagen, legenda's) komt in de bronnenlijst - een mislukte export kost
+  daardoor het rapport, niet de studie.
