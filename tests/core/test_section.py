@@ -131,3 +131,39 @@ def test_a_profile_answer_without_a_datum_falls_back_to_the_doorprik_anchors(gen
     assert sec.profile is not None
     # the anchors all come from the same fixture, so their interpolated surface is flat at 14.62
     assert all(column.surface_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
+
+
+def test_the_profile_carries_the_section_when_every_doorprik_anchor_fails(gent_ring):
+    # Every anchor is down but the profile answers: the section is still worth drawing, because the
+    # profile brings both the layers and (via its own datum) the elevations to hang them on.
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = FixtureClient([PROFILE, ("doorprik/g3dv3_F", HttpError("url", 500, "boom"))])
+    zone = StudyZone(ring=gent_ring, name="z")
+    sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F", log=log)
+    assert sec.boreholes == []
+    assert sec.failed_points == 5
+    assert sec.profile is not None and len(sec.profile.columns) == 5
+    assert sec.profile.columns[2].surface_mtaw == pytest.approx(14.62)
+    # with no anchor to take an order from, the units stack on their numeric suffix
+    codes = [layer.code for layer in sec.profile.columns[2].layers]
+    assert codes == sorted(codes, key=lambda code: int(code.rsplit("_", 1)[-1]))
+    assert any("mislukt" in m for m in messages)
+
+
+def test_the_section_raises_only_when_both_the_anchors_and_the_profile_are_gone(gent_ring):
+    client = FixtureClient([("profielbevraging", HttpError("url", 500, "boom")),
+                            ("doorprik/g3dv3_F", HttpError("url", 500, "boom"))])
+    zone = StudyZone(ring=gent_ring, name="z")
+    with pytest.raises(RuntimeError):
+        s.build_section(client, LINE, zone, [], [], [], n_points=3, corridor_m=50.0, model="g3dv3_F")
+
+
+def test_without_anchors_a_profile_that_has_no_datum_cannot_carry_the_section(gent_ring):
+    payload = json.loads(fixture_bytes("vb_profile_g3dv3_F.json").decode("utf-8"))
+    payload.pop("minValue")  # nothing to hang the columns on, and no anchor either
+    client = FixtureClient([("profielbevraging", json.dumps(payload).encode("utf-8")),
+                            ("doorprik/g3dv3_F", HttpError("url", 500, "boom"))])
+    zone = StudyZone(ring=gent_ring, name="z")
+    with pytest.raises(RuntimeError):
+        s.build_section(client, LINE, zone, [], [], [], n_points=3, corridor_m=50.0, model="g3dv3_F")
