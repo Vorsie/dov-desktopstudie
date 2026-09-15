@@ -103,6 +103,31 @@ def test_cpt_title_has_no_trailing_separator_when_method_is_missing():
         plt.close(fig)
 
 
+def test_every_empty_column_figure_names_the_reason_on_bare_axes():
+    # A figure with nothing in it must say WHY, on axes without ticks: an empty frame carrying a
+    # depth scale reads as a measurement of zero rather than as missing data. The same rule for
+    # the CPT, the borehole and the virtual borehole, so it lives in one place.
+    cpt = Cpt("k", "S2", 0, 0, None, None, None, None, None, None, None, "", 5.0, profile=None)
+    bh = Borehole("k", "B000", 0, 0, None, None, None, None, None, None, "", 100.0, lithology=[])
+    vb = VirtualBorehole(x=0.0, y=0.0, model="g3dv3_F", layers=[])
+    cpt_fig, cpt_axes = cpt_figure._build_cpt_figure(cpt)
+    bh_fig, bh_ax = borehole_column._build_borehole_figure(bh)
+    vb_fig, vb_ax = vb_column._build_vb_figure(vb)
+    try:
+        for ax in (cpt_axes[0], bh_ax, vb_ax):
+            assert [t.get_text() for t in ax.texts if t.get_text()], "the placeholder names a reason"
+            assert list(ax.get_xticks()) == [] and list(ax.get_yticks()) == []
+    finally:
+        for fig in (cpt_fig, bh_fig, vb_fig):
+            plt.close(fig)
+
+
+def test_the_column_figures_share_one_height_formula():
+    assert common.column_figure_height(5.0) == pytest.approx(4.0)    # floor: a shallow column
+    assert common.column_figure_height(20.0) == pytest.approx(5.6)
+    assert common.column_figure_height(60.0) == pytest.approx(11.0)  # ceiling: still fits a page
+
+
 def test_lithology_colour_recognises_dutch_keywords_and_dov_codes():
     assert common.lithology_colour("grijze klei") == "#9fb8a0"
     assert common.lithology_colour("FZ") == "#f5e07a"  # DOV coded hoofdnaam for fijn zand
