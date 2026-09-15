@@ -175,6 +175,23 @@ class ProjectedPoint:
 
 
 @dataclass
+class ProfileColumn:
+    """One distance step of the DOV profile query: the layers stacked from `surface_mtaw` down."""
+    along_m: float
+    surface_mtaw: float
+    layers: List[VbLayer]
+
+
+@dataclass
+class SectionProfile:
+    """The whole line sampled at `resolution_m` intervals by the DOV profile endpoint; far denser
+    than the handful of doorprik anchors, which stay in `Section.boreholes`."""
+    model: str
+    resolution_m: float
+    columns: List[ProfileColumn]
+
+
+@dataclass
 class Section:
     line: Tuple[Point, Point]
     boreholes: List[VirtualBorehole]
@@ -182,6 +199,7 @@ class Section:
     zone_from_m: float
     zone_to_m: float
     failed_points: int = 0
+    profile: Optional[SectionProfile] = None
 
 
 @dataclass
