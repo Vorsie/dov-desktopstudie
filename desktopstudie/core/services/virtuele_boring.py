@@ -231,6 +231,9 @@ def layers_named(borehole: VirtualBorehole, name: str) -> List[VbLayer]:
 
 def base_of(borehole: VirtualBorehole, name: str) -> Optional[float]:
     """Base elevation (mTAW) of the deepest layer whose name starts with `name` (see `layers_named`,
-    including its prefix-collision caveat)."""
+    including its prefix-collision caveat).
+
+    Reserved for the QGIS shell (plan 2): the dialog shows the base of the Quartair beside the
+    virtual borehole; no core caller needs it yet."""
     matches = layers_named(borehole, name)
     return min(layer.base_mtaw for layer in matches) if matches else None
