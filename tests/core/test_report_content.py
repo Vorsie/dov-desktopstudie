@@ -253,3 +253,17 @@ def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
     dtm = titles.index("Digitaal Hoogtemodel Vlaanderen II - DTM 1 m")
     assert titles[dtm + 1] == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
     assert "Leeswijzer - Ferrariskaart (1777)" not in [p.title for p in report.chapters[1].pages]
+
+
+def test_the_zone_legend_prints_a_url_that_fits_a_column(gent_ring):
+    """Een URL draagt geen spaties, dus een tabel kan ze niet afbreken: ze past of ze wordt midden
+    in een woord afgekapt. De tekening-URL van een profieltype is 145 tekens lang en werd op het
+    blad "...DOV_Quartair_5000" - de legenda toont daarom de ingekorte vorm, met de bestandsnaam
+    die de twee tekeningen uit elkaar houdt."""
+    geo = _geologie(_with_quartair(_result(gent_ring)))
+
+    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    urls = [row[1] for row in legend.rows]
+    assert [url.endswith(f"DOV_Quartair_50000_{code}_png") for url, code in zip(urls, ["22026", "22010"])]
+    assert all(url.startswith("https://datasets.omgeving.vlaanderen.be/...") for url in urls), urls
+    assert all(len(url) < 80 for url in urls), urls
