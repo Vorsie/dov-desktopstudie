@@ -747,3 +747,13 @@ def test_one_greedy_column_cannot_eat_the_whole_sheet(qgs_app):
 
     assert sum(widths) <= 169.5 + 0.01
     assert widths[0] >= layout._text_width_mm(["Sonderingen"], layout.TABLE_FONT_PT)
+
+
+def test_a_row_shorter_than_its_headers_does_not_take_the_report_down(qgs_app):
+    """Een rij met een kolom te weinig hoort een leeg vakje op te leveren, geen IndexError die het
+    hele rapport meeneemt: de tabel komt uit de kern en die mag hier niets kunnen breken."""
+    from desktopstudie.qgis import layout
+
+    widths = layout.column_widths(["A", "B", "C"], [["een", "twee"], ["een", "twee", "drie"]], 100.0)
+
+    assert len(widths) == 3 and all(width > 0 for width in widths)
