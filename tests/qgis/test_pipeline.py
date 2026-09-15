@@ -79,9 +79,11 @@ def offline_shell(monkeypatch, gent_zone):
         layer.setName(entry.title)
         return layer
 
-    # grb blijft: hoofdstuk 5 en 6 tekenen hun overzichtskaart daarop.
+    # grb blijft: hoofdstuk 5 en 6 tekenen hun overzichtskaart daarop. quartair blijft omdat het
+    # de enige kaart is die haar legenda als tekening per profieltype ophaalt.
     monkeypatch.setattr(catalogue, "CATALOGUE",
-                        [catalogue.by_id(map_id) for map_id in ("grb", "ferraris", "bodemkaart")])
+                        [catalogue.by_id(map_id)
+                         for map_id in ("grb", "ferraris", "bodemkaart", "quartair")])
     monkeypatch.setattr(layers, "wms_layer", fake_wms)
     monkeypatch.setattr(dem, "relief_of_zone",
                         lambda zone_layer, log=None, should_cancel=None: RELIEF)
@@ -205,6 +207,43 @@ def test_the_zone_layer_is_built_once_and_serves_both_the_relief_and_the_maps(
     zones = [layer for layer in built if layer.name() == layers.ZONE_NAME]
     assert len(zones) == 1, "de zonelaag hoort één keer gebouwd te worden"
     assert sampled == zones, "het reliëf hoort op diezelfde laag te worden gemeten"
+
+
+QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
+                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
+
+
+def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
+        project, core_result, offline_shell, tmp_path, no_pdf):
+    """De kern kan niets ophalen, dus de schil haalt de tekening van elk profieltype op en geeft ze
+    aan `build_report` door; daar wordt ze een figuurpagina achter de legenda van de zone. Een
+    tekening die niet binnenkwam, staat als mislukte bron in de provenance - niet stil weg."""
+    from desktopstudie.core.model import MapFact
+    from desktopstudie.core.report_content import FigurePage
+    from desktopstudie.core.services.http import HttpClient, HttpError
+    from desktopstudie.qgis import pipeline
+
+    blob = write_png(tmp_path / "bron.png", 200, 300).read_bytes()
+    core_result.map_facts.append(MapFact("quartair", "Quartairgeologische kaart", [
+        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
+        {"profieltype": "22098", "legende": QUARTAIR_LEGEND.format(code="22098")}]))
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None):
+            if url.endswith("22098_png"):
+                raise HttpError(url, 500, "dienst plat")
+            return blob
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                          client=_Client(cache_dir=None))
+
+    figures = [page for page in out.report.chapters[2].pages if isinstance(page, FigurePage)]
+    assert [(page.title, page.image_path) for page in figures] == [
+        ("Profieltype 22026", "legendas/quartair_22026.png")]
+    assert (tmp_path / "legendas" / "quartair_22026.png").exists()
+    provenance = {p.source: p.ok for p in core_result.provenance}
+    assert provenance["Legenda profieltype 22026"] is True
+    assert provenance["Legenda profieltype 22098"] is False
 
 
 # --- offline: wat er gebeurt als iets faalt ----------------------------------------------------
