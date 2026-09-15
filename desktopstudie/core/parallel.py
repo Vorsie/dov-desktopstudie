@@ -45,27 +45,28 @@ def load_each(items: Sequence[Any], load_one: Callable[[Any], None], label: str,
             raise Cancelled("afgebroken door de gebruiker")
 
     failed = 0
-    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
-        futures = []
-        try:
-            for item in items:
-                check()
-                futures.append(pool.submit(load_one, item))
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Cancelled:
-                    raise  # a cancelled run is not a broken item
-                except Exception as exc:  # noqa: BLE001 - isolate every item
-                    failed += 1
-                    if log:
-                        log.warning(f"{label} niet opgehaald: {type(exc).__name__}: {exc}")
-                check()
-        except Cancelled:
-            # Drop what has not started yet. Leaving the queue alone would make the pool's own
-            # shutdown work through every remaining fetch before the cancellation surfaces, so
-            # "stop" would take as long as "finish".
-            for future in futures:
-                future.cancel()
-            raise
+    # Not a `with`: its __exit__ is shutdown(wait=True), which joins the items the pool handed out
+    # while we were reading the last result - so a cancel would cost two rounds instead of one
+    # (measured: 6 s against 3 s on items of 3 s). Cancelling the queue is not enough for that;
+    # the running ones have to be left behind too.
+    pool = ThreadPoolExecutor(max_workers=max(1, max_workers))
+    futures = []
+    try:
+        for item in items:
+            check()
+            futures.append(pool.submit(load_one, item))
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except Cancelled:
+                raise  # a cancelled run is not a broken item
+            except Exception as exc:  # noqa: BLE001 - isolate every item
+                failed += 1
+                if log:
+                    log.warning(f"{label} niet opgehaald: {type(exc).__name__}: {exc}")
+            check()
+    except Cancelled:
+        pool.shutdown(wait=False, cancel_futures=True)
+        raise
+    pool.shutdown(wait=True)
     return failed
