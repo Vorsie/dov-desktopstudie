@@ -102,6 +102,7 @@ een kaart toevoegen = één entry, geen code.
 - Plugin laden in QGIS: junction van `desktopstudie/` naar
   `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie`, daarna Plugin Reloader.
 - Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
+- Figuren visueel controleren: `python scripts/render_figures.py` → `uitvoer/figuren_check/`.
 
 ## Bekende architecturale schuld
 
