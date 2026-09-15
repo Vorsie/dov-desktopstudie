@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from desktopstudie.core.figures import borehole_column, cpt_figure, section_figure, vb_column
+from desktopstudie.core.figures import borehole_column, common, cpt_figure, section_figure, vb_column
+from desktopstudie.core.figures.common import plt
 from desktopstudie.core.model import Borehole, Cpt, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
 from desktopstudie.core.services.dov_xml import parse_cpt_profile
 from desktopstudie.core.services.virtuele_boring import parse_doorprik
@@ -42,3 +43,24 @@ def test_section_surface_interpolation():
     assert section_figure._surface_at(50.0, [0.0, 100.0], [10.0, 12.0]) == 11.0
     assert section_figure._surface_at(-5.0, [0.0, 100.0], [10.0, 12.0]) == 10.0
     assert section_figure._surface_at(500.0, [0.0, 100.0], [10.0, None]) == 10.0
+
+
+def test_lithology_colour_recognises_dutch_keywords_and_dov_codes():
+    assert common.lithology_colour("grijze klei") == "#9fb8a0"
+    assert common.lithology_colour("FZ") == "#f5e07a"  # DOV coded hoofdnaam for fijn zand
+    assert common.lithology_colour("puin") == "#e6e6e6"  # unknown -> grey fallback
+
+
+def test_draw_depth_column_avoids_label_collisions():
+    fig, ax = plt.subplots()
+    try:
+        # 6 heavily overlapping 0.3 m bands packed near the top of a 10 m column: without
+        # collision avoidance their labels would all land on top of each other.
+        bands = [(i * 0.05, i * 0.05 + 0.3, "#abcdef", f"laag {i}") for i in range(6)]
+        drawn_depth = common.draw_depth_column(ax, bands, max_depth_m=10.0)
+        ys = [t.get_position()[1] for t in ax.texts]
+        step = 0.028 * drawn_depth
+        assert ys == sorted(ys)
+        assert all(y2 - y1 >= step - 1e-9 for y1, y2 in zip(ys, ys[1:]))
+    finally:
+        plt.close(fig)
