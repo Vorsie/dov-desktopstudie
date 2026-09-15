@@ -87,7 +87,7 @@ class HttpClient:
         self._sleep = sleep
         self.log = log
         self.cache_mode = cache_mode
-        if self.cache_dir:
+        if self.cache_dir and self.cache_mode != "off":
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def _cache_path(self, full_url: str) -> Optional[Path]:
