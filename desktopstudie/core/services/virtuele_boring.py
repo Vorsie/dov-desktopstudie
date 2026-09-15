@@ -62,10 +62,18 @@ def parse_doorprik(payload: Dict[str, Any], x: float, y: float, model: str) -> V
     return VirtualBorehole(x=x, y=y, model=model, layers=layers)
 
 
-def fetch_virtual_borehole(client, x: float, y: float, model: str) -> VirtualBorehole:
+def fetch_virtual_borehole(client, x: float, y: float, model: str,
+                           log: Optional[Log] = None) -> VirtualBorehole:
+    """The doorprik at one point. A point outside the model answers HTTP 200 with an empty data[],
+    so an empty borehole is a normal answer, not an error - it is WARNED about rather than handed
+    back silently, because an empty column in the report otherwise reads as ground without
+    geology."""
     params = {"x": f"{x:.2f}", "y": f"{y:.2f}", "crs": "EPSG:31370"}
     payload = client.get_json(VB_DOORPRIK_URL.format(model=model), params)
-    return parse_doorprik(payload, x, y, model)
+    borehole = parse_doorprik(payload, x, y, model)
+    if not borehole.layers and log:
+        log.warning(f"virtuele boring {model} op {x:.0f}/{y:.0f}: geen lagen")
+    return borehole
 
 
 def fetch_profile(client, model: str, p, q, resolution_m: float, log: Optional[Log] = None) -> Dict[str, Any]:
