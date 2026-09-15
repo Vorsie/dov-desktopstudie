@@ -49,12 +49,18 @@ def fetch_virtual_borehole(client, x: float, y: float, model: str) -> VirtualBor
 
 def layers_named(borehole: VirtualBorehole, name: str) -> List[VbLayer]:
     """Layers whose name starts with `name`, case-insensitively (DOV varies capitalisation and
-    appends suffixes such as sub-member names to an otherwise-matching layer name)."""
+    appends suffixes such as sub-member names to an otherwise-matching layer name).
+
+    Caveat: this is a prefix match, so a short name can collide with an unrelated, more specific
+    one — "Formatie van Gent" also matches "Formatie van Gentbrugge". Callers should pass short,
+    unambiguous names ("antropogeen", "quartair") that have no such longer sibling in the model.
+    """
     needle = name.strip().lower()
     return [layer for layer in borehole.layers if layer.name.lower().startswith(needle)]
 
 
 def base_of(borehole: VirtualBorehole, name: str) -> Optional[float]:
-    """Base elevation (mTAW) of the deepest layer whose name starts with `name` (see `layers_named`)."""
+    """Base elevation (mTAW) of the deepest layer whose name starts with `name` (see `layers_named`,
+    including its prefix-collision caveat)."""
     matches = layers_named(borehole, name)
     return min(layer.base_mtaw for layer in matches) if matches else None
