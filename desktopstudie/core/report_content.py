@@ -177,14 +177,15 @@ def _chapter_grondonderzoek(result: StudyResult) -> Chapter:
                              show_investigations=True, show_section_line=True))
     inv.pages.append(TablePage(
         f"Sonderingen binnen {z.radius_m:.0f} m",
-        ["Nummer", "Afstand (m)", "Diepte (m)", "Datum", "Methode", "Conus", "Uitvoerder", "Opdracht", "DOV-fiche"],
+        ["Nummer", "Afst. (m)", "Diepte (m)", "Datum", "Methode", "Conus", "Uitvoerder", "Opdracht",
+         "DOV-fiche"],
         [[c.number, _s(c.distance_m, 0), _s(c.depth_m, 1), _s(c.date), _s(c.method), _s(c.cone), _s(c.contractor),
           _s(c.project), c.permkey] for c in result.cpts],
         note="Geen sonderingen binnen de straal." if not result.cpts else "",
         links=[c.url for c in result.cpts]))
     inv.pages.append(TablePage(
         f"Boringen binnen {z.radius_m:.0f} m",
-        ["Nummer", "Afstand (m)", "Diepte (m)", "Datum", "Methode", "Doel", "Uitvoerder", "Lithologie",
+        ["Nummer", "Afst. (m)", "Diepte (m)", "Datum", "Methode", "Doel", "Uitvoerder", "Lithologie",
          "DOV-fiche"],
         [[b.number, _s(b.distance_m, 0), _s(b.depth_m, 1), _s(b.date), _s(b.method), _s(b.purpose),
           _s(b.contractor), "ja" if b.lithology else "-", b.permkey] for b in result.boreholes],
@@ -192,7 +193,7 @@ def _chapter_grondonderzoek(result: StudyResult) -> Chapter:
         links=[b.url for b in result.boreholes]))
     inv.pages.append(TablePage(
         f"Peilputten binnen {z.radius_m:.0f} m",
-        ["GW-ID/filter", "Afstand (m)", "Aquifer", "Filterbasis (m-mv)", "Laatste peil (mTAW)", "Datum", "Meetnet",
+        ["GW-ID/filter", "Afst. (m)", "Aquifer", "Filterbasis (m-mv)", "Laatste peil (mTAW)", "Datum", "Meetnet",
          "DOV-fiche"],
         [[f"{f.gw_id}/{f.filter_no}", _s(f.distance_m, 0), _s(f.aquifer), _s(f.filter_base_m, 1),
           _s(f.latest.level_mtaw, 2) if f.latest else "-", f.latest.date if f.latest else "-", _s(f.network),
