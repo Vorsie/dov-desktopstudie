@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..model import Borehole
-from .common import draw_depth_column, lithology_colour, plt, save
+from .common import draw_depth_column, lithology_colour, note_skipped_labels, plt, save
 
 NO_DATA_MESSAGE = "geen laaggegevens beschikbaar"
 
@@ -20,7 +20,8 @@ def _build_borehole_figure(bh: Borehole):
     else:
         bands = [(layer.top_m, layer.base_m, lithology_colour(layer.raw.get("hoofdnaam") or layer.description),
                  f"{layer.top_m:.1f}-{layer.base_m:.1f} m: {layer.description}") for layer in bh.lithology]
-        draw_depth_column(ax, bands, drawn_depth)
+        _, skipped = draw_depth_column(ax, bands, drawn_depth)
+        note_skipped_labels(ax, skipped)
     ax.set_title(f"{bh.number} - {bh.date or 'datum onbekend'} - {bh.distance_m:.0f} m van de zone", fontsize=9)
     return fig, ax
 
