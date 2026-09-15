@@ -19,10 +19,15 @@ def fixture_json(name: str):
 
 
 class FixtureClient:
+    """Routes are tried in registration order; the first substring match wins, so
+    register the most specific substring first. A URL that matches no route raises
+    an AssertionError."""
+
     def __init__(self, routes=None):
         # routes: list of (substring, fixture filename or bytes or Exception instance)
         self.routes = list(routes or [])
         self.calls: list[str] = []
+        self.matched: list[str] = []
 
     def route(self, substring: str, target) -> FixtureClient:
         self.routes.append((substring, target))
@@ -35,6 +40,7 @@ class FixtureClient:
         self.calls.append(full)
         for substring, target in self.routes:
             if substring in full:
+                self.matched.append(substring)
                 if isinstance(target, Exception):
                     raise target
                 if isinstance(target, bytes):
@@ -51,4 +57,6 @@ class FixtureClient:
 
 @pytest.fixture
 def gent_ring():
+    """Open ring (4 corner points, no repeated closing vertex) - the 200 x 200 m
+    test square around (104326, 192506); geometry.polygon_wkt closes it."""
     return [(104226.0, 192406.0), (104426.0, 192406.0), (104426.0, 192606.0), (104226.0, 192606.0)]
