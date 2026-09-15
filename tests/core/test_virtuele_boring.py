@@ -51,6 +51,25 @@ def test_thickness_falls_back_to_top_minus_base_when_none():
     assert bh.layers[0].thickness_m == pytest.approx(4.0)
 
 
+def test_a_doorprik_without_layers_is_warned_about_not_silently_returned():
+    # "Buiten het model" answers with an empty data[] and HTTP 200; without a WARNING the study
+    # would show an empty column as if the ground there had no geology.
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = FixtureClient([("doorprik/g3dv3_F", b'{"data": [], "layers": []}')])
+    bh = vb.fetch_virtual_borehole(client, 250000.0, 150000.0, "g3dv3_F", log=log)
+    assert bh.layers == []
+    assert any("virtuele boring g3dv3_F op 250000/150000" in m and "geen lagen" in m for m in messages)
+
+
+def test_a_doorprik_with_layers_is_not_warned_about():
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = FixtureClient([("doorprik/g3dv3_F", "vb_g3dv3_F.json")])
+    bh = vb.fetch_virtual_borehole(client, 104326.0, 192506.0, "g3dv3_F", log=log)
+    assert bh.layers and messages == []
+
+
 def test_profile_query_sends_both_endpoints_and_an_integer_resolution():
     client = FixtureClient([("profielbevraging/lagen", "vb_profile_g3dv3_F.json")])
     payload = vb.fetch_profile(client, "g3dv3_F", (104126.0, 192506.0), (104526.0, 192506.0), 100.0)
