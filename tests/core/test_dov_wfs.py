@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from desktopstudie.core.logging_util import Log
 from desktopstudie.core.services.dov_wfs import DovWfs, feature_xy
 from tests.core.conftest import FixtureClient
 
@@ -57,9 +58,13 @@ def test_duplicate_ids_across_pages_are_dropped():
         ("startIndex=5", "wfs_sonderingen_dwithin.json"),
         ("startIndex=0", "wfs_sonderingen_dwithin.json"),
     ])
-    wfs = DovWfs(client, page_size=5)
+    messages: list[str] = []
+    wfs = DovWfs(client, page_size=5, log=Log("test", sink=messages.append, level="DEBUG"))
     feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
     assert len(feats) == 5
+    # de-duplication, not truncation, explains the drop from 10 fetched to 5 unique
+    assert wfs.truncations == []
+    assert any("dubbele features" in m for m in messages)
 
 
 def test_intersecting_uses_layer_specific_geometry_field():
