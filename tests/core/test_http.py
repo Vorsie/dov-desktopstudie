@@ -175,7 +175,7 @@ def test_default_fetch_surfaces_a_truncated_body_and_the_client_retries_it():
 
     attempts = []
     with _tcp_server(_counting_handler(attempts, truncated)) as url:
-        client = http.HttpClient(fetch=http.default_fetch, retries=1, sleep=lambda s: None)
+        client = http.HttpClient(fetch=http.default_fetch, retries=1, sleep=lambda s: None, timeout=2.0)
         with pytest.raises(http.HttpError):
             client.get(url)
     assert len(attempts) == 2
@@ -190,7 +190,7 @@ def test_default_fetch_surfaces_a_reset_connection_and_the_client_retries_it():
 
     attempts = []
     with _tcp_server(_counting_handler(attempts)) as url:
-        client = http.HttpClient(fetch=http.default_fetch, retries=1, sleep=lambda s: None)
+        client = http.HttpClient(fetch=http.default_fetch, retries=1, sleep=lambda s: None, timeout=2.0)
         with pytest.raises(http.HttpError):
             client.get(url)
     assert len(attempts) == 2
