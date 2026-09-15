@@ -51,12 +51,33 @@ een kaart toevoegen = één entry, geen code.
   geplaatst; `QgsLayoutItemLegend` haalt WMS-legenda's asynchroon op en blijft headless leeg.
   Een legenda die hoger is dan een blad wordt met `QImage.copy()` in bladhoge stroken gesneden,
   nooit tot een onleesbaar postzegeltje geschaald.
+- **Een legenda wordt nooit dwars door een legenda-item gesneden.** Een strook die niet op een
+  blad past, breekt af op de dichtstbijzijnde volledig witte (of transparante) pixelrij *boven* de
+  nominale snede; is er geen enkele witte rij, dan wint het blad. `hcov` en `quartair` hebben
+  `legend=False`: hun GetLegendGraphic is een vierkantje van 20x20 zonder klassenaam.
+- **Een kaart die openrekt voor haar overlays krijgt een ronde schaal.** Past de zoekstraal niet op
+  de catalogusschaal, dan volgt de schaal uit de zoekstraal en leest het infovak "1:6 104"; ze
+  wordt naar boven afgerond op de 1-2-5-ladder (`layout.SCALE_STEPS`) en de extent volgt opnieuw
+  uit die schaal. Alleen naar boven: naar beneden zou net wegsnijden waarvoor de kaart openrekte.
+  De catalogusschaal en `extent_factor` blijven onaangeroerd - dat zijn keuzes, geen tussenstap.
 - **Na het bouwen van een layout altijd `layout.refresh()` vóór export**, anders zijn de
-  data-gedefinieerde eigenschappen (de legendaschakelaar voorop) nog niet geëvalueerd.
+  data-gedefinieerde eigenschappen (de legendaschakelaar voorop) nog niet geëvalueerd. Elke
+  exportfunctie in `export.py` doet het zelf, zodat geen enkele oproeper het kan vergeten.
   **Paginaindex nooit zelf tellen, altijd `pageCollection().pageCount()`**: een tabel met
   `ExtendToNextPage` maakt zelf pagina's bij, dus een eigen teller loopt achter en de volgende
   rapportpagina belandt bovenop de laatste tabelpagina. Vervolgframes van zo'n tabel beslaan het
   hele blad; trek ze in de contentband terug, anders lopen ze door kop en voettekst.
+- **`QgsLayoutExporter` gooit niet, het geeft een code terug.** Een oproeper die de code negeert,
+  overhandigt de gebruiker een rapport dat er niet is. Elke export controleert de code en noemt
+  ze bij naam via `compat.enum_name` ("FileError", niet "3"). Let op: een oude unscoped C++-enum
+  is op PyQt5 een `sip.enumtype` waarvan `dir()` leeg is - de leden staan op de *klasse*
+  (`QgsLayoutExporter.Success`); de gemoderniseerde enums (`QgsZonalStatistics.Result`) zijn echte
+  Python-enums met `.name`. `enum_name` slikt beide.
+- **"The PNG driver does not support update access" is geen fout.** Na het schrijven opent QGIS
+  elke PNG opnieuw via GDAL om er een georeferentie aan te hangen; de PNG-driver kent geen
+  update-modus en zegt dat per blad op stderr. Het beeld is wel geschreven. `export._quiet_gdal()`
+  zet de GDAL-foutafhandelaar stil rond een export; een echte mislukking komt nog steeds terug in
+  de ExportResult, die sowieso gecontroleerd wordt.
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
@@ -98,6 +119,20 @@ een kaart toevoegen = één entry, geen code.
   ondersteunt het `{*}naam`-namespace-jokerteken NIET (dat werkt alleen in de ElementPath-syntax
   van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
   `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
+- **De pijplijn valt in twee helften uiteen.** `pipeline.run_core` raakt geen QGIS aan (draait dus
+  op een werkthread / QgsTask), `pipeline.finish` doet alles wat de hoofdthread vereist: reliëf,
+  regels, rapport, lagen, layout, exports. `run_pipeline` is de twee samen voor een oproeper zonder
+  threads (het headless script). Beide helften delen één `HttpClient`, dus één schijfcache.
+- **Na `relief` draaien de signaleringsregels opnieuw** (`checks.run_all`), want de reliëfregel kan
+  pas dan aanslaan. De twee signaleringen die alleen de orchestrator kan kennen - een afgekapte
+  WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
+  meegenomen via `study.orchestrator_signals(result)`. Voeg je zo'n signalering toe, zet de code
+  dan in `study.ORCHESTRATOR_CODES` of hij verdwijnt bij die tweede pas.
+- **Het geopende project is niet het product.** De studiegroepen gaan in het project dat de
+  gebruiker openheeft; het `.qgz` naast de PDF is een *vers* `QgsProject` uit het GeoPackage
+  (`layers.standalone_project`), zodat het bestand weken later op een andere machine nog opengaat.
+  De huisstijl van elke laag staat daarom in `layers.style_*`-helpers: één bron voor de memory-laag
+  van een run én voor dezelfde laag uit het GeoPackage.
 - **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
   beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan. Dat geldt ook
   bínnen een fase: `study._Runner._load_each` haalt elk item in een eigen future op, zodat één
@@ -135,7 +170,10 @@ een kaart toevoegen = één entry, geen code.
   bestaat (`QFontDatabase: Cannot find font directory`). Elke letter komt dan als zwart blokje uit
   de export terwijl de tests groen blijven - de layout klopt, alleen het lettertype ontbreekt. Voor
   een echte export headless dus `QT_QPA_FONTDIR=C:\Windows\Fonts` (Linux-images:
-  `/usr/share/fonts`). Pagina's altijd als PNG bekijken vóór "klaar".
+  `/usr/share/fonts`). `compat.ensure_font_dir()` zet hem zelf als hij onder offscreen leeg is en
+  logt dat; `pipeline.finish` roept het aan vóór de eerste render. Meetbaar gemaakt in
+  `tests/qgis/test_export.py`: van de kopband van een blad is mét lettertypemap 0,6 % puur zwart,
+  zonder 20,2 %. Pagina's altijd als PNG bekijken vóór "klaar".
 - **Een `QgsProject` in een pytest-fixture crasht bij teardown.** Een project dat een fixture nog
   vasthoudt, wordt tijdens de fixture-afbouw vrijgegeven en dat laat het proces op Windows
   (QGIS 3.40.15) omvallen met een access violation *nadat* elke test al PASSED meldde: groene
@@ -147,6 +185,11 @@ een kaart toevoegen = één entry, geen code.
   object ... has been deleted"). Hou de layout in een lokale variabele zolang je haar items leest.
   De headless flow (`scripts/run_headless.py`) bestaat nog niet; die komt met taak S6 van het
   schil-plan.
+- **Schil-tests duren minuten, niet seconden.** Een layout renderen kost ongeveer een seconde per
+  blad (PDF op 150 dpi); `tests/qgis` draait daardoor in ~4,5 minuten. De pijplijntests knippen de
+  catalogus terug tot één kaart per hoofdstuk (`offline_shell`-fixture) - met alle dertig kaarten
+  kost één offline rapport vijf minuten. De live pijplijntest (`-m live -s`) draait de echte studie
+  voor Gent en laat haar uitvoer in `uitvoer/pipeline_live/` staan, juist om de bladen te bekijken.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
   (of `--x/--y`, niet allebei); `--straal` zet de zoekstraal, `--buffer` de zonecirkel,
   `--cache use|refresh|off` de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen
