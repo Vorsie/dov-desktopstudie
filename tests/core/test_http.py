@@ -129,6 +129,26 @@ def test_http_error_str_uses_dutch_network_error_text_when_status_is_none():
     assert str(http.HttpError("https://x.be/a", None, "x")).startswith("netwerkfout")
 
 
+GETFEATURE_URL = ("https://www.dov.vlaanderen.be/geoserver/wfs?service=WFS&version=2.0.0&"
+                  "request=GetFeature&typeNames=dov-pub%3ASonderingen&outputFormat=application%2Fjson&"
+                  "CQL_FILTER=DWITHIN%28geom%2CPOLYGON%28%28104226%20192406%2C104426%20192406%29%29%2C500%2Cmeters%29")
+
+
+def test_http_error_text_names_the_request_without_the_whole_query_string():
+    # A DOV GetFeature URL carries the entire CQL polygon; repeating it in every log line and in
+    # the provenance message drowns the failure itself.
+    err = http.HttpError(GETFEATURE_URL, 500, "busy")
+    assert str(err) == ("HTTP 500 voor https://www.dov.vlaanderen.be/geoserver/wfs "
+                        "(GetFeature dov-pub:Sonderingen): busy")
+    assert "CQL_FILTER" not in str(err) and "?" not in str(err)
+    assert err.url == GETFEATURE_URL  # the full URL stays available for whoever needs to retry it
+
+
+def test_http_error_text_of_a_plain_url_is_the_url_itself():
+    assert str(http.HttpError("https://services.dov.vlaanderen.be/doorprik/g3dv3_F", 404, "weg")) == (
+        "HTTP 404 voor https://services.dov.vlaanderen.be/doorprik/g3dv3_F: weg")
+
+
 def test_get_json_raises_http_error_on_non_json_body():
     def fetch(url, timeout, user_agent):
         return b"<ServiceExceptionReport/>"
