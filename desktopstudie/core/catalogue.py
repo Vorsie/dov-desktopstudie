@@ -66,6 +66,10 @@ class MapEntry:
     image_format: str = "image/png"
     opacity: float = 1.0
     legend: bool = False
+    # Passed to GetLegendGraphic when the shell fetches the legend as an image. The default suits
+    # GeoServer (DOV, geopunt): without it a map with many classes answers with one endless column
+    # that no page can hold. ArcGIS services ignore the parameter, so it is harmless there.
+    legend_options: str = "columns:4;columnheight:900;fontSize:7"
     fact_mode: Optional[str] = None  # None | "wfs" | "gfi"
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
@@ -139,10 +143,12 @@ CATALOGUE: List[MapEntry] = [
                   "kaart manueel en vermeld het risico op conventionele en toxische explosieven "
                   "(WOI/WOII) in de studie.", scale=10000),
     # --- geologie en bodem ---
+    # legend=False on purpose: the soil legend lists every soil series in Flanders, which fills
+    # pages nobody reads. The fact table below the map names the types inside the zone instead.
     _dov("bodemkaart", "Bodemkaart van Vlaanderen", "bodemkaart:bodemtypes",
          ("Bodemtype", "Bodemserie", "Beknopte_omschrijving_bodemserie", "Textuurklasse", "Drainageklasse",
           "Gegeneraliseerde_legende", "Textuurklasse_code", "Drainageklasse_code"),
-         wfs="bodemkaart:bodemtypes",
+         wfs="bodemkaart:bodemtypes", legend=False,
          field_labels={"Bodemtype": "Bodemtype", "Bodemserie": "Bodemserie",
                        "Beknopte_omschrijving_bodemserie": "Omschrijving", "Textuurklasse": "Textuur",
                        "Drainageklasse": "Drainage", "Gegeneraliseerde_legende": "Legende",
@@ -174,7 +180,7 @@ CATALOGUE: List[MapEntry] = [
     # GxG is a pair - the mean highest (GHG) and the mean lowest (GLG) level - and one page titled
     # "GxG" hides which of the two the reader has in front of him, so each level is its own entry.
     # gxg:glg_mmv_main with gxg:gxg verified live 2026-09-15 (GetMap -> HTTP 200, image/png).
-    _dov("gxg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
+    _dov("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
          style="gxg:gxg"),
     _dov("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", legend=True, scale=25000,
          style="gxg:gxg"),
