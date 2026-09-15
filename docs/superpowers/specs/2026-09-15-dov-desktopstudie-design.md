@@ -138,7 +138,8 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
 1. **Ligging en topografie**: GRB, orthofoto, NGI-topo, DHMV-hillshade + DTM; feiten: gemeente,
    oppervlakte, centroid, maaiveld min/max/gemiddeld.
 2. **Historische kaarten**: Ferraris, Buurtwegen, Vandermaelen, Popp, ortho 1971, 1979–90, 2000–03
-   (zelfde extent, zone-omtrek erop); slot "NGI historische topokaarten (geen open WMS)".
+   (elk op de eigen catalogus-schaal, want lage-resolutiekaarten zijn verder uitgezoomd leesbaar; zone-omtrek
+   erop); slot "NGI historische topokaarten (geen open WMS)".
 3. **Geologie en bodem**: bodemkaart, Quartair (samengesteld 1/50 000) + Quartairdikte, Tertiair
    (1/50 000), HCOV, grondwaterkwetsbaarheid, GxG, watertoets pluviaal/fluviaal, erosie, krimp-zwel,
    OVAM-uitspraken; per kaart een tabel met de kaarteenheden die de zone snijden.
@@ -148,7 +149,8 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
    boringen / peilputten (afstand, diepte, datum, methode, uitvoerder, opdracht, DOV-link);
    bijlagen: qc-diagrammen (N dichtstbijzijnde CPT's, standaard 5), lithologiekolommen (N boringen,
    standaard 5), laatste peil per peilput.
-6. **Doorsnede**: doorsnedefiguur + inzetkaart met de lijn.
+6. **Doorsnede**: inzetkaart met de lijn (GRB, 1:5 000) + doorsnedefiguur (kolommen op hun echte
+   afstand langs de lijn, ook als een doorprik-punt ontbreekt; verticale overdrijving in de titel).
 7. **Samenvatting en aandachtspunten**: feitentabel + signaleringen (feit — bron — "aandachtspunt
    voor het grondonderzoek: …") + vaste tekst met beperkingen.
 
