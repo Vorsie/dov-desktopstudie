@@ -77,13 +77,13 @@ class DovWfs:
             if len(feats) < count or (isinstance(matched, int) and fetched >= matched):
                 break
             start += len(feats)
+        # Truncation (the server withheld data) and de-duplication (repeated feature ids across
+        # pages) have independent causes, so report them independently -- a hybrid case must
+        # still record the truncation even though de-duplication also happened.
         dropped = fetched - len(out)
-        if dropped > 0:
-            # de-duplication (repeated feature ids across pages) explains the shortfall, not the
-            # server withholding data -- surface it at DEBUG only, never as a truncation.
-            if self.log:
-                self.log.debug(f"{typename}: {dropped} dubbele features over pagina's verwijderd")
-        elif isinstance(matched, int) and fetched < matched:
+        if dropped > 0 and self.log:
+            self.log.debug(f"{typename}: {dropped} dubbele features over pagina's verwijderd")
+        if isinstance(matched, int) and fetched < matched:
             self.truncations.append((typename, len(out), matched))
             if self.log:
                 self.log.warning(f"{typename}: {len(out)} van {matched} features opgehaald "
