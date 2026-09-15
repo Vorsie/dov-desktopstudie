@@ -26,9 +26,10 @@ markers = [
 addopts = "-m 'not live'"
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["UP006", "UP007", "UP035", "UP045"]  # 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons; Optional[] ook op runtime-plaatsen
+# 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons; Optional[] ook toegestaan op runtime-plaatsen
+ignore = ["UP006", "UP007", "UP035", "UP045"]
