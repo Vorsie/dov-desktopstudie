@@ -175,6 +175,38 @@ def test_the_report_maps_label_only_the_investigations_with_a_figure(project, co
     assert [f["met_figuur"] for f in figured.getFeatures()] == [1], "de sondering heeft een figuur"
 
 
+def test_the_zone_layer_is_built_once_and_serves_both_the_relief_and_the_maps(
+        project, core_result, offline_shell, tmp_path, monkeypatch, no_pdf):
+    """Eén zonelaag per run. `relief_of_zone` bemonstert toch al een kloon - het schrijft zijn drie
+    kolommen niet op de laag van de oproeper - dus een tweede zonelaag bouwen levert niets op en
+    zet twee objecten in het geheugen waar de lezer er één ziet."""
+    from desktopstudie.qgis import dem, layers, pipeline
+
+    built = []
+    real = layers.zone_layer
+
+    def counted(zone):
+        built.append(real(zone))
+        return built[-1]
+
+    sampled = []
+
+    def relief(zone_layer, log=None, should_cancel=None):
+        sampled.append(zone_layer)
+        return RELIEF
+
+    monkeypatch.setattr(layers, "zone_layer", counted)
+    monkeypatch.setattr(dem, "relief_of_zone", relief)
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    # De nepkaartlagen van `offline_shell` zijn ook zonelagen, alleen hernoemd naar hun kaart;
+    # alleen wat na de run nog "Onderzoekszone" heet, is de zonelaag van de studie.
+    zones = [layer for layer in built if layer.name() == layers.ZONE_NAME]
+    assert len(zones) == 1, "de zonelaag hoort één keer gebouwd te worden"
+    assert sampled == zones, "het reliëf hoort op diezelfde laag te worden gemeten"
+
+
 # --- offline: wat er gebeurt als iets faalt ----------------------------------------------------
 
 def test_a_relief_that_cannot_be_measured_is_reported_as_a_failed_source(project, core_result,
