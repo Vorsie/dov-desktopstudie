@@ -77,7 +77,13 @@ class DovWfs:
             if len(feats) < count or (isinstance(matched, int) and fetched >= matched):
                 break
             start += len(feats)
-        if isinstance(matched, int) and len(out) < matched:
+        dropped = fetched - len(out)
+        if dropped > 0:
+            # de-duplication (repeated feature ids across pages) explains the shortfall, not the
+            # server withholding data -- surface it at DEBUG only, never as a truncation.
+            if self.log:
+                self.log.debug(f"{typename}: {dropped} dubbele features over pagina's verwijderd")
+        elif isinstance(matched, int) and fetched < matched:
             self.truncations.append((typename, len(out), matched))
             if self.log:
                 self.log.warning(f"{typename}: {len(out)} van {matched} features opgehaald "
