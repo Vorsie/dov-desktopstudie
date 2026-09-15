@@ -398,3 +398,16 @@ def test_invalid_severity_raises_value_error(gent_ring, monkeypatch):
     monkeypatch.setattr(checks, "RULES", [bad_rule])
     with pytest.raises(ValueError):
         checks.run_all(_result(gent_ring))
+
+
+def test_validate_guards_signals_that_did_not_come_from_a_rule():
+    # The orchestrator adds signals of its own (truncation, incomplete section), so the severity
+    # vocabulary has to be guarded where the whole list is assembled, not only inside run_all.
+    with pytest.raises(ValueError):
+        checks.validate([Signalering("x", "y", "z", "w", severity="ongeldig")])
+
+
+def test_validate_returns_the_signals_it_was_given():
+    signals = [Signalering("a", "y", "z", "w", severity="info"),
+               Signalering("b", "y", "z", "w", severity="aandacht")]
+    assert checks.validate(signals) == signals
