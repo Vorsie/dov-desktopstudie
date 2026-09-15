@@ -136,6 +136,15 @@ een kaart toevoegen = één entry, geen code.
   WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
   meegenomen via `study.orchestrator_signals(result)`. Voeg je zo'n signalering toe, zet de code
   dan in `study.ORCHESTRATOR_CODES` of hij verdwijnt bij die tweede pas.
+- **`QgsLayoutManager.addLayout` vernietigt de layout als het weigert.** Het neemt het eigendom
+  over; komt er `False` terug (een naam die het al kent), dan is het object weg en geeft de
+  volgende aanroep "wrapped C/C++ object has been deleted". Een weigering hoort dus de run te
+  stoppen, niet gelogd te worden waarna er verder wordt gewerkt.
+- **Volgorde van goedkoop naar duur.** `studie.json` eerst, dan GeoPackage en projectbestand, dan
+  pas de layout en de PDF; elk van die drie producten staat onder zijn eigen bewaking, zodat een
+  GeoPackage dat nog openstaat in een andere QGIS dat ene product kost en niet de studie
+  (`PipelineResult.pdf`, `.geopackage` en `.project_file` zijn `Optional`, `failures` zegt waarom).
+  `StudyCancelled` komt door elke bewaking heen - afbreken is geen mislukt product.
 - **GeoPackage en projectbestand gaan vóór de PDF de deur uit.** Negentig bladen renderen is de
   langste en meest fragiele stap van een studie; valt ze om, dan moet de gebruiker de data houden
   die al verzameld was. Een mislukte export levert daarom `PipelineResult.pdf = None` plus een
@@ -151,10 +160,19 @@ een kaart toevoegen = één entry, geen code.
   (`layers.standalone_project`), zodat het bestand weken later op een andere machine nog opengaat.
   De huisstijl van elke laag staat daarom in `layers.style_*`-helpers: één bron voor de memory-laag
   van een run én voor dezelfde laag uit het GeoPackage.
-- **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
-  beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan. Dat geldt ook
+- **Elke bron faalt geïsoleerd - maar een bron die HELEMAAL niets levert is geen leeg antwoord.**
+  Een falende service geeft een `Signalering("bron niet beschikbaar")` en een logregel; het rapport
+  gaat door. Nooit stil overslaan. Let op het randgeval bij een bron die per punt wordt bevraagd
+  (GetFeatureInfo): vallen álle punten weg, dan is de kaart onbereikbaar, niet leeg - `[]` zou als
+  "geen eenheden binnen de zone" in het rapport komen en van een platte watertoets-dienst een
+  perceel zonder overstromingsrisico maken. Dat geldt ook
   bínnen een fase: `study._Runner._load_each` haalt elk item in een eigen future op, zodat één
   onbereikbare fiche alleen dat item kost (`pool.map` gooit de eerste fout en verliest de rest).
+- **Parallel ophalen gaat via `core/parallel.load_each`**: elk item geïsoleerd, mislukkingen
+  geteld en gelogd, en bij afbreken `shutdown(wait=False, cancel_futures=True)` - met een `with`
+  wacht de pool ook op de ronde die ze net had uitgedeeld, en duurt "stop" twee keer een item.
+  Nest je een pool binnen een pool (punten binnen kaarten), zet de binnenste dan op 1-2 werkers:
+  anders is de gelijktijdigheid `max_workers²` en gaat de dienst throttelen.
 - **Figuren zonder pyplot.** `figures/common.py` levert `new_figure`/`new_figure_grid`: een
   `Figure` met een eigen `FigureCanvasAgg`. `pyplot` parkeert elke figuur in een globale registry
   tot iemand `close()` roept - een lek in een lange QGIS-sessie en een race vanuit een QgsTask.
