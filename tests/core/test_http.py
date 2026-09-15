@@ -265,3 +265,29 @@ def test_without_overrides_a_call_keeps_the_clients_own_settings():
 
     assert client.get("https://x.be/a") == b"ok"
     assert seen == [42.0]
+
+
+DOORPRIK_URL = ("https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/"
+                "doorprik/g3dv3_F")
+WATERINFO_URL = ("https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
+                 "overstromingsgevoelige_gebieden_pluviaal/MapServer/WMSServer")
+
+
+def test_a_path_too_long_for_a_table_column_keeps_its_host_and_its_last_segment():
+    """De bronnentabel kapt af wat niet in haar kolom past, en een URL heeft geen spaties om op te
+    breken: de watertoets-URL van 125 tekens eindigt op het blad als "...overstromingsgev" - midden
+    in een woord, en dus onbruikbaar. Een WFS-URL past wel en blijft zoals ze is; een pad dat niet
+    past, wordt teruggebracht tot de dienst en het laatste stuk, want dat is wat de lezer nog kan
+    thuisbrengen."""
+    assert http.short_url(DOORPRIK_URL) == "https://services.dov.vlaanderen.be/.../g3dv3_F"
+    assert http.short_url(WATERINFO_URL) == "https://inspirepub.waterinfo.be/.../WMSServer"
+    assert http.short_url("https://www.dov.vlaanderen.be/geoserver/wfs") == \
+        "https://www.dov.vlaanderen.be/geoserver/wfs"
+
+
+def test_a_shortened_path_still_names_the_request_it_carried():
+    """Het inkorten van het pad mag de dienstnaam niet opeten: de legenda-URL van de watertoets is
+    lang EN draagt een REQUEST, en zonder dat achtervoegsel staan er twee identieke regels in de
+    bronnentabel."""
+    assert http.short_url(WATERINFO_URL + "?SERVICE=WMS&REQUEST=GetLegendGraphic") == \
+        "https://inspirepub.waterinfo.be/.../WMSServer (GetLegendGraphic)"
