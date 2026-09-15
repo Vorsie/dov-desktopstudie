@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from . import catalogue
+from .catalogue import MODEL_TITLES
 from .model import StudyResult
-from .services.virtuele_boring import MODEL_TITLES
 
 DISCLAIMER = (
     "<p>Deze desktopstudie verzamelt open data van DOV en geopunt op het moment van opmaak. "
