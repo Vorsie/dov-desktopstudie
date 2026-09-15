@@ -83,6 +83,7 @@ class LithologyLayer:
     base_m: float
     description: str
     kind: str = "beschrijving"  # or "gecodeerd"
+    raw: Dict[str, Any] = field(default_factory=dict)  # coded layers: hoofdnaam/kleur/bijmenging tokens
 
 
 @dataclass
