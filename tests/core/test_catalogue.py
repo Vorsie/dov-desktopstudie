@@ -226,3 +226,10 @@ def test_the_maps_with_a_degenerate_legend_have_no_legend_page():
         entry = c.by_id(map_id)
         assert entry.legend is False, map_id
         assert entry.fact_mode == "wfs" and entry.fact_fields, map_id
+
+
+def test_the_height_model_has_no_legend_page():
+    # The DHMV legend is a colour ramp of 27 x 18 mm with two numbers on it (300 to -50). A whole
+    # sheet for that is a sheet the reader turns past; what the colours mean - height in mTAW -
+    # belongs in a sentence, not on a page of its own.
+    assert c.by_id("dhmv_dtm").legend is False
