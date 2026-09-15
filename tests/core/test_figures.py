@@ -173,10 +173,16 @@ def _crowded_column(n: int) -> Borehole:
     return Borehole("k", "B-MANY", 0, 0, None, top, None, None, None, None, "", 50.0, lithology=layers)
 
 
+def _band_labels(ax):
+    """The per-band labels: everything except the note that counts the labels left out, which is a
+    caption about the figure rather than a label of a layer."""
+    return [t for t in ax.texts if not t.get_text().endswith("laaglabels weggelaten")]
+
+
 def _assert_labels_inside(fig, ax) -> None:
     fig.canvas.draw()
     box = ax.get_window_extent()
-    for text in ax.texts:
+    for text in _band_labels(ax):
         extent = text.get_window_extent()
         assert extent.y1 <= box.y1 + 0.5, f"{text.get_text()!r} sticks out above the column"
         assert extent.y0 >= box.y0 - 0.5, f"{text.get_text()!r} sticks out below the column"
@@ -334,6 +340,19 @@ def test_a_crowded_borehole_figure_says_how_many_labels_it_left_out():
         notes = [t.get_text() for t in ax.texts if t.get_text().endswith("laaglabels weggelaten")]
         assert len(notes) == 1
         assert notes[0].startswith(str(40 - (len(ax.texts) - 1)))  # the note counts every dropped label
+    finally:
+        plt.close(fig)
+
+
+def test_the_skipped_label_note_does_not_sit_on_top_of_the_deepest_label():
+    # Inside a full column every spot is taken: the bands fill it to the bottom and the labels run
+    # down the right-hand side, so the note has to sit clear of the deepest label to stay readable.
+    fig, ax = borehole_column._build_borehole_figure(_crowded_column(40))
+    try:
+        fig.canvas.draw()
+        note = next(t for t in ax.texts if t.get_text().endswith("laaglabels weggelaten"))
+        note_box = note.get_window_extent()
+        assert all(not note_box.overlaps(label.get_window_extent()) for label in _band_labels(ax))
     finally:
         plt.close(fig)
 
