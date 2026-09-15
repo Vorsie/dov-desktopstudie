@@ -1,5 +1,10 @@
 """matplotlib setup shared by all figures (headless Agg backend); depth-column drawing and
-lithology colours shared by the borehole and virtual-borehole columns."""
+lithology colours shared by the borehole and virtual-borehole columns.
+
+Figures are built through `new_figure`/`new_figure_grid` rather than `pyplot.subplots`: pyplot
+parks every figure it creates in a process-global registry and only lets go when someone calls
+close(). Inside a long-running QGIS session that is a leak, and from a QgsTask worker thread it is
+a race on shared state. A Figure with its own FigureCanvasAgg has neither problem."""
 from __future__ import annotations
 
 import textwrap
@@ -8,8 +13,11 @@ from typing import List, Tuple
 
 import matplotlib
 
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # also pins the backend for anyone who does import pyplot (tests, notebooks)
 import matplotlib.pyplot as plt  # noqa: E402
+from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
+from matplotlib.figure import Figure  # noqa: E402
+from matplotlib.patches import Rectangle  # noqa: E402
 
 DPI = 150
 
@@ -45,11 +53,28 @@ _CODE_COLOURS = {
 }
 
 
+def new_figure(figsize: Tuple[float, float]):
+    """A figure pyplot knows nothing about, with an Agg canvas attached so savefig and
+    canvas.draw() work straight away. Returns (fig, ax) like pyplot.subplots()."""
+    fig = Figure(figsize=figsize)
+    FigureCanvasAgg(fig)
+    return fig, fig.subplots()
+
+
+def new_figure_grid(ncols: int, figsize: Tuple[float, float], sharey: bool = False):
+    """new_figure with `ncols` axes side by side. The axes always come back as a list, also for
+    ncols=1, where fig.subplots() would hand back a bare Axes."""
+    fig = Figure(figsize=figsize)
+    FigureCanvasAgg(fig)
+    axes = fig.subplots(1, ncols, sharey=sharey)
+    return fig, [axes] if ncols == 1 else list(axes)
+
+
 def save(fig, path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)
+    plt.close(fig)  # no-op for a new_figure figure; still frees the last pyplot-made ones
     return path
 
 
@@ -81,7 +106,7 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
                if top < max_depth_m]
     drawn_depth = min(max_depth_m, max((base for _, base, _, _ in visible), default=max_depth_m))
     for top, base, colour, _ in visible:
-        ax.add_patch(plt.Rectangle((0, top), 1, base - top, facecolor=colour, edgecolor="black", lw=0.5))
+        ax.add_patch(Rectangle((0, top), 1, base - top, facecolor=colour, edgecolor="black", lw=0.5))
     step = LABEL_STEP_FRACTION * drawn_depth
     lowest = drawn_depth - step / 2.0  # a label centred deeper than this would cross the bottom edge
     prev_y = None
@@ -105,13 +130,13 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
     return drawn_depth, skipped
 
 
-def note_skipped_labels(ax, skipped: int) -> None:
-    """Say how many labels draw_depth_column had to drop for lack of room. Without it a column with
-    fewer labels than bands reads as a borehole with fewer layers. Placed as a caption just under
-    the axes: inside them every spot is taken - the bands fill the column to the bottom and the
-    labels run down the right-hand side - so a note in the bottom-right corner lands on top of the
-    deepest label."""
+def note_skipped_labels(ax, skipped: int, what: str = "laaglabels") -> None:
+    """Say how many labels had to be dropped for lack of room. Without it a column with fewer
+    labels than bands reads as a borehole with fewer layers, and a section with fewer labels than
+    tests as a section with fewer tests. Placed as a caption just under the axes: inside them every
+    spot is taken - the bands fill the column to the bottom and the labels run down the right-hand
+    side - so a note in the bottom-right corner lands on top of the deepest label."""
     if skipped <= 0:
         return
-    ax.text(1.0, -0.012, f"{skipped} laaglabels weggelaten", transform=ax.transAxes,
+    ax.text(1.0, -0.012, f"{skipped} {what} weggelaten", transform=ax.transAxes,
             ha="right", va="top", fontsize=6, color="grey")
