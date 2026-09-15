@@ -2,15 +2,18 @@
 only facts + source + a fixed attention sentence for the ground investigation."""
 from __future__ import annotations
 
+import re
 from typing import Callable, List, Optional
 
+from .catalogue import WATERTOETS_LABELS
 from .model import Signalering, StudyResult, VirtualBorehole
 from .services.virtuele_boring import layers_named
 
-SOFT_KEYWORDS = ("klei", "veen", "leem", "silt")
+SOFT_WORDS = re.compile(r"\b(klei|veen|leem)\b")
 WET_DRAINAGE = {"e", "f", "g", "h", "i"}
 SOFT_TEXTURES = {"V", "E", "U"}
 BUILT_UP_PREFIXES = ("OB", "ON", "OT", "OE")
+SEVERITIES = ("info", "aandacht")
 
 Rule = Callable[[StudyResult], List[Signalering]]
 
@@ -30,17 +33,20 @@ def _facts(result: StudyResult, map_id: str):
 
 
 def check_anthropogenic(result: StudyResult) -> List[Signalering]:
-    vb = _vb(result, "g3dv3_L", "g3dv3_F")
+    # the "Antropogeen" unit only exists in the formation model; fall back to the member model
+    vb = _vb(result, "g3dv3_F", "g3dv3_L")
     if vb is None:
         return []
-    for layer in layers_named(vb, "antropogeen"):
-        return [Signalering(
-            "antropogeen",
-            f"Antropogene laag van {layer.thickness_m:.1f} m in de virtuele boring ({vb.model}).",
-            "DOV virtuele boring G3Dv3",
-            "Aandachtspunt voor het grondonderzoek: ophoging/opvulling met mogelijke obstakels; "
-            "dikte en samenstelling ter plaatse vaststellen.")]
-    return []
+    matches = layers_named(vb, "antropogeen")
+    if not matches:
+        return []
+    total = sum(layer.thickness_m for layer in matches)
+    return [Signalering(
+        "antropogeen",
+        f"Antropogene laag van {total:.1f} m in de virtuele boring ({vb.model}).",
+        "DOV virtuele boring G3Dv3",
+        "Aandachtspunt voor het grondonderzoek: ophoging/opvulling met mogelijke obstakels; "
+        "dikte en samenstelling ter plaatse vaststellen.")]
 
 
 def check_soft_layers(result: StudyResult) -> List[Signalering]:
@@ -50,7 +56,7 @@ def check_soft_layers(result: StudyResult) -> List[Signalering]:
     out = []
     for layer in vb.layers:
         top_m, base_m = vb.depth_of(layer)
-        if top_m < 10.0 and any(k in layer.texture.lower() for k in SOFT_KEYWORDS):
+        if top_m < 10.0 and SOFT_WORDS.search(layer.texture.lower()):
             out.append(Signalering(
                 "slappe_laag",
                 f"{layer.name} ({layer.texture}) van {top_m:.1f} tot {base_m:.1f} m-mv in de virtuele boring.",
@@ -66,7 +72,11 @@ def check_shallow_tertiary(result: StudyResult) -> List[Signalering]:
         return []
     quaternary = layers_named(vb, "quartair")
     if not quaternary:
-        return []
+        return [Signalering(
+            "ondiep_tertiair", "Geen Quartair in de virtuele boring: Tertiair aan het maaiveld.",
+            "DOV virtuele boring G3Dv3",
+            "Aandachtspunt voor het grondonderzoek: Tertiair op geringe diepte; overgang en "
+            "eventuele verwering in kaart brengen.")]
     depth = vb.surface_mtaw - min(layer.base_mtaw for layer in quaternary)
     if depth < 3.0:
         return [Signalering(
@@ -83,6 +93,7 @@ def check_soil_map(result: StudyResult) -> List[Signalering]:
         code = str(row.get("Bodemtype") or "")
         drainage = str(row.get("Drainageklasse_code") or "")
         texture = str(row.get("Textuurklasse_code") or "")
+        legend = row.get("Gegeneraliseerde_legende")
         if drainage in WET_DRAINAGE:
             out.append(Signalering(
                 "bodem_nat", f"Bodemtype {code}: drainageklasse {drainage} (nat).", "DOV bodemkaart",
@@ -91,7 +102,7 @@ def check_soil_map(result: StudyResult) -> List[Signalering]:
             out.append(Signalering(
                 "bodem_veen_klei", f"Bodemtype {code}: textuurklasse {texture}.", "DOV bodemkaart",
                 "Aandachtspunt voor het grondonderzoek: veen- of kleibodem; samendrukbaarheid onderzoeken."))
-        if code.startswith(BUILT_UP_PREFIXES):
+        if code.startswith(BUILT_UP_PREFIXES) or legend == "Antropogeen":
             out.append(Signalering(
                 "bodem_antropogeen", f"Bodemtype {code}: antropogeen (bebouwd/vergraven/opgehoogd).",
                 "DOV bodemkaart",
@@ -119,21 +130,37 @@ def check_groundwater(result: StudyResult) -> List[Signalering]:
 def check_flood(result: StudyResult) -> List[Signalering]:
     out = []
     for map_id, label in (("watertoets_pluviaal", "pluviaal"), ("watertoets_fluviaal", "fluviaal")):
-        rows = [r for r in _facts(result, map_id) if str(r.get("gridcode", "0")) != "0"]
-        if rows:
-            out.append(Signalering(
-                "overstroming",
-                f"Zone ligt in overstromingsgevoelig gebied ({label}, klasse {rows[0].get('gridcode')}).",
-                "VMM watertoets",
-                "Aandachtspunt voor het grondonderzoek: wateroverlast en hoge waterstanden bij uitvoering."))
+        rows = _facts(result, map_id)
+        codes = []
+        unknown = False
+        for row in rows:
+            if "gridcode" not in row:
+                unknown = True
+                continue
+            code = str(row.get("gridcode"))
+            if code != "0":
+                codes.append(code)
+        if not codes and not unknown:
+            continue
+        if codes:
+            worst = max(codes, key=lambda c: int(c))
+            description = WATERTOETS_LABELS[worst]
+        else:
+            description = "klasse onbekend"
+        out.append(Signalering(
+            "overstroming",
+            f"Zone ligt in overstromingsgevoelig gebied ({label}): {description}.",
+            "VMM watertoets",
+            "Aandachtspunt voor het grondonderzoek: wateroverlast en hoge waterstanden bij uitvoering."))
     return out
 
 
 def check_erosion(result: StudyResult) -> List[Signalering]:
-    rows = [r for r in _facts(result, "erosie") if "hoog" in str(r.get("Erosieklasse_ALV", "")).lower()]
+    rows = [r for r in _facts(result, "erosie") if "hoog" in str(r.get("Totale_erosie", "")).lower()]
     if rows:
         return [Signalering(
-            "erosie", f"Erosieklasse {rows[0].get('Erosieklasse_ALV')} op een perceel in de zone.",
+            "erosie",
+            f"Totale erosie '{rows[0].get('Totale_erosie')}' op {len(rows)} perceel/percelen in de zone.",
             "DOV erosiekaart",
             "Aandachtspunt voor het grondonderzoek: erosiegevoelige helling; stabiliteit en afwatering.")]
     return []
@@ -142,8 +169,10 @@ def check_erosion(result: StudyResult) -> List[Signalering]:
 def check_shrink_swell(result: StudyResult) -> List[Signalering]:
     rows = _facts(result, "krimp_zwel")
     if rows:
+        distinct = sorted({str(r.get("hoofdlithologie", "")) for r in rows})
         return [Signalering(
-            "krimp_zwel", f"Krimp-zwelgevoelige gronden: {rows[0].get('hoofdlithologie', '')}.",
+            "krimp_zwel",
+            f"Krimp-zwelgevoelige gronden op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
             "DOV plastische gronden",
             "Aandachtspunt voor het grondonderzoek: plasticiteit (Atterberg) en vochtgevoeligheid bepalen.")]
     return []
@@ -152,8 +181,11 @@ def check_shrink_swell(result: StudyResult) -> List[Signalering]:
 def check_ovam(result: StudyResult) -> List[Signalering]:
     rows = _facts(result, "ovam")
     if rows:
+        distinct = sorted({str(r.get("uitspraak", "")) for r in rows})
         return [Signalering(
-            "ovam", f"OVAM-uitspraak in de zone: {rows[0].get('uitspraak', '')}.", "OVAM via DOV",
+            "ovam",
+            f"OVAM-uitspraken op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
+            "OVAM via DOV",
             "Aandachtspunt voor het grondonderzoek: mogelijke bodemverontreiniging; "
             "bodemattest raadplegen en veiligheidsmaatregelen.")]
     return []
@@ -185,8 +217,8 @@ def check_relief(result: StudyResult) -> List[Signalering]:
 
 def check_sources(result: StudyResult) -> List[Signalering]:
     return [Signalering(
-        "bron_niet_beschikbaar", f"Bron '{p.source}' niet beschikbaar: {p.message}", p.url,
-        "Hoofdstuk onvolledig; bron later opnieuw raadplegen.", severity="info")
+        "bron_niet_beschikbaar", f"Bron niet beschikbaar: {p.message}", p.source,
+        "Hoofdstuk onvolledig; bron later opnieuw raadplegen.", severity="aandacht")
         for p in result.provenance if not p.ok]
 
 
@@ -200,5 +232,8 @@ RULES: List[Rule] = [
 def run_all(result: StudyResult) -> List[Signalering]:
     out: List[Signalering] = []
     for rule in RULES:
-        out.extend(rule(result))
+        for sig in rule(result):
+            if sig.severity not in SEVERITIES:
+                raise ValueError(f"onbekende severity {sig.severity!r} voor signalering {sig.code!r}")
+            out.append(sig)
     return out
