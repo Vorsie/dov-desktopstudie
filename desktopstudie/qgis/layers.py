@@ -6,10 +6,11 @@ only turns those into QgsMapLayers, gives them the house style and writes them t
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Optional, Sequence, Tuple, Union
+from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from qgis.core import (
     Qgis,
+    QgsCoordinateReferenceSystem,
     QgsCoordinateTransformContext,
     QgsDataSourceUri,
     QgsFeature,
@@ -29,6 +30,7 @@ from qgis.core import (
     QgsVectorLayerSimpleLabeling,
 )
 
+from ..core import catalogue
 from ..core.catalogue import MapEntry
 from ..core.model import Borehole, Cpt, GwFilter, StudyZone
 
@@ -50,8 +52,23 @@ POINT_NAMES = {"sondering": "Sonderingen", "boring": "Boringen", "peilput": "Pei
 POINT_FIELDS = [("nummer", "string"), ("afstand_m", "double"), ("diepte_m", "double"), ("datum", "string"),
                 ("methode", "string"), ("z_mtaw", "double"), ("url", "string")]
 DEPTH_ALIAS = "diepte / filterbasis (m)"
+LABEL_FIELD = "nummer"
+LABEL_SIZE_PT = 7.0
+POINT_SIZE_MM = "2.6"
 SECTION_LABEL = "A-A'"
+ZONE_NAME = "Onderzoekszone"
+SECTION_NAME = "Doorsnedelijn"
 SEARCH_AREA_NAME = "Zoekstraal"
+# The two study groups, in the order the report numbers them, and the GeoPackage layers each one
+# holds. The pipeline writes exactly these names, so a project rebuilt from the file finds them
+# back by name; a layer that is not in the file is reported, never invented.
+ZONE_GROUP = "4 Onderzoekszone en doorsnede"
+INVESTIGATION_GROUP = "5 Grondonderzoek DOV"
+GPKG_GROUPS = (
+    (ZONE_GROUP, (ZONE_NAME, SECTION_NAME)),
+    (INVESTIGATION_GROUP, (POINT_NAMES["sondering"], POINT_NAMES["boring"], POINT_NAMES["peilput"],
+                           SEARCH_AREA_NAME)),
+)
 LOCKED_HINT = "sluit de lagen van een vorige studie in QGIS en probeer opnieuw"
 
 
@@ -104,16 +121,82 @@ def _zone_polygon(zone: StudyZone) -> QgsGeometry:
     return QgsGeometry.fromPolygonXY([[QgsPointXY(x, y) for x, y in zone.ring]])
 
 
+# --- the house style -----------------------------------------------------------------------------
+# One symbol per study layer, applied both to the memory layer a run draws with and to the same
+# layer read back from the GeoPackage by `standalone_project`. Two copies of these dictionaries
+# would drift, and the drift would only show as a study that looks different in QGIS than on paper.
+
+def style_zone_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
+    """The study zone: red outline, lightly filled so the map stays readable underneath."""
+    layer.renderer().setSymbol(QgsFillSymbol.createSimple(
+        {"color": "255,0,0,30", "outline_color": "#ff0000", "outline_width": "0.8"}))
+    return layer
+
+
+def style_search_area_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
+    """The search area: no fill, a dashed red outline - a boundary, not an area of its own."""
+    layer.renderer().setSymbol(QgsFillSymbol.createSimple(
+        {"color": "0,0,0,0", "outline_color": "#ff0000", "outline_style": "dash", "outline_width": "0.5"}))
+    return layer
+
+
+def style_section_line_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
+    layer.renderer().setSymbol(QgsLineSymbol.createSimple({"color": "#000000", "width": "0.6"}))
+    return layer
+
+
+def style_points_layer(layer: QgsVectorLayer, kind: str) -> QgsVectorLayer:
+    """Marker, colour, size and the number label of one investigation kind.
+
+    The units are pinned on purpose: without them a symbol follows whatever the host project
+    happens to use, and the same study prints differently on another machine.
+    """
+    colour, marker = POINT_STYLE[kind]
+    symbol = QgsMarkerSymbol.createSimple(
+        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
+         "outline_width": "0.3"})
+    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    layer.renderer().setSymbol(symbol)
+    settings = QgsPalLayerSettings()
+    settings.fieldName = LABEL_FIELD
+    text_format = QgsTextFormat()
+    text_format.setSize(LABEL_SIZE_PT)
+    text_format.setSizeUnit(Qgis.RenderUnit.Points)
+    settings.setFormat(text_format)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(True)
+    index = layer.fields().indexOf("diepte_m")
+    if index >= 0:  # a peilput carries its filter base here; the alias says so in the table
+        layer.setFieldAlias(index, DEPTH_ALIAS)
+    return layer
+
+
+def style_by_name(layer: QgsVectorLayer, log=None) -> QgsVectorLayer:
+    """Give a layer read back from the GeoPackage the style it had during the study. The layer
+    name is the only thing that survives the file, so it is what the lookup goes by."""
+    name = layer.name()
+    kind = next((key for key, title in POINT_NAMES.items() if title == name), None)
+    if kind is not None:
+        return style_points_layer(layer, kind)
+    styles = {ZONE_NAME: style_zone_layer, SEARCH_AREA_NAME: style_search_area_layer,
+              SECTION_NAME: style_section_line_layer}
+    if name in styles:
+        return styles[name](layer)
+    if log:
+        log.warning(f"Geen huisstijl bekend voor de laag {name}; QGIS kiest zelf")
+    return layer
+
+
+# --- memory layers from the model (continued) ----------------------------------------------------
+
 def zone_layer(zone: StudyZone) -> QgsVectorLayer:
     """The study zone itself: one polygon, red outline, lightly filled."""
-    layer = _memory("Polygon", "Onderzoekszone", [("naam", "string")])
+    layer = _memory("Polygon", ZONE_NAME, [("naam", "string")])
     feature = QgsFeature(layer.fields())
     feature.setGeometry(_zone_polygon(zone))
     feature["naam"] = zone.name
     _add(layer, [feature])
-    layer.renderer().setSymbol(QgsFillSymbol.createSimple(
-        {"color": "255,0,0,30", "outline_color": "#ff0000", "outline_width": "0.8"}))
-    return layer
+    return style_zone_layer(layer)
 
 
 def circle_layer(zone: StudyZone) -> QgsVectorLayer:
@@ -125,15 +208,13 @@ def circle_layer(zone: StudyZone) -> QgsVectorLayer:
     feature.setGeometry(_zone_polygon(zone).buffer(zone.radius_m, BUFFER_SEGMENTS))
     feature["straal_m"] = zone.radius_m
     _add(layer, [feature])
-    layer.renderer().setSymbol(QgsFillSymbol.createSimple(
-        {"color": "0,0,0,0", "outline_color": "#ff0000", "outline_style": "dash", "outline_width": "0.5"}))
-    return layer
+    return style_search_area_layer(layer)
 
 
 def line_layer(zone: StudyZone) -> QgsVectorLayer:
     """The section line. Empty but valid when the study has no section line yet, so a map page
     can always add it."""
-    layer = _memory("LineString", "Doorsnedelijn", [("naam", "string")])
+    layer = _memory("LineString", SECTION_NAME, [("naam", "string")])
     features = []
     if zone.section_line:
         start, end = zone.section_line
@@ -142,8 +223,7 @@ def line_layer(zone: StudyZone) -> QgsVectorLayer:
         feature["naam"] = SECTION_LABEL
         features.append(feature)
     _add(layer, features)
-    layer.renderer().setSymbol(QgsLineSymbol.createSimple({"color": "#000000", "width": "0.6"}))
-    return layer
+    return style_section_line_layer(layer)
 
 
 def points_layer(kind: str, items: Iterable[Investigation]) -> QgsVectorLayer:
@@ -151,7 +231,6 @@ def points_layer(kind: str, items: Iterable[Investigation]) -> QgsVectorLayer:
     A peilput has no single number and no total depth, so it falls back to gw_id/filter_no and
     to the filter base - hence the alias on diepte_m."""
     layer = _memory("Point", POINT_NAMES[kind], POINT_FIELDS)
-    layer.setFieldAlias(layer.fields().indexOf("diepte_m"), DEPTH_ALIAS)
     features = []
     for item in items:
         feature = QgsFeature(layer.fields())
@@ -163,22 +242,7 @@ def points_layer(kind: str, items: Iterable[Investigation]) -> QgsVectorLayer:
                                getattr(item, "method", None), getattr(item, "z_mtaw", None), item.url])
         features.append(feature)
     _add(layer, features)
-    colour, marker = POINT_STYLE[kind]
-    symbol = QgsMarkerSymbol.createSimple(
-        {"name": marker, "color": colour, "size": "2.6", "outline_color": "white", "outline_width": "0.3"})
-    # Pin the units: without them a symbol follows whatever the host project happens to use, and
-    # the same study prints differently on another machine.
-    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
-    layer.renderer().setSymbol(symbol)
-    settings = QgsPalLayerSettings()
-    settings.fieldName = "nummer"
-    text_format = QgsTextFormat()
-    text_format.setSize(7)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
-    settings.setFormat(text_format)
-    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(True)
-    return layer
+    return style_points_layer(layer, kind)
 
 
 # --- project tree and GeoPackage -----------------------------------------------------------------
@@ -243,3 +307,47 @@ def write_geopackage(gpkg_layers: Sequence[QgsVectorLayer], path: Path,
     path = Path(path)
     for index, layer in enumerate(gpkg_layers):
         _write_gpkg_layer(layer, path, index == 0, transform_context)
+
+
+# --- the standalone project ----------------------------------------------------------------------
+
+def gpkg_layer(gpkg: Path, name: str) -> QgsVectorLayer:
+    """One layer out of the study GeoPackage, by the name it was written under."""
+    return QgsVectorLayer(f"{gpkg}|layername={name}", name, "ogr")
+
+
+def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None) -> QgsProject:
+    """A fresh project holding the whole study: the catalogue maps as WMS layers and the study's
+    own layers read back from `gpkg`.
+
+    This is the deliverable the user opens weeks later, without the plugin and without the
+    session that made it - so nothing here may point at a memory layer. `QgsProject.addMapLayer`
+    drops an invalid layer, which is exactly right for a WMS that was unreachable while the study
+    ran: the project keeps the maps that work instead of failing to open. Every drop is logged.
+    """
+    gpkg = Path(gpkg)
+    project = QgsProject()
+    project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    for chapter, title in chapter_groups.items():
+        wms_layers: List[QgsMapLayer] = []
+        for entry in catalogue.entries(chapter):
+            layer = wms_layer(entry)
+            if not layer.isValid():
+                if log:
+                    log.warning(f"WMS-laag niet geldig, niet in het project: {entry.id}")
+                continue
+            wms_layers.append(layer)
+        add_group(project, title, wms_layers, visible=False)
+        if log:
+            log.info(f"{title}: {len(wms_layers)} WMS-lagen")
+    for title, names in GPKG_GROUPS:
+        group_layers: List[QgsMapLayer] = []
+        for name in names:
+            layer = gpkg_layer(gpkg, name)
+            if not layer.isValid():
+                if log:
+                    log.warning(f"Laag {name} staat niet in {gpkg.name}; overgeslagen")
+                continue
+            group_layers.append(style_by_name(layer, log))
+        add_group(project, title, group_layers)
+    return project
