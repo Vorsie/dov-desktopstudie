@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Union
 from . import catalogue
 from .catalogue import MODEL_TITLES
 from .model import StudyResult
+from .services.http import short_url
 
 DISCLAIMER = (
     "<p>Deze desktopstudie verzamelt open data van DOV en geopunt op het moment van opmaak. "
@@ -246,9 +247,14 @@ def _chapter_samenvatting(result: StudyResult) -> Chapter:
 
 def _chapter_bronnen(result: StudyResult) -> Chapter:
     sources = Chapter(8, "Bronnen en licenties")
+    # Short URL and date only: the stored provenance keeps the whole request (a DWITHIN filter
+    # runs to hundreds of characters) and a timestamp to the second with a timezone offset. Neither
+    # fits a table column, and a column that does not fit is a column the reader cannot use - the
+    # service and the day are what it takes to find a source again.
     sources.pages.append(TablePage(
         "Geraadpleegde bronnen", ["Bron", "URL", "Opgehaald", "Status"],
-        [[p.source, p.url, p.retrieved_at, "ok" if p.ok else f"fout: {p.message}"] for p in result.provenance]))
+        [[p.source, short_url(p.url), p.retrieved_at[:10], "ok" if p.ok else f"fout: {p.message}"]
+         for p in result.provenance]))
     sources.pages.append(TablePage(
         "Kaartbronnen en licenties", ["Kaart", "Bron", "Licentie"],
         [[e.title, e.attribution, e.licence] for e in catalogue.entries()]))
