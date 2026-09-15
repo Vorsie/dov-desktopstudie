@@ -12,7 +12,8 @@ lokale projecten; alleen publiek gedocumenteerde service-eigenaardigheden mogen 
 `desktopstudie/core/` is **pure Python** (stdlib + numpy + matplotlib, GEEN `qgis`- of
 `PyQt`-import) en bevat catalogus, geometrie, datamodel, services (geocoder, DOV WFS, DOV XML,
 virtuele boring, WMS GetFeatureInfo/watertoets), doorsnede (`section.py`: doorsnedelijn +
-virtuele boringen + projectie van CPT/boring/peilput binnen de corridor), figuren
+doorprik-ankers + het dichte DOV-profiel gestapeld op het modelmaaiveld + projectie van
+CPT/boring/peilput binnen de corridor), figuren
 (`figures/`: `common.py` zet de headless Agg-backend op; `cpt_figure.py`, `borehole_column.py`,
 `vb_column.py`, `section_figure.py` schrijven PNG's), signaleringsregels (`checks.py`),
 rapportinhoud (`report_content.py`: bouwt de hoofdstuk/pagina-boom - `Chapter` met `MapPage` /
@@ -36,6 +37,18 @@ een kaart toevoegen = één entry, geen code.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
   nadat hij tegen de echte service is gecontroleerd. Fixtures in `tests/core/fixtures/` zijn echte
   opgeslagen antwoorden (met bron-URL en datum in een `README.md` ernaast).
+- **Virtuele boring: twee endpoints.** `doorprik` geeft één punt met absolute peilen (top/base in
+  mTAW). `profielbevraging/lagen` geeft een hele lijn, maar per afstandsstap uitsluitend **diktes**
+  per laagcode (0.0 = laag afwezig) plus de pseudo-kolommen `dist` en `INV` - dus zelf stapelen van
+  bovenaf. Elke kolom is opgevuld tot één gemeenschappelijke modelbodem, gerapporteerd als
+  `minValue`, waardoor `minValue + som(diktes)` exact het gemodelleerde maaiveld is (live
+  geverifieerd tegen de doorprik op 17 punten over 78 km, 2026-09-15). Het G3Dv3-raster is 100 m:
+  fijner bevragen herhaalt dezelfde cel, dus een maaiveld dat *tussen* ankers wordt geïnterpoleerd
+  kantelt de laaggrenzen binnen één cel en springt terug op de celrand.
+- **Een WMS-naam kan een stijl zijn, geen laag.** `pfas:no_regret_zones` staat wel in de
+  GetCapabilities maar als `<Style>` van de laag `pfas:no_regret_huidig`; een GetMap erop geeft
+  `LayerNotDefined`. Controleer een nieuwe kaartlaag altijd met een echte GetMap, niet met een
+  grep op de capabilities.
 - **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; paging met startIndex/count (geen
   harde 500-limiet meer waargenomen op 2026-09-15; page_size=500 als veilige default); features
   over pagina's ontdubbelen op id; afkapping door max_features wordt gelogd en in het rapport
