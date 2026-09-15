@@ -238,6 +238,24 @@ def test_landslide_fact_names_the_highest_class_present(gent_ring):
     assert "hellingstabiliteit" in sigs[0].advice
 
 
+def test_a_worded_high_row_outranks_a_numbered_moderate_one(gent_ring):
+    # "hoge gevoeligheid" is the worst grade present even though that row carries no digit klasse,
+    # so it - not the numbered class 2 row - is the one the fact has to name.
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", [
+        {"gevoelighd": "matige gevoeligheid", "klasse": "2"},
+        {"gevoelighd": "hoge gevoeligheid", "klasse": None}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "grondverschuiving_gevoelig"]
+    assert len(sigs) == 1 and "hoge gevoeligheid" in sigs[0].fact
+
+
+def test_a_worded_low_row_stays_below_the_threshold(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", [
+        {"gevoelighd": "lage gevoeligheid", "klasse": None}]))
+    assert not any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+
+
 def test_no_landslide_susceptibility_rows_means_no_flag(gent_ring):
     r = _result(gent_ring)
     r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", []))
@@ -262,6 +280,22 @@ def test_one_mapped_landslide_is_enough_to_flag_and_the_fact_names_it(gent_ring)
     assert len(sigs) == 1
     assert "Koppenberg" in sigs[0].fact and "1" in sigs[0].fact
     assert "rapport" in sigs[0].advice.lower()
+
+
+def test_mapped_landslide_fact_separates_the_polygon_count_from_the_named_ones(gent_ring):
+    # One landslide is mapped as several polygons, so "how many polygons" and "how many are named"
+    # are different numbers and the fact must give both rather than implying four landslides.
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gekarteerd", "Gekarteerd", [
+        {"naam": "Koppenberg", "type": "Grote GV met diep schuifvlak"},
+        {"naam": "Koppenberg", "type": "Grote GV met diep schuifvlak"},
+        {"naam": "Nukerke", "type": "Grote GV met diep schuifvlak"},
+        {"naam": None, "type": "Kleine GV"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "grondverschuiving_gekarteerd"]
+    assert len(sigs) == 1
+    assert sigs[0].fact.startswith("4 gekarteerde grondverschuiving(en)")
+    assert "2 met naam" in sigs[0].fact
+    assert "Koppenberg" in sigs[0].fact and "Nukerke" in sigs[0].fact
 
 
 def test_no_mapped_landslides_means_no_flag(gent_ring):
