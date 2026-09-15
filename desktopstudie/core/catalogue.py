@@ -26,6 +26,20 @@ DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
 
+# Virtual-borehole model id -> the title the report prints for it. Here rather than in the
+# service: it is presentation, the same kind of lookup as WATERTOETS_LABELS below, and the report
+# needs it whether or not a study ever called the virtual-borehole endpoint.
+MODEL_TITLES = {
+    "g3dv3_F": "G3Dv3 - formaties",
+    "g3dv3_L": "G3Dv3 - leden",
+    "g3dv3_P": "G3Dv3 - periodes",
+    "g3dv3_T": "G3Dv3 - tijdvakken",
+    "hcovv1": "HCOV v1",
+    "hcovv2_H": "HCOV v2 - hoofdeenheden",
+    "hcovv2_S": "HCOV v2 - subeenheden",
+    "hcovv2_B": "HCOV v2 - basiseenheden",
+}
+
 WATERTOETS_LABELS = {
     "0": "A - Geen overstroming gemodelleerd",
     "1": "B - Kleine kans op overstromingen onder klimaatverandering",
