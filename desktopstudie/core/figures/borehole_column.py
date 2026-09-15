@@ -4,19 +4,23 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..model import Borehole
-from .common import draw_depth_column, lithology_colour, new_figure, note_skipped_labels, save
-
-NO_DATA_MESSAGE = "geen laaggegevens beschikbaar"
+from .common import (
+    column_figure_height,
+    draw_depth_column,
+    draw_no_data,
+    lithology_colour,
+    new_figure,
+    note_skipped_labels,
+    save,
+)
 
 
 def _build_borehole_figure(bh: Borehole):
     deepest = max((layer.base_m for layer in bh.lithology), default=bh.depth_m or 1.0)
     drawn_depth = max(5.0, deepest)
-    fig, ax = new_figure((5.0, max(4.0, min(11.0, 0.18 * drawn_depth + 2.0))))
+    fig, ax = new_figure((5.0, column_figure_height(drawn_depth)))
     if not bh.lithology:
-        ax.text(0.5, 0.5, NO_DATA_MESSAGE, ha="center", va="center", transform=ax.transAxes)
-        ax.set_xticks([])
-        ax.set_yticks([])
+        draw_no_data(ax)
     else:
         bands = [(layer.top_m, layer.base_m, lithology_colour(layer.raw.get("hoofdnaam") or layer.description),
                  f"{layer.top_m:.1f}-{layer.base_m:.1f} m: {layer.description}") for layer in bh.lithology]
