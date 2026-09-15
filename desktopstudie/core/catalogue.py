@@ -1,4 +1,3 @@
-# desktopstudie/core/catalogue.py
 """Map catalogue: one entry per map. Adding a map = adding one entry here.
 All URLs and layer names were verified live on 2026-09-15 (see design spec)."""
 from __future__ import annotations
@@ -43,21 +42,21 @@ class MapEntry:
     fact_mode: Optional[str] = None  # None | "wfs" | "gfi"
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
-    value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict)
+    value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     enabled: bool = True
     note: str = ""
 
 
-def _dov(id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
+def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None) -> MapEntry:
-    return MapEntry(id=id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
+    return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE, legend=legend,
                     opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs, fact_fields=fields,
                     value_labels=labels or {})
 
 
-def _hist(id: str, title: str, url: str, layer: str, fmt: str = "image/png") -> MapEntry:
-    return MapEntry(id=id, chapter="historisch", title=title, wms_url=url, wms_layer=layer,
+def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png") -> MapEntry:
+    return MapEntry(id=map_id, chapter="historisch", title=title, wms_url=url, wms_layer=layer,
                     attribution="Digitaal Vlaanderen / geopunt", image_format=fmt)
 
 
