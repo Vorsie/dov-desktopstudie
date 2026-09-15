@@ -32,6 +32,9 @@ een kaart toevoegen = één entry, geen code.
   `match`, geen geneste f-strings, `from __future__ import annotations` in elk bestand. QGIS
   3.34/3.40 op Windows leveren Python 3.12; de 3.9-syntaxisregel blijft als ondergrens en CI test
   ook op 3.9.
+- **Layout-maten altijd via `compat.point_mm`/`size_mm`** (nooit `QgsUnitTypes.LayoutMillimeters`);
+  **WMS/WCS-URI's alleen met live geverifieerde laag-, stijl- en formaatnamen** (`gxg:gxg` en
+  `pfas:no_regret_zones` zijn stijlen, WCS-formaat is `GeoTIFF`).
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
@@ -58,8 +61,12 @@ een kaart toevoegen = één entry, geen code.
     celrand.
 - **Een WMS-naam kan een stijl zijn, geen laag.** `pfas:no_regret_zones` staat wel in de
   GetCapabilities maar als `<Style>` van de laag `pfas:no_regret_huidig`; een GetMap erop geeft
-  `LayerNotDefined`. Controleer een nieuwe kaartlaag altijd met een echte GetMap, niet met een
-  grep op de capabilities.
+  `LayerNotDefined`. Net zo is `gxg:gxg` de stijl van `gxg:ghg_mmv_main` (live 2026-09-15).
+  Controleer een nieuwe kaartlaag altijd met een echte GetMap, niet met een grep op de
+  capabilities. `MapEntry.wms_style` draagt zo'n benoemde stijl; leeg = de laagstandaard.
+- **Een WCS vraagt om een dekkingsformaat, geen mimetype.** `format=GeoTIFF` (DescribeCoverage op
+  de DHMV-WCS geeft GeoTIFF/HDF/NetCDF) plus `version=1.0.0`; met `image/tiff` komt de laag
+  ongeldig terug met "Cannot get test dataset" en zie je dat pas als het reliëf leeg blijft.
 - **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; paging met startIndex/count (geen
   harde 500-limiet meer waargenomen op 2026-09-15; page_size=500 als veilige default); features
   over pagina's ontdubbelen op id; afkapping door max_features wordt gelogd en in het rapport
@@ -100,7 +107,8 @@ een kaart toevoegen = één entry, geen code.
   Vanuit PowerShell: `& "C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`.
   In de gewone venv wordt `tests/qgis` in zijn geheel overgeslagen (`pytest.importorskip("qgis.core")`
   in de conftest), dus `.venv\Scripts\python -m pytest tests -q` blijft groen zonder QGIS.
-  Headless flow: `scripts/run_headless.py`.
+  De headless flow (`scripts/run_headless.py`) bestaat nog niet; die komt met taak S6 van het
+  schil-plan.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
   (of `--x/--y`, niet allebei); `--straal` zet de zoekstraal, `--buffer` de zonecirkel,
   `--cache use|refresh|off` de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen
