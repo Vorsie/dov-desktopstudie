@@ -129,6 +129,17 @@ def test_http_error_str_uses_dutch_network_error_text_when_status_is_none():
     assert str(http.HttpError("https://x.be/a", None, "x")).startswith("netwerkfout")
 
 
+def test_get_json_raises_http_error_on_non_json_body():
+    def fetch(url, timeout, user_agent):
+        return b"<ServiceExceptionReport/>"
+
+    client = http.HttpClient(fetch=fetch)
+    with pytest.raises(http.HttpError) as exc:
+        client.get_json("https://x.be/wfs")
+    assert exc.value.status == 200
+    assert "geen JSON" in str(exc.value)
+
+
 def test_fixture_client_routes_records_and_raises_like_http_client():
     client = FixtureClient([("boom", http.HttpError("https://x.be/boom", 503, "down")), ("hit", b'{"ok": true}')])
     assert client.get_json("https://x.be/hit", {"q": "1"}) == {"ok": True}
