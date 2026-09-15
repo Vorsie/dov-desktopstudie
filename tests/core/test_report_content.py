@@ -153,3 +153,103 @@ def test_the_sources_table_prints_a_date_and_a_short_url(gent_ring):
     row = sources.rows[0]
     assert row[2] == "2026-09-15"
     assert "CQL_FILTER" not in row[1] and row[1].startswith("https://www.dov.vlaanderen.be/geoserver/wfs")
+
+
+QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
+                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
+
+
+def _with_quartair(result):
+    """De quartairrijen zoals de WFS ze levert: een rij per kaartvlak, dus hetzelfde profieltype
+    kan twee keer in de zone liggen."""
+    result.map_facts.append(MapFact("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", [
+        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
+        {"profieltype": "22010", "legende": QUARTAIR_LEGEND.format(code="22010")},
+        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")}]))
+    return result
+
+
+def _geologie(result, zone_legend_images=None):
+    return rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
+                           zone_legend_images=zone_legend_images).chapters[2]
+
+
+def test_the_zone_legend_lists_only_the_classes_that_lie_in_the_zone(gent_ring):
+    """De volledige bodemlegende telt honderden series; de lezer heeft er een nodig. "Legenda voor
+    de zone" zet de klassen die in deze zone voorkomen op een rij, met hun omschrijving erbij."""
+    geo = _geologie(_result(gent_ring))
+
+    legend = next(p for p in geo.pages if p.title == "Legenda voor de zone - Bodemkaart van Vlaanderen")
+    assert legend.columns == ["Bodemtype", "Serie", "Omschrijving", "Textuur", "Drainage"]
+    assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-"]]
+
+
+def test_the_reading_guide_stands_between_the_facts_and_the_zone_legend(gent_ring):
+    """De volgorde waarin de lezer het nodig heeft: eerst wat er ligt (de feitentabel), dan hoe die
+    codes te lezen zijn (de leeswijzer), dan de legenda van de klassen in de zone."""
+    geo = _geologie(_result(gent_ring))
+
+    titles = [p.title for p in geo.pages]
+    facts = titles.index("Bodemkaart van Vlaanderen - eenheden in de zone")
+    guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
+    legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
+    assert facts < guide < legend
+    page = geo.pages[guide]
+    assert isinstance(page, rc.TextPage)
+    assert "Z zand" in page.html and "drainage" in page.html
+    assert '<a href="https://www.dov.vlaanderen.be/page/' in page.html, "de link hoort klikbaar te zijn"
+
+
+def test_the_quartair_zone_legend_keeps_one_row_per_profile_type(gent_ring):
+    """Twee kaartvlakken van hetzelfde profieltype zijn één legenda-eenheid: de legenda van de zone
+    telt profieltypes, geen kaartvlakken."""
+    geo = _geologie(_with_quartair(_result(gent_ring)))
+
+    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    assert legend.columns == ["Profieltype", "Legenda (URL)"]
+    assert [row[0] for row in legend.rows] == ["22026", "22010"]
+    assert all(row[1].startswith("https://datasets.omgeving.vlaanderen.be/") for row in legend.rows)
+
+
+def test_a_fetched_profile_type_drawing_becomes_a_figure_behind_the_zone_legend(gent_ring):
+    """De tekening bij een profieltype is de eigenlijke legenda van de Quartairkaart. De kern haalt
+    niets op; kreeg ze van de schil een pad voor die URL, dan komt de tekening als figuur achter de
+    legendatabel te staan - en anders staat er niets, geen belofte van een plaatje dat er niet is."""
+    result = _with_quartair(_result(gent_ring))
+    images = {QUARTAIR_LEGEND.format(code="22026"): "legendas/quartair_22026.png"}
+
+    geo = _geologie(result, zone_legend_images=images)
+
+    titles = [p.title for p in geo.pages]
+    figure = geo.pages[titles.index("Profieltype 22026")]
+    assert isinstance(figure, rc.FigurePage) and figure.image_path == "legendas/quartair_22026.png"
+    assert titles.index("Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)") < \
+        titles.index("Profieltype 22026")
+    assert "Profieltype 22010" not in titles, "zonder afbeelding geen figuurpagina"
+    assert [p.title for p in _geologie(result).pages].count("Profieltype 22026") == 0
+
+
+def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent_ring):
+    """Een kaart die niets in de zone heeft, en een kaart die niet antwoordde, zien er allebei leeg
+    uit. Ze mogen niet hetzelfde lezen: een platte dienst als "geen eenheden" melden is een
+    onwaarheid over de zone."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("tertiair", "Tertiairgeologische kaart 1/50 000", []))
+
+    geo = _geologie(result)
+
+    empty = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Tertiair"))
+    assert empty.rows == [] and empty.note == "Geen kaarteenheden binnen de zone."
+    silent = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - HCOV"))
+    assert silent.rows == [] and silent.note == "Bron niet beschikbaar."
+
+
+def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
+    """Het hoogtemodel somt niets op - er zijn geen kaarteenheden - maar de kleurschaal vraagt wel
+    uitleg. De leeswijzer staat dan direct achter de kaartpagina."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    titles = [p.title for p in report.chapters[0].pages]
+    dtm = titles.index("Digitaal Hoogtemodel Vlaanderen II - DTM 1 m")
+    assert titles[dtm + 1] == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
+    assert "Leeswijzer - Ferrariskaart (1777)" not in [p.title for p in report.chapters[1].pages]
