@@ -168,6 +168,16 @@ def test_erosion_totale_erosie_hoog_is_flagged(gent_ring):
     assert any(s.code == "erosie" for s in checks.run_all(r))
 
 
+def test_erosie_fixture_with_a_hoog_parcel_flags_erosion(gent_ring):
+    data = fixture_json("wfs_erosie_2014_hoog.json")
+    fields = catalogue.by_id("erosie").fact_fields
+    rows = [{k: f["properties"].get(k) for k in fields} for f in data["features"]]
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("erosie", "Erosie", rows))
+    sigs = [s for s in checks.run_all(r) if s.code == "erosie"]
+    assert len(sigs) == 1 and "hoog" in sigs[0].fact
+
+
 def test_shrink_swell_and_ovam_are_flagged_when_present(gent_ring):
     r = _result(gent_ring)
     r.map_facts += [
