@@ -13,7 +13,10 @@ from tests.qgis.conftest import write_png
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
 HEADER_TOP_MM, HEADER_BOTTOM_MM = 8.0, 24.0  # de band met de hoofdstukkop en de paginatitel
 A4_HEIGHT_MM = 297.0
-BLACK_SHARE = 0.30
+# Gemeten op QGIS 3.40.15 offscreen, 72 dpi: mét QT_QPA_FONTDIR is 0,6 % van de kopband puur
+# zwart (alleen de kern van de letters; de rest is antialiasing), zonder 20,2 % - de blokjes zijn
+# dicht. De grens ligt daartussen, dicht genoeg bij de echte waarde om de storing te vangen.
+BLACK_SHARE = 0.05
 
 
 def _meta():
@@ -118,7 +121,7 @@ def test_pages_of_an_earlier_run_do_not_come_back(three_pages, tmp_path):
 def test_a_rendered_page_shows_letters_not_black_boxes(three_pages, tmp_path):
     """Het offscreen-platform zonder QT_QPA_FONTDIR tekent elke letter als zwart blokje terwijl de
     export Success meldt. De kopband van een blad hoort dus tekst te tonen: donkere pixels, maar
-    lang geen dichte balk."""
+    lang geen dichte balk. Draait deze test rood, kijk dan eerst naar QT_QPA_FONTDIR."""
     from qgis.PyQt.QtGui import QColor, QImage
 
     from desktopstudie.qgis import export
