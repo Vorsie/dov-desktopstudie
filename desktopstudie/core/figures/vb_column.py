@@ -4,19 +4,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..model import VirtualBorehole
-from .common import draw_depth_column, new_figure, note_skipped_labels, save
-
-NO_DATA_MESSAGE = "geen laaggegevens beschikbaar"
+from .common import (
+    column_figure_height,
+    draw_depth_column,
+    draw_no_data,
+    new_figure,
+    note_skipped_labels,
+    save,
+)
 
 
 def _build_vb_figure(vb: VirtualBorehole, max_depth_m: float = 60.0):
     deepest = max((vb.depth_of(layer)[1] for layer in vb.layers), default=max_depth_m)
     drawn_depth = max(5.0, min(max_depth_m, deepest))
-    fig, ax = new_figure((5.0, max(4.0, min(11.0, 0.18 * drawn_depth + 2.0))))
+    fig, ax = new_figure((5.0, column_figure_height(drawn_depth)))
     if not vb.layers:
-        ax.text(0.5, 0.5, NO_DATA_MESSAGE, ha="center", va="center", transform=ax.transAxes)
-        ax.set_xticks([])
-        ax.set_yticks([])
+        draw_no_data(ax)
     else:
         bands = [(vb.depth_of(layer)[0], vb.depth_of(layer)[1], layer.color,
                  f"{layer.name} ({layer.top_mtaw:.1f} / {layer.base_mtaw:.1f} mTAW)") for layer in vb.layers]
