@@ -320,3 +320,20 @@ def test_the_json_source_is_recorded_by_its_relative_path(gent_ring, tmp_path):
 
     json_source = [p for p in result.provenance if p.source == "studie.json"]
     assert json_source and json_source[0].url == "data/studie.json"
+
+
+def test_a_dead_getfeatureinfo_service_is_not_reported_as_an_empty_zone(gent_ring, tmp_path):
+    """Elk punt van een GetFeatureInfo-kaart faalt apart, maar als ALLE punten falen is de kaart
+    niet leeg - ze is onbereikbaar. "Geen kaarteenheden binnen de zone" zou van een platte
+    watertoets-dienst een perceel zonder overstromingsrisico maken."""
+    client = _client()
+    client.routes.insert(0, ("gebieden_pluviaal",
+                             HttpError("https://inspirepub.waterinfo.be/pluviaal", 503, "down")))
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+
+    assert "watertoets_pluviaal" not in {mf.map_id for mf in result.map_facts}
+    failed = [p for p in result.provenance if not p.ok and "pluviaal" in p.source]
+    assert failed, [p.source for p in result.provenance if not p.ok]
+    assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
