@@ -53,6 +53,9 @@ betaalde data); Word/docx-uitvoer.
 | Topokaart NGI | `https://cartoweb.wms.ngi.be/service`, laag `topo` | actueel. Historische NGI-reeks (1873–1989): geen officiële open WMS → leeg, gedocumenteerd config-slot |
 | Watertoets | `https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/overstromingsgevoelige_gebieden_{pluviaal,fluviaal,vanuit_de_zee}/MapServer/WMSServer`, laag `0` | WMS + GetFeatureInfo; licentie "geen beperkingen" |
 
+Geverifieerd maar (nog) niet in de catalogus: de watertoets-laag `vanuit_de_zee` en
+`geo.api.vlaanderen.be/GRB/wms`.
+
 Bekende eigenaardigheden van de DOV-services die de kern moet respecteren: `BBOX` en `CQL_FILTER`
 nooit samen in één GetFeature (ruimtelijke predicaten in de CQL opnemen); grote resultaten via paging
 met `startIndex`/`count` (page_size 500; op 2026-09-15 geen harde serverlimiet meer waargenomen), over
@@ -134,7 +137,8 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
 ## 6. Rapportstructuur (v1)
 
 0. Titelblad (logo, bedrijf, project, adres/coördinaten, datum, auteur, disclaimer "verzameling van
-   open data, geen interpretatie of ontwerp"), inhoud, bronnenlijst met licenties.
+   open data, geen interpretatie of ontwerp"), inhoud, bronnenlijst met licenties. Gerealiseerd als
+   `Report.meta` (titelblad-gegevens) plus hoofdstuk 8 (bronnen).
 1. **Ligging en topografie**: GRB, orthofoto, NGI-topo, DHMV-hillshade + DTM; feiten: gemeente,
    oppervlakte, centroid, maaiveld min/max/gemiddeld.
 2. **Historische kaarten**: Ferraris, Buurtwegen, Vandermaelen, Popp, ortho 1971, 1979–90, 2000–03
@@ -169,7 +173,12 @@ Zuiver data-gedreven, elk een pure functie in `checks.py`, geformuleerd in de wo
 - OVAM-bodemonderzoek in of naast de zone;
 - geen CPT binnen de straal / wel CPT binnen 50 m;
 - reliëfverschil in de zone groter dan 2 m;
-- bron niet bereikbaar.
+- bron niet bereikbaar;
+- `grondverschuiving_gevoelig`: gevoeligheid klasse ≥ 2;
+- `grondverschuiving_gekarteerd`: gekarteerde grondverschuiving in de zone;
+- `pfas_no_regret`: PFAS-no-regretzone over de zone;
+- `wfs_afgekapt`: WFS-resultaat afgekapt door max_features;
+- `doorsnede_onvolledig`: doorprik-punten mislukt.
 
 Historische kaarten krijgen een vaste manuele checklist-tekst (vijvers, waterlopen, bebouwing,
 vergravingen); er is geen beeldinterpretatie.
