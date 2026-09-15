@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
+from typing import List, Tuple
 
-from desktopstudie.core import study
+import pytest
+
+from desktopstudie.core import geometry, study
+from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import StudyZone
+from desktopstudie.core.services.http import HttpError
 from tests.core.conftest import FixtureClient
 
 
@@ -80,8 +86,6 @@ def test_run_produces_result_json_and_figures(gent_ring, tmp_path):
 
 
 def test_failing_source_is_isolated_and_reported(gent_ring, tmp_path):
-    from desktopstudie.core.services.http import HttpError
-
     client = _client()
     client.routes.insert(0, ("typeNames=bodemkaart", HttpError("https://x", 503, "down")))
     result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), client, tmp_path)
@@ -89,3 +93,113 @@ def test_failing_source_is_isolated_and_reported(gent_ring, tmp_path):
     assert failed and failed[0].source.startswith("Bodemkaart")
     assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
     assert result.section is not None  # the rest still ran
+
+
+def _warnings():
+    """A log that only collects WARNING and above, so a test can count what was reported."""
+    messages: List[str] = []
+    return messages, Log("study", sink=messages.append, level="WARNING")
+
+
+def test_one_failing_fiche_costs_only_that_item(gent_ring, tmp_path):
+    # "Elke bron faalt geisoleerd" applies inside a stage too: one sondering whose fiche is down
+    # must not take the other four profiles - nor the Sonderingen source itself - down with it.
+    runs = []
+    for i in range(3):  # three runs: the thread pool must not make the outcome depend on timing
+        messages, log = _warnings()
+        client = _client()
+        client.routes.insert(0, ("sondering/1977-011307", HttpError("https://x/sondering", 500, "down")))
+        result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                           client, tmp_path / f"run{i}", log=log)
+        sonderingen = [p for p in result.provenance if p.source == "Sonderingen"]
+        runs.append((sonderingen[0].ok, sum(1 for c in result.cpts if c.profile),
+                     len([m for m in messages if "sondering niet opgehaald" in m])))
+    assert runs[0] == (True, 4, 1)  # the stage stays ok, four profiles survive, one warning
+    assert runs[0] == runs[1] == runs[2], f"non-deterministic across runs: {runs}"
+
+
+def _gfi_centres(client) -> List[Tuple[float, float]]:
+    """The (x, y) each GetFeatureInfo call asked about, read back from its bbox."""
+    centres = []
+    for url in client.calls:
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        if query.get("request") == ["GetFeatureInfo"] and "gebieden_fluviaal" in url:
+            x0, y0, x1, y1 = (float(v) for v in query["bbox"][0].split(","))
+            centres.append(((x0 + x1) / 2.0, (y0 + y1) / 2.0))
+    return centres
+
+
+def test_feature_info_points_are_spread_around_the_whole_ring(tmp_path):
+    # A 64-vertex circle: sampling ring[:8] would take eight neighbouring vertices - a single arc -
+    # so a flood zone touching the far side of the zone would never be asked about.
+    ring = geometry.buffer_point(104326.0, 192506.0, 100.0, n=64)
+    client = _client()
+    study.run(StudyZone(ring=ring, name="rond"), study.Settings(n_section_points=2), client, tmp_path)
+    centres = _gfi_centres(client)
+    cx, cy = geometry.centroid(ring)
+    quadrants = {(x > cx, y > cy) for x, y in centres}
+    assert len(centres) == 9  # the representative point plus eight ring vertices
+    assert quadrants == {(True, True), (True, False), (False, True), (False, False)}
+
+
+def test_cancelling_between_stages_raises_and_writes_nothing(gent_ring, tmp_path):
+    seen = []
+    with pytest.raises(study.StudyCancelled):
+        study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), _client(),
+                  tmp_path, progress=lambda f, m: seen.append(m), should_cancel=lambda: len(seen) >= 2)
+    assert seen[:2] == ["Sonderingen", "Boringen"]
+    assert not (tmp_path / "data" / "studie.json").exists()
+
+
+def test_map_ids_limits_the_maps_that_are_fetched(gent_ring, tmp_path):
+    result = study.run(StudyZone(ring=gent_ring, name="z"),
+                       study.Settings(n_section_points=2, map_ids=["bodemkaart"]), _client(), tmp_path)
+    assert [mf.map_id for mf in result.map_facts] == ["bodemkaart"]
+
+
+def test_with_profile_false_skips_the_profile_query(gent_ring, tmp_path):
+    client = _client()
+    result = study.run(StudyZone(ring=gent_ring, name="z"),
+                       study.Settings(n_section_points=2, with_profile=False), client, tmp_path)
+    assert result.section is not None and result.section.profile is None
+    assert not any("profielbevraging" in url for url in client.calls)
+
+
+def test_a_json_that_cannot_be_written_is_reported_as_a_failed_source(gent_ring, tmp_path):
+    (tmp_path / "data").write_text("in the way", encoding="utf-8")  # a file where the dir must go
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       _client(), tmp_path)
+    failed = [p for p in result.provenance if p.source == "studie.json"]
+    assert failed and not failed[0].ok
+
+
+def _sonderingen_payload(rows) -> bytes:
+    features = [{"type": "Feature", "id": f"s{i}", "geometry": {"type": "Point", "coordinates": [x, y]},
+                 "properties": {"sondeernummer": f"S{i}", "fiche": "https://dov/data/sondering/1965-039716",
+                                "Z_mTAW": 10.0, "gemeente": gemeente}}
+                for i, (x, y, gemeente) in enumerate(rows)]
+    payload = {"type": "FeatureCollection", "features": features,
+               "numberMatched": len(features), "numberReturned": len(features)}
+    return json.dumps(payload).encode("utf-8")
+
+
+def test_municipality_comes_from_the_nearest_feature_that_names_one(gent_ring, tmp_path):
+    # The WFS answer is unordered, so "the first feature with a gemeente" can name a town on the
+    # far edge of the search radius; the zone's own municipality is the nearest one.
+    client = _client()
+    client.routes.insert(0, ("typeNames=dov-pub%3ASonderingen", _sonderingen_payload([
+        (104326.0 + 450.0, 192506.0, "Merelbeke"),  # first in the answer, but 350 m from the zone
+        (104326.0, 192506.0, "Gent"),               # inside the zone
+    ])))
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+    assert result.municipality == "Gent"
+
+
+def test_a_long_failure_message_is_trimmed_in_the_provenance(gent_ring, tmp_path):
+    client = _client()
+    client.routes.insert(0, ("typeNames=bodemkaart", HttpError("https://x/wfs?a=1", 500, "x" * 1000)))
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+    failed = [p for p in result.provenance if not p.ok]
+    assert failed and len(failed[0].message) <= 220  # "HttpError: " plus 200 characters of text
