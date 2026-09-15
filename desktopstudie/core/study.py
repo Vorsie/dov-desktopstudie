@@ -3,7 +3,6 @@ Every stage is guarded: a failure becomes a Provenance(ok=False) and the run con
 stage every item is guarded too, so one unreachable fiche costs that fiche and nothing else."""
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -21,6 +20,7 @@ from .model import (
     Signalering,
     StudyResult,
     StudyZone,
+    now_iso,
 )
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
@@ -31,14 +31,16 @@ Progress = Callable[[float, str], None]
 
 MESSAGE_CHARS = 200  # a provenance message is a summary; the full text goes to the log
 GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top of the centre
-# The two signals that come from the run itself rather than from `checks`: nothing in the result
-# still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
-# (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
 # One fiche out of a hundred: a short breath. Three full-minute waits on a record that is down
 # cost the whole study its time, while the WFS query that fills a table keeps the patient default.
 ITEM_TIMEOUT_S = 15.0
 ITEM_RETRIES = 1
+# The path the provenance records for the JSON: relative, so the sources chapter does not print
+# the folder structure of whoever ran the study.
 JSON_RELATIVE = "data/studie.json"
+# The two signals that come from the run itself rather than from `checks`: nothing in the result
+# still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
+# (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
 TRUNCATION_CODE = "wfs_afgekapt"
 SECTION_CODE = "doorsnede_onvolledig"
 ORCHESTRATOR_CODES = (TRUNCATION_CODE, SECTION_CODE)
@@ -82,8 +84,7 @@ class Settings:
     map_ids: Optional[List[str]] = None  # None = all enabled catalogue entries
 
 
-def _now() -> str:
-    return dt.datetime.now().astimezone().replace(microsecond=0).isoformat()
+_now = now_iso  # one spelling of "now" for every provenance stamp; the shell stamps with it too
 
 
 def _prop(props, key, cast=None):
