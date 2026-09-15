@@ -1,16 +1,16 @@
-# desktopstudie/core/model.py
 """Domain dataclasses. Depths: '_m' = metres below surface (positive down); '_mtaw' = elevation."""
 from __future__ import annotations
 
 import dataclasses
 import json
+import pathlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from . import geometry
 
-Point = Tuple[float, float]
+Point = geometry.Point
 
 
 @dataclass
@@ -26,7 +26,7 @@ class StudyZone:
         return geometry.centroid(self.ring)
 
     @property
-    def bbox(self) -> Tuple[float, float, float, float]:
+    def bbox(self) -> geometry.BBox:
         return geometry.bbox(self.ring)
 
     @property
@@ -36,6 +36,10 @@ class StudyZone:
     @property
     def area_m2(self) -> float:
         return geometry.area(self.ring)
+
+    @property
+    def representative_point(self) -> Point:
+        return geometry.representative_point(self.ring)
 
 
 @dataclass
@@ -155,7 +159,7 @@ class VirtualBorehole:
         return self.layers[0].top_mtaw if self.layers else None
 
     def depth_of(self, layer: VbLayer) -> Tuple[float, float]:
-        surface = self.surface_mtaw or 0.0
+        surface = self.surface_mtaw if self.surface_mtaw is not None else 0.0
         return surface - layer.top_mtaw, surface - layer.base_mtaw
 
 
@@ -225,4 +229,15 @@ class StudyResult:
         return data
 
     def write_json(self, path: Path) -> None:
-        Path(path).write_text(json.dumps(self.to_dict(), ensure_ascii=False, indent=1), encoding="utf-8")
+        text = json.dumps(self.to_dict(), ensure_ascii=False, indent=1, default=_jsonable)
+        Path(path).write_text(text, encoding="utf-8")
+
+
+def _jsonable(value: Any) -> Any:
+    """json.dumps(default=...) hook: paths become their string form, numpy scalars (which carry
+    an .item() but are not one of json's native types) unwrap to the plain Python value."""
+    if isinstance(value, pathlib.PurePath):
+        return str(value)
+    if hasattr(value, "item"):
+        return value.item()
+    raise TypeError(f"not JSON serialisable: {type(value).__name__}")
