@@ -1,5 +1,6 @@
-"""Cross-section along a line: virtual boreholes at sampled points plus investigations
-projected onto the line when they lie within the corridor."""
+"""Cross-section along a line: a handful of doorprik anchors at sampled points, the dense DOV
+profile query stacked on the surface those anchors define, plus investigations projected onto the
+line when they lie within the corridor."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -7,8 +8,23 @@ from typing import List, Optional, Sequence, Tuple
 
 from . import geometry
 from .logging_util import Log
-from .model import Borehole, Cpt, GwFilter, Point, ProjectedPoint, Section, StudyZone, VirtualBorehole
-from .services.virtuele_boring import fetch_virtual_borehole
+from .model import (
+    Borehole,
+    Cpt,
+    GwFilter,
+    Point,
+    ProjectedPoint,
+    Section,
+    SectionProfile,
+    StudyZone,
+    VirtualBorehole,
+)
+from .services.virtuele_boring import fetch_profile, fetch_virtual_borehole, parse_profile
+
+# One profile column per 1/40th of the line, but never finer than 5 m: enough columns to read
+# as a continuous section without asking DOV for thousands of samples on a long line.
+MIN_PROFILE_RESOLUTION_M = 5.0
+PROFILE_COLUMNS = 40
 
 
 def section_line(zone: StudyZone, extension_m: float) -> Tuple[Point, Point]:
@@ -46,14 +62,36 @@ def _fetch_points(client, points: Sequence[Point], model: str, max_workers: int,
     return [vb for vb in results if vb is not None], failed
 
 
+def _build_profile(client, line: Tuple[Point, Point], anchors: Sequence[VirtualBorehole], model: str,
+                   length: float, log: Optional[Log]) -> SectionProfile:
+    """The dense profile, stacked on the surface the doorprik anchors define: the profile answer
+    holds thicknesses only, and its own layer sum sits ~0.3 m off the anchor stack, so the anchors
+    - not the model floor - fix the elevations."""
+    resolution_m = max(MIN_PROFILE_RESOLUTION_M, length / PROFILE_COLUMNS)
+    xs = geometry.chainages(line, [(vb.x, vb.y) for vb in anchors])
+    surfaces = [vb.surface_mtaw for vb in anchors]
+    order = [layer.code for layer in anchors[0].layers]
+    payload = fetch_profile(client, model, line[0], line[1], resolution_m, log=log)
+    return parse_profile(payload, model, order, lambda along: geometry.interpolate(along, xs, surfaces),
+                         resolution_m)
+
+
 def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequence[Cpt],
                   boreholes: Sequence[Borehole], filters: Sequence[GwFilter], n_points: int,
-                  corridor_m: float, model: str, log: Optional[Log] = None, max_workers: int = 4) -> Section:
+                  corridor_m: float, model: str, log: Optional[Log] = None, max_workers: int = 4,
+                  with_profile: bool = True) -> Section:
     length = geometry.distance(line[0], line[1])
     points = geometry.sample_line(line[0], line[1], n_points)
     vbs, failed = _fetch_points(client, points, model, max_workers, log)
     if not vbs:
         raise RuntimeError("geen enkele virtuele boring langs de doorsnedelijn beschikbaar")
+    profile: Optional[SectionProfile] = None
+    if with_profile:
+        try:
+            profile = _build_profile(client, line, vbs, model, length, log)
+        except Exception as exc:  # isolate: without the profile the doorprik section is still valid
+            if log:
+                log.warning(f"profiel langs de doorsnedelijn niet beschikbaar: {type(exc).__name__}: {exc}")
     projected: List[ProjectedPoint] = []
     for c in cpts:
         projected.append(_project("cpt", c.number, c.x, c.y, c.z_mtaw, c.depth_m, line))
@@ -70,4 +108,4 @@ def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequ
     zone_from_m = min(max(min(alongs), 0.0), length)
     zone_to_m = min(max(max(alongs), 0.0), length)
     return Section(line=line, boreholes=vbs, projected=projected, zone_from_m=zone_from_m,
-                   zone_to_m=zone_to_m, failed_points=failed)
+                   zone_to_m=zone_to_m, failed_points=failed, profile=profile)
