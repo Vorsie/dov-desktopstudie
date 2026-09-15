@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-
 from desktopstudie.core.services import dov_xml
 from tests.core.conftest import fixture_bytes
 
