@@ -31,6 +31,12 @@ ZONE_RURAL = "POLYGON((89500 181500,90500 181500,90500 182500,89500 182500,89500
 # Square (500 x 500 m) near Kluisbergen/Ronse where a live probe found a parcel with
 # Totale_erosie "hoog" among the first 5 results, for a fixture-driven erosie:hoog test.
 ZONE_EROSIE_HOOG = "POLYGON((99750 164750,100250 164750,100250 165250,99750 165250,99750 164750))"
+# Square (3 x 3 km) around Maarkedal/Oudenaarde (Koppenberg, Nukerke) in the Flemish Ardennes:
+# the first square of a 3 km grid walked out from 95000/165000 that has mapped landslides
+# (numberMatched 8 on 2026-09-15).
+ZONE_GRONDVERSCHUIVING = "POLYGON((95000 165000,98000 165000,98000 168000,95000 168000,95000 165000))"
+# Square (3 x 3 km) around Zwijndrecht, where the PFAS no-regret zones cluster (numberMatched 5).
+ZONE_PFAS = "POLYGON((144500 209500,147500 209500,147500 212500,144500 212500,144500 209500))"
 
 
 def wfs(
@@ -130,6 +136,18 @@ FIXTURES: list[tuple[str, str]] = [
     ("wfs_quartair_isopachen_intersects.json",
      wfs("dov-pub:Quartair_Isopachen", f"INTERSECTS(geometry,{ZONE_RURAL})", 5,
          props=("objectid", "dikte"))),
+    ("wfs_grndversch_gevoeligh_intersects.json",
+     wfs("grondverschuivingen:grndversch_gevoeligh", f"INTERSECTS(shape,{ZONE_RURAL})", 5,
+         props=("ogc_fid", "gevoelighd", "klasse"))),
+    ("wfs_grndversch_gekarteerd_intersects.json",
+     wfs("grondverschuivingen:grndversch_gekarteerd", f"INTERSECTS(shape,{ZONE_GRONDVERSCHUIVING})", 5,
+         props=("dataengine_id", "type", "naam", "gemeente", "helling", "rapport"))),
+    # WFS pfas:no_regret_huidig; the WMS "no_regret_zones" is a STYLE of that same layer, not a
+    # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
+    ("wfs_pfas_no_regret_intersects.json",
+     wfs("pfas:no_regret_huidig", f"INTERSECTS(geom,{ZONE_PFAS})", 5,
+         props=("id", "pfasdossiernr", "gemeente", "straat", "nrm_status_zone", "zone_geldig_vanaf",
+                "no_regret_maatregelen"))),
     ("sondering_1965-039716.xml", "https://www.dov.vlaanderen.be/data/sondering/1965-039716.xml"),
     ("sondering_2024-090319.xml", "https://www.dov.vlaanderen.be/data/sondering/2024-090319.xml"),
     ("interpretatie_2016-252456.xml", "https://www.dov.vlaanderen.be/data/interpretatie/2016-252456.xml"),
