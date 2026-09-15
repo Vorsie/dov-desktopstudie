@@ -490,7 +490,7 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None):
-            asked.append(url)
+            asked.append((url, timeout, retries))
             return blob
 
     entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("gxg_ghg")]
@@ -498,7 +498,10 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
 
     assert list(images) == ["gxg_ghg"]
     assert missing == []
-    assert len(asked) == 1 and "ghg_mmv_main" in asked[0]
+    assert len(asked) == 1 and "ghg_mmv_main" in asked[0][0]
+    # Een legenda is één plaatje van veertien: een korte adem, net als een fiche. Drie keer een
+    # volle minuut wachten op een dienst die plat ligt, kost het rapport zijn legendapagina's.
+    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
 
 
 @pytest.mark.live
