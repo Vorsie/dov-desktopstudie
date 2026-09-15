@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ns4:dov-schema xmlns:gml="http://www.opengis.net/gml/3.2" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ns4="http://kern.schemas.dov.vlaanderen.be" xsi:schemaLocation="http://kern.schemas.dov.vlaanderen.be https://www.dov.vlaanderen.be/xdov/schema/latest/xsd/kern/dov.xsd">
+    <interpretaties>
+        <lithologischebeschrijving>
+            <boring>kb22d55e-B938</boring>
+            <dataidentifier>
+                <permkey>2016-252456</permkey>
+                <uri>https://www.dov.vlaanderen.be/data/interpretatie/2016-252456</uri>
+            </dataidentifier>
+            <auteur>
+                <persoon>
+                    <naam>Boormeester</naam>
+                    <voornaam></voornaam>
+                </persoon>
+                <bedrijf-dienst>
+                    <naam>bedrijf-dienst onbekend</naam>
+                </bedrijf-dienst>
+            </auteur>
+            <betrouwbaarheid>onbekend</betrouwbaarheid>
+            <dataleverancier>
+                <naam>onbekend</naam>
+            </dataleverancier>
+            <kwaliteit>
+                <categorie>matig</categorie>
+                <geschiktheid_boormethode>Laag</geschiktheid_boormethode>
+            </kwaliteit>
+            <laag>
+                <van>0.00</van>
+                <tot>2.00</tot>
+                <beschrijving>Geel zand</beschrijving>
+            </laag>
+            <laag>
+                <van>2.00</van>
+                <tot>10.00</tot>
+                <beschrijving>Grijs fijn zand</beschrijving>
+            </laag>
+            <laag>
+                <van>10.00</van>
+                <tot>26.00</tot>
+                <beschrijving>Grijs vet zand met zandsteen</beschrijving>
+            </laag>
+            <laag>
+                <van>26.00</van>
+                <tot>35.00</tot>
+                <beschrijving>Grijs fijn zand met schelpen</beschrijving>
+            </laag>
+            <laag>
+                <van>35.00</van>
+                <tot>48.00</tot>
+                <beschrijving>Grijs fijn zand met klei</beschrijving>
+            </laag>
+        </lithologischebeschrijving>
+    </interpretaties>
+</ns4:dov-schema>
