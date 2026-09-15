@@ -120,7 +120,9 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
    attributen en DOV-links), ook weggeschreven naar `data/studie.gpkg`; DHMV WCS-laag + zonale
    statistiek.
 5. **Rapport** (schil): één multi-page `QgsLayout` uit `paginasjabloon.qpt`. Kaartpagina = kaartitem
-   (zone-extent × factor; schaal per hoofdstuk instelbaar) + titel + schaalbalk + noordpijl + legenda
+   op de standaardschaal van de kaart uit de catalogus (`scale`, bv. 1:2 500 voor GRB, 1:25 000 voor
+   Ferraris omdat lage-resolutiekaarten verder uitgezoomd leesbaar zijn); de schil zoomt alleen verder
+   uit als de zone anders niet in het kader past + titel + schaalbalk + noordpijl + legenda
    (als `legend: true`) + infovak rechtsboven + infovak rechtsonder. Figuurpagina = afbeelding +
    onderschrift. Tabelpagina = `QgsLayoutItemTextTable`. Tekstpagina = HTML-label. Export via
    `QgsLayoutExporter` naar `rapport.pdf` en PNG per pagina (controle).
