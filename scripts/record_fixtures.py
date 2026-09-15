@@ -22,6 +22,10 @@ WATERINFO = (
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
 )
 ZONE = "POLYGON((104226 192406,104426 192406,104426 192606,104226 192606,104226 192406))"
+# Rural, erosion-prone square (1000 x 1000 m) in the Flemish Ardennes near Kluisbergen/Ronse,
+# picked because it is the one place a live probe found both the erosie- and the (sparse)
+# isopachen-layer returning numberMatched > 0 for the same square.
+ZONE_RURAL = "POLYGON((89500 181500,90500 181500,90500 182500,89500 182500,89500 181500))"
 
 
 def wfs(
@@ -104,7 +108,11 @@ FIXTURES: list[tuple[str, str]] = [
          props=("id", "code_H3Dv2_0", "Eenheid_G3Dv3_0", "code_G3Dv3_0", "hoofdlithologie"))),
     ("wfs_erosie_2014_intersects.json",
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
-         f"INTERSECTS(the_geom,{ZONE})")),
+         f"INTERSECTS(the_geom,{ZONE_RURAL})", 5,
+         props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
+    ("wfs_quartair_isopachen_intersects.json",
+     wfs("dov-pub:Quartair_Isopachen", f"INTERSECTS(geometry,{ZONE_RURAL})", 5,
+         props=("objectid", "dikte"))),
     ("sondering_1965-039716.xml", "https://www.dov.vlaanderen.be/data/sondering/1965-039716.xml"),
     ("sondering_2024-090319.xml", "https://www.dov.vlaanderen.be/data/sondering/2024-090319.xml"),
     ("interpretatie_2016-252456.xml", "https://www.dov.vlaanderen.be/data/interpretatie/2016-252456.xml"),
