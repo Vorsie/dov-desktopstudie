@@ -300,8 +300,10 @@ class _Runner:
                 else:
                     rows = []
                     seen = set()
+                    gfi_log = self.log.child("wms_gfi")
                     for x, y in self._gfi_points():
-                        for row in wms_gfi.feature_info_at_point(self.client, e.wms_url, e.wms_layer, x, y):
+                        for row in wms_gfi.feature_info_at_point(self.client, e.wms_url, e.wms_layer, x, y,
+                                                                 log=gfi_log):
                             key = tuple(str(row.get(k)) for k in e.fact_fields)
                             if key not in seen:
                                 seen.add(key)
