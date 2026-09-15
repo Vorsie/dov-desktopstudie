@@ -132,6 +132,66 @@ def test_a_profile_answer_without_a_floor_has_no_surface_of_its_own():
     assert vb.profile_surface_at({"data": [], "layers": [], "minValue": -10.0}) is None
 
 
+def _padded_payload(**overrides):
+    """A knownLowBoundary answer in the shape hcovv1 returns: the column stops at its real base
+    (-9) and INV pads it down to the common floor (-10)."""
+    payload = {"minValue": -10.0, "maxValue": 5.0, "knownLowBoundary": True, "layers": [],
+               "data": [{"dist": 0.0, "INV": 1.0, "h_1": 4.0, "h_2": 10.0, "h_3": 0.0}]}
+    payload.update(overrides)
+    return payload
+
+
+def test_inv_padding_counts_towards_the_surface_datum():
+    # hcovv1 stops at a real model base and pads the rest of the column down to the common floor
+    # with INV. That padding occupies vertical space, so leaving it out of the sum puts the surface
+    # metres too low: live check 2026-09-15 on the fixture line gave doorprik tops
+    # 8.38/11.55/14.59/17.79/21.36, which equal minValue + the sum INCLUDING INV.
+    surface_at = vb.profile_surface_at(_padded_payload())
+    assert surface_at is not None
+    assert surface_at(0.0) == pytest.approx(5.0)  # -10 + (1 INV + 4 + 10), not -10 + 14
+
+
+def test_inv_padding_is_never_a_drawn_layer():
+    profile = vb.parse_profile(_padded_payload(), "hcovv1", [], lambda along: 5.0)
+    column = profile.columns[0]
+    assert [layer.code for layer in column.layers] == ["h_1", "h_2"]
+    assert column.layers[-1].base_mtaw == pytest.approx(-9.0)  # the real base; the INV metre is not drawn
+
+
+def test_a_surface_datum_that_contradicts_maxvalue_is_refused_and_warned_about():
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    # the answer claims a highest surface of 99 mTAW while its own columns stack to 5
+    assert vb.profile_surface_at(_padded_payload(maxValue=99.0), log=log) is None
+    assert any("maxValue" in m for m in messages)
+
+
+def test_a_surface_datum_inside_the_maxvalue_tolerance_is_accepted():
+    assert vb.profile_surface_at(_padded_payload(maxValue=5.04)) is not None   # 0.04 m: within 0.05
+    assert vb.profile_surface_at(_padded_payload(maxValue=5.20)) is None       # 0.20 m: too far off
+
+
+def test_a_column_outside_the_model_is_skipped_and_warned_about():
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    payload = {"minValue": -10.0, "maxValue": -6.0, "layers": [], "data": [
+        {"dist": 0.0, "h_1": 4.0}, {"dist": 50.0, "h_1": 0.0, "INV": 0.0}, {"dist": 100.0, "h_1": 4.0}]}
+    profile = vb.parse_profile(payload, "x", [], lambda along: -6.0, log=log)
+    assert [column.along_m for column in profile.columns] == [0.0, 100.0]  # no column at 50 m
+    assert any("50" in m and "1 kolom" in m for m in messages)
+
+
+def test_a_column_outside_the_model_carries_no_surface_either():
+    payload = {"minValue": -10.0, "maxValue": -6.0, "layers": [], "data": [
+        {"dist": 0.0, "h_1": 4.0}, {"dist": 50.0, "h_1": 0.0}]}
+    surface_at = vb.profile_surface_at(payload)
+    assert surface_at is not None
+    assert surface_at(0.0) == pytest.approx(-6.0)
+    assert surface_at(50.0) == pytest.approx(-6.0)  # bridged from the usable column, not -10 (the floor)
+    assert vb.profile_surface_at({"minValue": -10.0, "layers": [],
+                                  "data": [{"dist": 0.0, "h_1": 0.0}]}) is None  # nothing usable at all
+
+
 @pytest.mark.live
 def test_live_hcov_model():
     from desktopstudie.core.services.http import HttpClient
@@ -155,3 +215,21 @@ def test_live_profile():
     doorprik = vb.fetch_virtual_borehole(HttpClient(), 104326.0, 192506.0, "g3dv3_F")
     assert profile.columns[2].layers[0].top_mtaw == pytest.approx(doorprik.surface_mtaw, abs=0.01)
     assert all(layer.color != vb.FALLBACK_COLOR for layer in profile.columns[2].layers)
+
+
+@pytest.mark.live
+def test_live_hcovv1_profile_datum_matches_the_doorprik_at_every_anchor():
+    from desktopstudie.core.services.http import HttpClient
+
+    client = HttpClient()
+    p, q = (104126.0, 192506.0), (104526.0, 192506.0)
+    payload = vb.fetch_profile(client, "hcovv1", p, q, 100.0)
+    assert payload["knownLowBoundary"] is True
+    assert any(record.get("INV", 0.0) > 0 for record in payload["data"]), "hcovv1 pads with INV"
+    surface_at = vb.profile_surface_at(payload)
+    assert surface_at is not None
+    for i in range(5):
+        along = i * 100.0
+        x = p[0] + (q[0] - p[0]) * along / 400.0
+        doorprik = vb.fetch_virtual_borehole(client, x, p[1], "hcovv1")
+        assert surface_at(along) == pytest.approx(doorprik.surface_mtaw, abs=0.02)
