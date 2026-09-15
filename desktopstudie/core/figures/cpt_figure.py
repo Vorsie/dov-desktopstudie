@@ -9,7 +9,7 @@ from typing import List, Tuple
 import numpy as np
 
 from ..model import Cpt
-from .common import plt, save
+from .common import new_figure_grid, save
 
 QC_AXIS_MAX = 50.0
 QC_AXIS_MIN = 5.0
@@ -30,8 +30,7 @@ def _build_cpt_figure(cpt: Cpt):
     has_data = p is not None and len(p.depth_m) > 0
     has_fs = has_data and any(v is not None for v in p.fs_kpa)
     ncols = 3 if has_fs else 1
-    fig, axes = plt.subplots(1, ncols, figsize=(3.2 * ncols, 7), sharey=True)
-    axes = [axes] if ncols == 1 else list(axes)
+    fig, axes = new_figure_grid(ncols, figsize=(3.2 * ncols, 7), sharey=True)
     if not has_data:
         axes[0].text(0.5, 0.5, NO_DATA_MESSAGE, ha="center", va="center", transform=axes[0].transAxes)
         axes[0].set_xlabel("qc [MPa]")
