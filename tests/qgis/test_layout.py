@@ -517,6 +517,86 @@ def test_live_the_gxg_legend_is_a_real_png(qgs_app, tmp_path):
     assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+# --- legenda's van de zone (profieltypes van het Quartair) ------------------------------------
+
+QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
+                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
+
+
+def _quartair_result(gent_zone, codes):
+    from desktopstudie.core.model import MapFact, StudyResult
+
+    result = StudyResult(zone=gent_zone, created_at="2026-09-15T10:00:00")
+    result.map_facts = [MapFact("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)",
+                                [{"profieltype": code, "legende": QUARTAIR_LEGEND.format(code=code)}
+                                 for code in codes])]
+    return result
+
+
+def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, gent_zone):
+    """De echte legenda van de Quartairkaart is een tekening per profieltype. Twee kaartvlakken van
+    hetzelfde type vragen om één tekening, en een tekening die de dienst niet levert, levert geen
+    bestand op - een lege figuurpagina belooft de lezer een legenda die er niet is."""
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.services.http import HttpClient, HttpError
+    from desktopstudie.qgis import layout
+
+    blob = _png(tmp_path / "bron.png").read_bytes()
+    asked = []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None):
+            asked.append((url, timeout, retries))
+            if url.endswith("22098_png"):
+                raise HttpError(url, 500, "dienst plat")
+            return blob
+
+    lines = []
+    result = _quartair_result(gent_zone, ["22026", "22010", "22026", "22098"])
+
+    images = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+                                               Log("layout", lines.append, scope="qgis"))
+
+    assert set(images) == {QUARTAIR_LEGEND.format(code="22026"), QUARTAIR_LEGEND.format(code="22010")}
+    assert sorted(path.name for path in images.values()) == ["quartair_22010.png", "quartair_22026.png"]
+    assert images[QUARTAIR_LEGEND.format(code="22026")].read_bytes() == blob
+    assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
+    # Dezelfde korte adem als een gewone legenda: een dienst die plat ligt mag het rapport geen
+    # drie volle minuten kosten.
+    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
+    assert any("WARNING" in line for line in lines), lines
+
+
+def test_an_answer_that_is_no_image_is_not_saved_as_one(qgs_app, tmp_path, gent_zone):
+    """De legenda-URL's van DOV eindigen op "_png" maar zijn downloadlinks: een foutpagina komt met
+    HTTP 200 terug. Zo'n antwoord als PNG wegschrijven levert een figuurpagina met een leeg kader."""
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None):
+            return b"<html><body>Service unavailable</body></html>"
+
+    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+                                               _Client(cache_dir=None))
+
+    assert images == {}
+    assert not (tmp_path / "legendas" / "quartair_22026.png").exists()
+
+
+def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_zone):
+    from desktopstudie.core.model import StudyResult
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None):
+            raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
+
+    assert layout.prepare_zone_legend_images(
+        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == {}
+
+
 # --- overige pagina's ------------------------------------------------------------------------
 
 def test_the_table_page_has_a_frame_the_columns_and_runs_on(make_layout):
