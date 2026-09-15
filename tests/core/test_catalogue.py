@@ -167,8 +167,26 @@ def test_the_gxg_map_names_the_real_layer_and_carries_the_style():
     assert entry.wms_style == "gxg:gxg"
 
 
+def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
+    # GxG is a pair: the mean highest (GHG) and the mean lowest (GLG) groundwater level. One map
+    # titled "GxG" hides which of the two the reader is looking at, so each gets its own entry and
+    # its own page. Both draw with the same named style (live GetMap 2026-09-15: gxg:glg_mmv_main
+    # + gxg:gxg -> HTTP 200 image/png).
+    ghg, glg = c.by_id("gxg"), c.by_id("gxg_glg")
+    assert ghg.title == "Gemiddeld hoogste grondwaterstand (GHG)"
+    assert glg.title == "Gemiddeld laagste grondwaterstand (GLG)"
+    assert glg.wms_layer == "gxg:glg_mmv_main"
+    assert glg.wms_style == "gxg:gxg"
+    assert glg.chapter == ghg.chapter == "geologie"
+    assert glg.attribution == ghg.attribution and glg.licence == ghg.licence
+    assert glg.legend is True and glg.scale == 25000
+    # they stay neighbours, so the report shows the highest and the lowest level side by side
+    ids = [e.id for e in c.entries("geologie")]
+    assert ids.index("gxg_glg") == ids.index("gxg") + 1
+
+
 def test_a_map_without_an_explicit_style_asks_the_service_for_its_default():
     # An empty styles parameter means "the layer default"; only maps whose wanted rendering is a
     # named style fill wms_style in.
     assert c.by_id("grb").wms_style == ""
-    assert [e.id for e in c.entries() if e.wms_style] == ["gxg"]
+    assert [e.id for e in c.entries() if e.wms_style] == ["gxg", "gxg_glg"]
