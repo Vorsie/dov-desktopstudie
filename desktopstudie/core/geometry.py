@@ -122,6 +122,14 @@ def project_onto_line(pt: Point, p: Point, q: Point) -> Tuple[float, float]:
     return dx * ux + dy * uy, dy * ux - dx * uy
 
 
+def chainages(line: Tuple[Point, Point], points: Sequence[Point]) -> List[float]:
+    """Distance along `line` for each point, from its real position - not its index - so samples
+    that are missing or irregularly spaced still line up with everything else measured along the
+    line (projected investigations, profile columns)."""
+    p, q = line
+    return [project_onto_line(pt, p, q)[0] for pt in points]
+
+
 def point_in_ring(x: float, y: float, ring: Sequence[Point]) -> bool:
     """Points exactly on an edge are classified side-dependently (PNPOLY behaviour); regardless,
     distance_to_ring returns 0 for them."""
