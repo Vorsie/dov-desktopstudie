@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from desktopstudie.core.figures import borehole_column, common, cpt_figure, section_figure, vb_column
 from desktopstudie.core.figures.common import plt
 from desktopstudie.core.model import Borehole, Cpt, CptProfile, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
@@ -217,12 +219,68 @@ def test_section_with_a_profile_draws_one_rectangle_per_visible_profile_layer():
     try:
         visible = sum(1 for column in profile.columns for layer in column.layers
                       if layer.top_mtaw > column.surface_mtaw - 60.0)
-        assert len(ax.patches) == visible + 1  # + the shaded zone span
-        # columns are contiguous: each one spans exactly the profile resolution and they touch
-        widths = {round(patch.get_width(), 6) for patch in ax.patches}
-        assert profile.resolution_m in widths
-        lefts = sorted({round(patch.get_x(), 6) for patch in ax.patches if patch.get_width() == 100.0})
+        assert len(ax.patches) == visible + 1  # + the zone band in the headroom
+        # columns are contiguous: each one spans the full sample spacing and they touch
+        lefts = sorted({round(patch.get_x(), 6) for patch in _geology(ax, profile)})
         assert lefts == [-50.0, 50.0, 150.0, 250.0, 350.0]
+        assert {round(patch.get_width(), 6) for patch in _geology(ax, profile)} == {100.0}
+    finally:
+        plt.close(fig)
+
+
+def _geology(ax, profile):
+    """The column rectangles: everything except the zone band, which starts at the highest surface."""
+    top = max(column.surface_mtaw for column in profile.columns)
+    return [patch for patch in ax.patches if patch.get_y() < top - 1e-9]
+
+
+def test_the_zone_marking_stays_out_of_the_geology():
+    section, profile = _profile_section()
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        top = max(column.surface_mtaw for column in profile.columns)
+        band = [patch for patch in ax.patches if patch.get_y() >= top - 1e-9]
+        assert len(band) == 1, "the zone is one band in the headroom, not a tint over the columns"
+        assert band[0].get_x() == pytest.approx(section.zone_from_m)
+        assert band[0].get_width() == pytest.approx(section.zone_to_m - section.zone_from_m)
+        # nothing coloured reaches down into the geology
+        assert all(p.get_y() + p.get_height() <= top + 1e-9 for p in _geology(ax, profile))
+        # the zone edges are two dashed red verticals instead
+        edges = [line for line in ax.lines
+                 if line.get_linestyle() == "--" and line.get_color() == section_figure.ZONE_COLOUR]
+        assert len(edges) == 2
+    finally:
+        plt.close(fig)
+
+
+def test_column_width_follows_the_real_spacing_not_the_declared_resolution():
+    section, profile = _profile_section()
+    profile.resolution_m = 10.0  # the answer was sampled every 100 m; the drawing must follow that
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        assert {round(patch.get_width(), 6) for patch in _geology(ax, profile)} == {100.0}
+    finally:
+        plt.close(fig)
+
+
+def test_the_surface_line_steps_over_the_flat_topped_columns():
+    section, _ = _profile_section()
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        surface = next(line for line in ax.lines if line.get_label() == "maaiveld (G3Dv3)")
+        assert surface.get_drawstyle() == "steps-mid"
+    finally:
+        plt.close(fig)
+
+
+def test_section_legend_labels_are_shortened_to_fit():
+    section, _ = _profile_section()
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert labels and all(len(label) <= 48 for label in labels)
+        # the longest DOV formation name is shortened, not dropped
+        assert any(label.startswith("Formatie van Rozebeke") for label in labels)
     finally:
         plt.close(fig)
 
@@ -234,8 +292,9 @@ def test_section_with_a_profile_marks_the_doorprik_anchors_in_the_legend():
         labels = [t.get_text() for t in ax.get_legend().get_texts()]
         assert "doorprik" in labels
         assert "maaiveld (G3Dv3)" in labels and "onderzoekszone" in labels
-        dashed = [line for line in ax.lines if line.get_linestyle() in ("--", (0, (5.0, 5.0)))]
-        assert len(dashed) == 3  # one per doorprik anchor
+        anchors = [line for line in ax.lines
+                   if line.get_linestyle() == "--" and line.get_color() == section_figure.ANCHOR_COLOUR]
+        assert len(anchors) == 3  # one per doorprik anchor
     finally:
         plt.close(fig)
 
