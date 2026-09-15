@@ -143,8 +143,9 @@ def check_flood(result: StudyResult) -> List[Signalering]:
         if not codes and not unknown:
             continue
         if codes:
-            worst = max(codes, key=lambda c: int(c))
-            description = WATERTOETS_LABELS[worst]
+            numeric = [c for c in codes if c.isdigit()]
+            worst = max(numeric, key=int) if numeric else codes[0]
+            description = WATERTOETS_LABELS.get(worst, f"klasse {worst}")
         else:
             description = "klasse onbekend"
         out.append(Signalering(
@@ -158,9 +159,10 @@ def check_flood(result: StudyResult) -> List[Signalering]:
 def check_erosion(result: StudyResult) -> List[Signalering]:
     rows = [r for r in _facts(result, "erosie") if "hoog" in str(r.get("Totale_erosie", "")).lower()]
     if rows:
+        distinct = sorted({str(r.get("Totale_erosie", "")) for r in rows})
         return [Signalering(
             "erosie",
-            f"Totale erosie '{rows[0].get('Totale_erosie')}' op {len(rows)} perceel/percelen in de zone.",
+            f"Totale erosie op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
             "DOV erosiekaart",
             "Aandachtspunt voor het grondonderzoek: erosiegevoelige helling; stabiliteit en afwatering.")]
     return []
