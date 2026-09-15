@@ -19,6 +19,7 @@ WATERINFO_WMS_URL = (
     "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
 )
+# Reserved for the QGIS shell (plan 2): it loads the DTM as a WCS coverage to fill StudyResult.relief.
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 
