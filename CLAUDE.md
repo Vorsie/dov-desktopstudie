@@ -50,11 +50,25 @@ een kaart toevoegen = één entry, geen code.
   GeoServer-`LEGEND_OPTIONS` uit `MapEntry.legend_options`) en als `QgsLayoutItemPicture`
   geplaatst; `QgsLayoutItemLegend` haalt WMS-legenda's asynchroon op en blijft headless leeg.
   Een legenda die hoger is dan een blad wordt met `QImage.copy()` in bladhoge stroken gesneden,
-  nooit tot een onleesbaar postzegeltje geschaald.
+  nooit tot een onleesbaar postzegeltje geschaald. `legend_options` staat standaard op
+  `columns:2;columnheight:1100;fontSize:9;forceLabels:on`: vier kolommen van 7 pt passen op een
+  scherm, niet op papier, en zonder `forceLabels` laat GeoServer de klassenaam van een laag met één
+  klasse gewoon weg.
 - **Een legenda wordt nooit dwars door een legenda-item gesneden.** Een strook die niet op een
   blad past, breekt af op de dichtstbijzijnde volledig witte (of transparante) pixelrij *boven* de
   nominale snede; is er geen enkele witte rij, dan wint het blad. `hcov` en `quartair` hebben
-  `legend=False`: hun GetLegendGraphic is een vierkantje van 20x20 zonder klassenaam.
+  `legend=False`: hun GetLegendGraphic is een vierkantje van 20x20 zonder klassenaam; `dhmv_dtm`
+  ook, want zijn legenda is een kleurbalk van 27x18 mm met twee getallen erop.
+- **Een kaart met een code krijgt drie pagina's, geen één.** De feitentabel zegt WAT er in de zone
+  ligt, de `Leeswijzer` (`MapEntry.reading_guide`, drie tot vijf zinnen) hoe die code te lezen valt,
+  en `Legenda voor de zone` welke klassen er werkelijk voorkomen - ontdubbeld, met de kolommen die
+  bij die kaart horen (`report_content.ZONE_LEGEND_COLUMNS`). Een lege legenda zegt of de ZONE leeg
+  was of de BRON; dat onderscheid mag nooit vervagen. De echte legenda van het Quartair is een
+  tekening per profieltype: de kern kan niets ophalen, dus de schil doet dat
+  (`layout.prepare_zone_legend_images`) en geeft de paden door aan
+  `build_report(..., zone_legend_images=...)`, die er figuurpagina's van maakt. Die URL's eindigen
+  op `_png` maar zijn downloadlinks die een foutpagina met HTTP 200 beantwoorden - vandaar de
+  PNG-magie-controle vóór het wegschrijven.
 - **Een kaart die openrekt voor haar overlays krijgt een ronde schaal.** Past de zoekstraal niet op
   de catalogusschaal, dan volgt de schaal uit de zoekstraal en leest het infovak "1:6 104"; ze
   wordt naar boven afgerond op de 1-2-5-ladder (`layout.SCALE_STEPS`) en de extent volgt opnieuw
@@ -219,8 +233,6 @@ een kaart toevoegen = één entry, geen code.
 - **Een layout sterft met zijn items.** `layout.items()` of `pageCollection().itemsOnPage(i)` op
   een tijdelijke layout (`build()...`) geeft wrappers die meteen daarna dood zijn ("wrapped C/C++
   object ... has been deleted"). Hou de layout in een lokale variabele zolang je haar items leest.
-  De headless flow (`scripts/run_headless.py`) bestaat nog niet; die komt met taak S6 van het
-  schil-plan.
 - **Een rapport renderen kost seconden per blad, dus doe het in tests zo weinig mogelijk.** De
   pijplijntests knippen de catalogus terug tot één kaart per hoofdstuk (`offline_shell`) en slaan
   de echte PDF-export over waar die niet de vraag is (`no_pdf`); één volledige run draagt de meeste
@@ -233,6 +245,15 @@ een kaart toevoegen = één entry, geen code.
   `--cache use|refresh|off` de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen
   kaarten en geen PDF. Afsluitcodes: 0 = volledig, 2 = adres niet gevonden, 3 = klaar maar met
   mislukte bronnen.
+- Volledige studie zonder GUI (kern + schil + PDF), met de QGIS-Python:
+  `"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\run_headless.py --x 104326
+  --y 192506 --buffer 50 --out uitvoer\gent --paginas` (of `--adres "..."`). Verder
+  `--straal/--project/--projectnummer/--auteur/--bedrijf/--logo/--cache/--geen-legendas`;
+  `--paginas` schrijft elk blad ook als PNG. Het script zet `QT_QPA_PLATFORM=offscreen` zelf en
+  roept `compat.ensure_font_dir()` aan **vóór** `QgsApplication([], True)` (GUI-geschikt, want
+  lettertypes en SVG lopen door de QApplication). Afsluitcodes: 0 = volledig, 2 = geen bruikbare
+  locatie, 3 = klaar met gaten (mislukt product of bron). De samenvatting noemt de duur van de kern
+  en van de schil apart.
 - Fixtures verversen: `python scripts/record_fixtures.py` (schrijft `tests/core/fixtures/` opnieuw,
   inclusief de bron-URL en datum in de README ernaast).
 - Plugin laden in QGIS: junction van `desktopstudie/` naar
