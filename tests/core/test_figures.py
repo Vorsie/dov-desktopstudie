@@ -45,6 +45,24 @@ def test_section_surface_interpolation():
     assert section_figure._surface_at(500.0, [0.0, 100.0], [10.0, None]) == 10.0
 
 
+def test_section_columns_are_placed_at_their_true_chainage():
+    vb = parse_doorprik(fixture_json("vb_g3dv3_F.json"), 104326.0, 192506.0, "g3dv3_F")
+    base_x, y = 104000.0, 192506.0
+    chainages = [i * 40.0 for i in range(11) if i not in (3, 7)]  # boreholes at 120 m and 280 m failed
+    boreholes = [VirtualBorehole(base_x + c, y, "g3dv3_F", vb.layers) for c in chainages]
+    sec = Section(line=((base_x, y), (base_x + 400.0, y)), boreholes=boreholes, projected=[],
+                 zone_from_m=100.0, zone_to_m=300.0, failed_points=2)
+    fig, ax = section_figure._build_section_figure(sec, max_depth_m=60.0)
+    try:
+        assert chainages == [0.0, 40.0, 80.0, 160.0, 200.0, 240.0, 320.0, 360.0, 400.0]
+        centres = sorted({round(patch.get_x() + patch.get_width() / 2.0, 6) for patch in ax.patches})
+        assert centres == chainages
+        legend_labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert "maaiveld (G3Dv3)" in legend_labels and "onderzoekszone" in legend_labels
+    finally:
+        plt.close(fig)
+
+
 def test_cpt_qc_axis_clips_a_spike_and_labels_it():
     depth = [i * 0.1 for i in range(150)]
     qc = [2.0] * 149 + [60.0]  # one erratic spike among 149 unremarkable readings
