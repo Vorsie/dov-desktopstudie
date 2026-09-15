@@ -1,4 +1,3 @@
-# tests/core/test_geometry.py
 from __future__ import annotations
 
 import math
@@ -60,3 +59,20 @@ def test_point_in_ring_and_distance_to_ring(gent_ring):
     assert not g.point_in_ring(0.0, 0.0, gent_ring)
     assert g.distance_to_ring((104326.0, 192506.0), gent_ring) == 0.0
     assert g.distance_to_ring((104526.0, 192506.0), gent_ring) == pytest.approx(100.0)
+
+
+def test_representative_point_lies_inside_an_l_shaped_ring():
+    # The centroid of an L-shape falls outside the shape itself; representative_point must
+    # still land inside it (documented by the second assertion below).
+    ring = [(0, 0), (200, 0), (200, 60), (60, 60), (60, 200), (0, 200)]
+    assert g.point_in_ring(*g.representative_point(ring), ring)
+    assert not g.point_in_ring(*g.centroid(ring), ring)
+
+
+def test_representative_point_is_centroid_for_convex_ring(gent_ring):
+    assert g.representative_point(gent_ring) == pytest.approx(g.centroid(gent_ring))
+
+
+def test_centroid_is_stable_for_a_thin_sliver_at_lambert_scale():
+    ring = [(104226.0, 192406.0), (104426.0, 192406.0), (104426.0, 192406.000001), (104226.0, 192406.000001)]
+    assert g.centroid(ring) == pytest.approx((104326.0, 192406.0), abs=1e-3)
