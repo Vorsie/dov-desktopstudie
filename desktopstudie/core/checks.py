@@ -13,6 +13,12 @@ SOFT_WORDS = re.compile(r"\b(klei|veen|leem)\b")
 WET_DRAINAGE = {"e", "f", "g", "h", "i"}
 SOFT_TEXTURES = {"V", "E", "U"}
 BUILT_UP_PREFIXES = ("OB", "ON", "OT", "OE")
+# DOV grades landslide susceptibility as klasse "1".."3" with a matching Dutch label - live
+# check 2026-09-15 over the Flemish Ardennes: exactly "lage"/"matige"/"hoge gevoeligheid".
+# From class 2 ("matige gevoeligheid") upwards the slope is worth investigating. The labels
+# are inflected, so match "hoge" as well as the dictionary form "hoog".
+LANDSLIDE_MIN_CLASS = 2
+LANDSLIDE_WORDS = ("matig", "hoge", "hoog")
 SEVERITIES = ("info", "aandacht")
 
 Rule = Callable[[StudyResult], List[Signalering]]
@@ -193,6 +199,56 @@ def check_ovam(result: StudyResult) -> List[Signalering]:
     return []
 
 
+def check_landslide_susceptibility(result: StudyResult) -> List[Signalering]:
+    graded = []
+    for row in _facts(result, "grondverschuiving_gevoeligheid"):
+        klasse = str(row.get("klasse") or "")
+        label = str(row.get("gevoelighd") or "")
+        by_class = klasse.isdigit() and int(klasse) >= LANDSLIDE_MIN_CLASS
+        by_word = any(word in label.lower() for word in LANDSLIDE_WORDS)
+        if by_class or by_word:
+            graded.append((int(klasse) if klasse.isdigit() else 0, klasse, label))
+    if not graded:
+        return []
+    _, klasse, label = max(graded, key=lambda item: item[0])
+    grade = label or "gevoelig"
+    return [Signalering(
+        "grondverschuiving_gevoelig",
+        f"Zone ligt in gevoelig gebied voor grondverschuivingen: {grade} (klasse {klasse or 'onbekend'}).",
+        "DOV grondverschuivingen",
+        "Aandachtspunt voor het grondonderzoek: hellingstabiliteit onderzoeken; sterkteparameters "
+        "van de hellingslagen en grondwaterstand bepalen.")]
+
+
+def check_mapped_landslides(result: StudyResult) -> List[Signalering]:
+    rows = _facts(result, "grondverschuiving_gekarteerd")
+    if not rows:
+        return []
+    named = sorted({f"{r.get('naam') or 'zonder naam'} ({r.get('type') or 'type onbekend'})" for r in rows})
+    return [Signalering(
+        "grondverschuiving_gekarteerd",
+        f"{len(rows)} gekarteerde grondverschuiving(en) in of naast de zone: {'; '.join(named)}.",
+        "DOV grondverschuivingen",
+        "Aandachtspunt voor het grondonderzoek: gekarteerde grondverschuiving in of naast de zone; "
+        "het DOV-rapport van de verschuiving raadplegen en de hellingstabiliteit beoordelen.")]
+
+
+def check_pfas(result: StudyResult) -> List[Signalering]:
+    rows = _facts(result, "pfas_no_regret")
+    if not rows:
+        return []
+    dossiers = sorted({str(r.get("pfasdossiernr")) for r in rows if r.get("pfasdossiernr")})
+    statuses = sorted({str(r.get("nrm_status_zone")) for r in rows if r.get("nrm_status_zone")})
+    dossier_text = f"dossier {', '.join(dossiers)}" if dossiers else "zonder dossiernummer"
+    status_text = "; ".join(statuses) if statuses else "status onbekend"
+    return [Signalering(
+        "pfas_no_regret",
+        f"{len(rows)} PFAS-no-regretzone(s) over de zone ({dossier_text}; {status_text}).",
+        "OVAM / Vlaamse overheid via DOV",
+        "Aandachtspunt voor het grondonderzoek: de no-regretmaatregelen van de zone toepassen en de "
+        "OVAM-richtlijnen voor grondverzet en hergebruik van uitgegraven bodem volgen.")]
+
+
 def check_investigations(result: StudyResult) -> List[Signalering]:
     if not result.cpts:
         return [Signalering(
@@ -226,8 +282,8 @@ def check_sources(result: StudyResult) -> List[Signalering]:
 
 RULES: List[Rule] = [
     check_anthropogenic, check_soft_layers, check_shallow_tertiary, check_soil_map, check_groundwater,
-    check_flood, check_erosion, check_shrink_swell, check_ovam, check_investigations, check_relief,
-    check_sources,
+    check_flood, check_erosion, check_shrink_swell, check_ovam, check_landslide_susceptibility,
+    check_mapped_landslides, check_pfas, check_investigations, check_relief, check_sources,
 ]
 
 
