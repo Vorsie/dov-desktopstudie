@@ -11,6 +11,7 @@ import pytest
 
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
 ZONE_WIDTH_M = 100.0  # de Gent-zone is een cirkel van 50 m straal
+MARGIN = 15.0
 TABLE_COLUMNS = ["Eenheid", "Top (mTAW)", "Basis (mTAW)"]
 FIGURE_REL = "figuren/sondering.png"
 
@@ -224,8 +225,11 @@ def test_the_info_boxes_stay_inside_the_right_margin(make_layout):
 
     lay = make_layout()
     for box in [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]:
-        right = box.pagePositionWithUnits().x() + box.sizeWithUnits().width()
+        # pos()/rect() geven de echte hoeken; pagina's liggen onder elkaar op x=0, dus de x van de
+        # scene is ook de x op het blad. pagePositionWithUnits() zou het referentiepunt geven.
+        right = box.pos().x() + box.rect().width()
         assert right == pytest.approx(195.0, abs=1.0), f"{box.text()[:30]!r} loopt tot {right} mm"
+        assert box.pos().x() > MARGIN, "een infovak hoort rechts op de kaart te staan"
 
 
 def test_the_north_arrow_is_readable_over_the_map(make_layout):
@@ -377,14 +381,14 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
 
     class _Client(HttpClient):
         def get(self, url, params=None):
-            asked.append(params["LAYER"] if params else url)
+            asked.append(url)
             return blob
 
     entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("gxg_ghg")]
     images = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
 
     assert list(images) == ["gxg_ghg"]
-    assert asked == ["gxg:ghg_mmv_main"]
+    assert len(asked) == 1 and "ghg_mmv_main" in asked[0]
 
 
 @pytest.mark.live
