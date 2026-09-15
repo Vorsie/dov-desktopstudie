@@ -181,6 +181,7 @@ class Section:
     projected: List[ProjectedPoint]
     zone_from_m: float
     zone_to_m: float
+    failed_points: int = 0
 
 
 @dataclass
