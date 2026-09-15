@@ -28,16 +28,20 @@ class FixtureClient:
         self.routes = list(routes or [])
         self.calls: list[str] = []
         self.matched: list[str] = []
+        # (url, timeout, retries) per call. The per-call overrides are part of what a caller asks
+        # for, so a test can see that a fiche got a shorter breath than a WFS query.
+        self.options: list[tuple] = []
 
     def route(self, substring: str, target) -> FixtureClient:
         self.routes.append((substring, target))
         return self
 
-    def get(self, url: str, params=None) -> bytes:
+    def get(self, url: str, params=None, timeout=None, retries=None) -> bytes:
         from desktopstudie.core.services.http import build_url
 
         full = build_url(url, params)
         self.calls.append(full)
+        self.options.append((full, timeout, retries))
         for substring, target in self.routes:
             if substring in full:
                 self.matched.append(substring)
