@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from desktopstudie.core.figures import borehole_column, common, cpt_figure, section_figure, vb_column
 from desktopstudie.core.figures.common import plt
-from desktopstudie.core.model import Borehole, Cpt, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
+from desktopstudie.core.model import Borehole, Cpt, CptProfile, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
 from desktopstudie.core.services.dov_xml import parse_cpt_profile
 from desktopstudie.core.services.virtuele_boring import parse_doorprik
 from tests.core.conftest import fixture_bytes, fixture_json
@@ -43,6 +43,39 @@ def test_section_surface_interpolation():
     assert section_figure._surface_at(50.0, [0.0, 100.0], [10.0, 12.0]) == 11.0
     assert section_figure._surface_at(-5.0, [0.0, 100.0], [10.0, 12.0]) == 10.0
     assert section_figure._surface_at(500.0, [0.0, 100.0], [10.0, None]) == 10.0
+
+
+def test_cpt_qc_axis_clips_a_spike_and_labels_it():
+    depth = [i * 0.1 for i in range(150)]
+    qc = [2.0] * 149 + [60.0]  # one erratic spike among 149 unremarkable readings
+    cpt = Cpt("k", "S1", 0, 0, None, 15.0, "2024-01-01", "continu elektrisch", None, None, None, "", 5.0,
+             profile=CptProfile(depth_m=depth, qc_mpa=qc, fs_kpa=[None] * 150, u_kpa=[None] * 150))
+    fig, axes = cpt_figure._build_cpt_figure(cpt)
+    try:
+        assert axes[0].get_xlim()[1] <= 50.0
+        assert "afgekapt" in axes[0].get_xlabel()
+        assert axes[0].get_ylim()[0] > axes[0].get_ylim()[1]  # depth increasing downward
+        assert len(axes[0].lines) == 1
+    finally:
+        plt.close(fig)
+
+
+def test_cpt_without_a_profile_draws_a_placeholder_message():
+    cpt = Cpt("k", "S2", 0, 0, None, None, None, None, None, None, None, "", 5.0, profile=None)
+    fig, axes = cpt_figure._build_cpt_figure(cpt)
+    try:
+        assert any("geen meetreeks" in t.get_text() for t in axes[0].texts)
+    finally:
+        plt.close(fig)
+
+
+def test_cpt_title_has_no_trailing_separator_when_method_is_missing():
+    cpt = Cpt("k", "S3", 0, 0, None, None, "2024-01-01", None, None, None, None, "", 5.0, profile=None)
+    fig, _ = cpt_figure._build_cpt_figure(cpt)
+    try:
+        assert not fig._suptitle.get_text().split("\n")[0].endswith("-")
+    finally:
+        plt.close(fig)
 
 
 def test_lithology_colour_recognises_dutch_keywords_and_dov_codes():
