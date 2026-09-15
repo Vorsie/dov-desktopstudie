@@ -10,6 +10,18 @@ import pytest
 pytest.importorskip("qgis.core")
 
 
+def write_png(path, width=100, height=100):
+    """Een echte PNG op `path`. QgsLayoutItemPicture weigert stilzwijgend een pad dat geen
+    afbeelding is, dus een aangeraakt leeg bestand levert een lege pagina in plaats van een fout."""
+    from qgis.PyQt.QtGui import QColor, QImage
+
+    image = QImage(width, height, QImage.Format.Format_RGB32)
+    image.fill(QColor(30, 80, 160))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
 @pytest.fixture(scope="session")
 def qgs_app():
     """One standalone QgsApplication for the whole session: initQgis() loads the providers
