@@ -1,12 +1,13 @@
-"""Orchestrates one desktop study: fetch -> parse -> section -> facts -> checks -> figures -> JSON.
-Every stage is guarded: a failure becomes a Provenance(ok=False) and the run continues."""
+"""Orchestrates one desktop study: fetch -> parse -> section -> facts -> figures -> checks -> JSON.
+Every stage is guarded: a failure becomes a Provenance(ok=False) and the run continues. Inside a
+stage every item is guarded too, so one unreachable fiche costs that fiche and nothing else."""
 from __future__ import annotations
 
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
 
 from . import catalogue, checks, geometry
 from .figures import borehole_column, cpt_figure, section_figure, vb_column
@@ -18,6 +19,14 @@ from .services.dov_wfs import DovWfs, feature_xy
 from .services.virtuele_boring import fetch_virtual_borehole
 
 Progress = Callable[[float, str], None]
+
+MESSAGE_CHARS = 200  # a provenance message is a summary; the full text goes to the log
+GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top of the centre
+
+
+class StudyCancelled(Exception):
+    """The caller's should_cancel() asked the run to stop. Not a source failure: it is never
+    recorded as one and never swallowed by `guarded`."""
 
 
 @dataclass
@@ -34,11 +43,11 @@ class Settings:
     with_profile: bool = True
     max_features: int = 2000
     max_workers: int = 4
-    map_ids: Optional[List[str]] = field(default=None)  # None = all enabled catalogue entries
+    map_ids: Optional[List[str]] = None  # None = all enabled catalogue entries
 
 
 def _now() -> str:
-    return dt.datetime.now().replace(microsecond=0).isoformat()
+    return dt.datetime.now().astimezone().replace(microsecond=0).isoformat()
 
 
 def _prop(props, key, cast=None):
@@ -50,25 +59,61 @@ def _prop(props, key, cast=None):
 
 class _Runner:
     def __init__(self, zone: StudyZone, settings: Settings, client, out_dir: Path,
-                 progress: Optional[Progress], log: Log):
+                 progress: Optional[Progress], log: Log, should_cancel: Optional[Callable[[], bool]]):
         self.zone = zone
         self.s = settings
         self.client = client
         self.out = Path(out_dir)
         self.progress = progress or (lambda f, m: None)
+        self.should_cancel = should_cancel or (lambda: False)
         self.log = log
         self.wfs = DovWfs(client, log=log.child("dov_wfs"))
         self.xml_log = log.child("dov_xml")  # one logger for the three per-item XML parsers
         self.result = StudyResult(zone=zone, created_at=_now())
         self.zone.radius_m = settings.radius_m
 
+    # --- plumbing -----------------------------------------------------------------------
+    def _raise_if_cancelled(self) -> None:
+        if self.should_cancel():
+            raise StudyCancelled("afgebroken door de gebruiker")
+
+    def _step(self, fraction: float, message: str) -> None:
+        """A stage boundary: the chance to stop, then the progress report."""
+        self._raise_if_cancelled()
+        self.progress(fraction, message)
+
     def guarded(self, source: str, url: str, fn: Callable[[], None]) -> None:
         try:
             fn()
             self.result.provenance.append(Provenance(source, url, _now(), True))
+        except StudyCancelled:
+            raise  # a cancelled run is not a broken source
         except Exception as exc:  # noqa: BLE001 - isolate every source
             self.log.warning(f"{source} niet beschikbaar: {exc}")
-            self.result.provenance.append(Provenance(source, url, _now(), False, f"{type(exc).__name__}: {exc}"))
+            self.result.provenance.append(
+                Provenance(source, url, _now(), False, f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}"))
+
+    def _load_each(self, items: Sequence[Any], load_one: Callable[[Any], None], label: str) -> int:
+        """Fetch `items` in parallel, each isolated: one fiche that is down costs that item, not the
+        stage. `pool.map` cannot do this - it re-raises the first failure at iteration time and the
+        rest of the results are lost - so every item gets its own future. Returns how many failed;
+        the count and the surviving items do not depend on the order in which the threads finish."""
+        failed = 0
+        with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
+            futures = []
+            for item in items:
+                self._raise_if_cancelled()
+                futures.append(pool.submit(load_one, item))
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except StudyCancelled:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - isolate every item
+                    failed += 1
+                    self.log.warning(f"{label} niet opgehaald: {type(exc).__name__}: {exc}")
+                self._raise_if_cancelled()
+        return failed
 
     def dist(self, x: float, y: float) -> float:
         return geometry.distance_to_ring((x, y), self.zone.ring)
@@ -77,6 +122,19 @@ class _Runner:
         """Figure paths in the JSON are relative to the output directory and use forward slashes,
         so a result written on Windows still resolves on another machine."""
         return Path(path).relative_to(self.out).as_posix()
+
+    def _note_municipality(self, feats: Iterable[dict]) -> None:
+        """The zone's municipality, from the NEAREST feature that names one. A WFS answer is
+        unordered, so 'the first feature with a gemeente' can just as easily name a town on the far
+        edge of the search radius. The first stage that finds one wins; later stages leave it be."""
+        if self.result.municipality:
+            return
+        named = [(self.dist(*feature_xy(f)), f["properties"].get("gemeente")) for f in feats]
+        named = [(distance, name) for distance, name in named if name]
+        if not named:
+            self.log.debug("geen gemeente genoemd in de features van deze bron")
+            return
+        self.result.municipality = min(named)[1]
 
     # --- stages -------------------------------------------------------------------------
     def cpts(self) -> None:
@@ -93,16 +151,15 @@ class _Runner:
                            project=_prop(p, "opdrachten"), url=url, distance_m=self.dist(x, y)))
         out.sort(key=lambda c: c.distance_m)
         self.result.cpts = out
-        self.result.municipality = self.result.municipality or next(
-            (f["properties"].get("gemeente") for f in feats if f["properties"].get("gemeente")), None)
+        self._note_municipality(feats)
         nearest = [c for c in out if c.url][: self.s.n_cpt_figures]
 
         def load(c: Cpt) -> None:
             c.profile = dov_xml.parse_cpt_profile(self.client.get(c.url + ".xml"), log=self.xml_log)
 
-        with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
-            list(pool.map(load, nearest))
-        self.log.info(f"{len(out)} sonderingen binnen {self.s.radius_m:.0f} m, {len(nearest)} met meetreeks")
+        failed = self._load_each(nearest, load, "sondering")
+        self.log.info(f"{len(out)} sonderingen binnen {self.s.radius_m:.0f} m, "
+                      f"{len(nearest) - failed} opgehaald, {failed} mislukt")
 
     def boreholes(self) -> None:
         feats = self.wfs.within_distance("dov-pub:Boringen", self.zone.wkt, self.s.radius_m, self.s.max_features)
@@ -123,16 +180,16 @@ class _Runner:
                                 distance_m=self.dist(x, y), interpretation_url=interp.get(url)))
         out.sort(key=lambda b: b.distance_m)
         self.result.boreholes = out
+        self._note_municipality(feats)
         nearest = [b for b in out if b.interpretation_url][: self.s.n_borehole_figures]
 
         def load(b: Borehole) -> None:
             b.lithology = dov_xml.parse_lithology(self.client.get(b.interpretation_url + ".xml"),
                                                   log=self.xml_log)
 
-        with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
-            list(pool.map(load, nearest))
+        failed = self._load_each(nearest, load, "lithologie")
         self.log.info(f"{len(out)} boringen, {sum(1 for b in out if b.interpretation_url)} met lithologie, "
-                      f"{len(nearest)} opgehaald")
+                      f"{len(nearest) - failed} opgehaald, {failed} mislukt")
 
     def groundwater(self) -> None:
         feats = self.wfs.within_distance("gw_meetnetten:grondwaterlocaties_met_metingen", self.zone.wkt,
@@ -150,15 +207,16 @@ class _Runner:
                                 levels_from=_prop(p, "peilmetingen_van"), levels_to=_prop(p, "peilmetingen_tot")))
         out.sort(key=lambda g: g.distance_m)
         self.result.gw_filters = out
+        self._note_municipality(feats)
         nearest = [g for g in out if g.levels_to and g.url][: self.s.n_gw_levels]
 
         def load(g: GwFilter) -> None:
             levels = dov_xml.parse_groundwater_levels(self.client.get(g.url + ".xml"), log=self.xml_log)
             g.latest = levels[-1] if levels else None
 
-        with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
-            list(pool.map(load, nearest))
-        self.log.info(f"{len(out)} peilputten, {sum(1 for g in out if g.latest)} met laatste peil")
+        failed = self._load_each(nearest, load, "peilmeting")
+        self.log.info(f"{len(out)} peilputten, {len(nearest) - failed} opgehaald, {failed} mislukt, "
+                      f"{sum(1 for g in out if g.latest)} met laatste peil")
 
     def virtual_boreholes(self) -> None:
         cx, cy = self.zone.representative_point  # inside the zone, also for L-shaped parcels
@@ -175,13 +233,19 @@ class _Runner:
             self.result.gw_filters, self.s.n_section_points, self.s.corridor_m, self.s.model_section,
             log=self.log.child("section"), max_workers=self.s.max_workers, with_profile=self.s.with_profile)
 
+    def _gfi_points(self) -> List[Tuple[float, float]]:
+        """Where to ask a GetFeatureInfo map about the zone: the representative point plus ring
+        vertices spread over the WHOLE ring. Taking the first eight vertices would sample one short
+        arc of a buffered circle, so a flood zone touching the far side would never be asked about."""
+        ring = self.zone.ring
+        step = max(1, len(ring) // GFI_RING_SAMPLES)
+        return [self.zone.representative_point] + list(ring[::step][:GFI_RING_SAMPLES])
+
     def map_facts(self) -> None:
-        wanted = catalogue.entries("geologie")
+        wanted = [e for e in catalogue.entries() if e.fact_mode is not None]
         if self.s.map_ids is not None:
             wanted = [e for e in wanted if e.id in self.s.map_ids]
         for entry in wanted:
-            if entry.fact_mode is None:
-                continue
 
             def fetch(e=entry) -> None:
                 if e.fact_mode == "wfs":
@@ -190,7 +254,7 @@ class _Runner:
                 else:
                     rows = []
                     seen = set()
-                    for x, y in [self.zone.representative_point] + list(self.zone.ring[:8]):
+                    for x, y in self._gfi_points():
                         for row in wms_gfi.feature_info_at_point(self.client, e.wms_url, e.wms_layer, x, y):
                             key = tuple(str(row.get(k)) for k in e.fact_fields)
                             if key not in seen:
@@ -226,6 +290,11 @@ class _Runner:
                 section_figure.plot_section(self.result.section, fig_dir / "section.png"))
         self.log.info(f"{len(self.result.figures)} figuren geschreven in {fig_dir}")
 
+    def write_json(self) -> None:
+        path = self.out / "data" / "studie.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self.result.write_json(path)
+
     def run(self) -> StudyResult:
         stages = [
             ("Sonderingen", catalogue.DOV_WFS_URL, self.cpts, 0.15),
@@ -233,26 +302,36 @@ class _Runner:
             ("Peilputten", catalogue.DOV_WFS_URL, self.groundwater, 0.40),
         ]
         for source, url, fn, frac in stages:
-            self.progress(frac, source)
+            self._step(frac, source)
             self.guarded(source, url, fn)
-        self.progress(0.5, "Virtuele boringen")
+        self._step(0.5, "Virtuele boringen")
         self.virtual_boreholes()
-        self.progress(0.6, "Doorsnede")
+        self._step(0.6, "Doorsnede")
         self.guarded("Doorsnede (virtuele boringen langs de lijn)",
                      catalogue.VB_DOORPRIK_URL.format(model=self.s.model_section), self.section)
-        self.progress(0.7, "Kaartfeiten")
+        self._step(0.7, "Kaartfeiten")
         self.map_facts()
-        self.progress(0.85, "Signaleringen")
-        self.result.signaleringen = checks.run_all(self.result) + self._truncation_signals()
-        self.progress(0.9, "Figuren")
+        # Figures before the checks: a figures stage that fell over is a failed source like any
+        # other, and check_sources can only report it once it is in the provenance.
+        self._step(0.85, "Figuren")
         self.guarded("Figuren", "", self.figures)
-        (self.out / "data").mkdir(parents=True, exist_ok=True)
-        self.result.write_json(self.out / "data" / "studie.json")
-        self.progress(1.0, "Klaar")
+        self._step(0.92, "Signaleringen")
+        self.result.signaleringen = checks.run_all(self.result) + self._truncation_signals()
+        self.guarded("studie.json", str(self.out / "data" / "studie.json"), self.write_json)
+        self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
         return self.result
 
 
 def run(zone: StudyZone, settings: Settings, client, out_dir: Path, progress: Optional[Progress] = None,
-        log: Optional[Log] = None) -> StudyResult:
-    return _Runner(zone, settings, client, Path(out_dir), progress, log or Log("study")).run()
+        log: Optional[Log] = None, should_cancel: Optional[Callable[[], bool]] = None) -> StudyResult:
+    """Run one study and write it to `out_dir`.
+
+    `zone` is filled in as the run goes: `zone.radius_m` is set from the settings and
+    `zone.section_line` is set to the computed default when the caller left it empty - the caller's
+    own object is updated, so the shell can draw exactly the line that was used.
+
+    `should_cancel` is polled between stages and around every per-item fetch; when it returns True
+    the run raises `StudyCancelled` and writes no JSON.
+    """
+    return _Runner(zone, settings, client, Path(out_dir), progress, log or Log("study"), should_cancel).run()
