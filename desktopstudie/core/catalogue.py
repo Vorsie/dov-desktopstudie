@@ -43,6 +43,7 @@ class MapEntry:
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
+    field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
     note: str = ""
     # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
@@ -52,11 +53,11 @@ class MapEntry:
 
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
-         *, scale: int) -> MapEntry:
+         field_labels: Optional[Dict[str, str]] = None, *, scale: int) -> MapEntry:
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE, legend=legend,
                     opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs, fact_fields=fields,
-                    value_labels=labels or {}, scale=scale)
+                    value_labels=labels or {}, field_labels=field_labels or {}, scale=scale)
 
 
 def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
@@ -99,38 +100,57 @@ CATALOGUE: List[MapEntry] = [
     _dov("bodemkaart", "Bodemkaart van Vlaanderen", "bodemkaart:bodemtypes",
          ("Bodemtype", "Bodemserie", "Beknopte_omschrijving_bodemserie", "Textuurklasse", "Drainageklasse",
           "Gegeneraliseerde_legende", "Textuurklasse_code", "Drainageklasse_code"),
-         wfs="bodemkaart:bodemtypes", scale=10000),
+         wfs="bodemkaart:bodemtypes",
+         field_labels={"Bodemtype": "Bodemtype", "Bodemserie": "Bodemserie",
+                       "Beknopte_omschrijving_bodemserie": "Omschrijving", "Textuurklasse": "Textuur",
+                       "Drainageklasse": "Drainage", "Gegeneraliseerde_legende": "Legende",
+                       "Textuurklasse_code": "Textuurcode", "Drainageklasse_code": "Drainagecode"},
+         scale=10000),
     _dov("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", "quartair:quartair_samengesteld",
-         ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende", scale=25000),
+         ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende",
+         field_labels={"profieltype": "Profieltype", "legende": "Legende (link)"}, scale=25000),
     _dov("quartair_200k", "Quartairgeologische kaart 1/200 000", "quartair:quartair_200k",
-         ("type", "profiel"), wfs="quartair:quartair_200k", scale=100000),
+         ("type", "profiel"), wfs="quartair:quartair_200k",
+         field_labels={"type": "Type", "profiel": "Profiel"}, scale=100000),
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, scale=50000),
+         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, field_labels={"dikte": "Dikte (m)"},
+         scale=50000),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
-         ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k", scale=25000),
+         ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
+         field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
+         scale=25000),
     _dov("hcov", "HCOV 0100 - Quartaire aquifersystemen (voorkomen)", "hcov:hcov_0100_vk",
-         ("hcov_code", "hcov_naam"), wfs="hcov:hcov_0100_vk", scale=25000),
+         ("hcov_code", "hcov_naam"), wfs="hcov:hcov_0100_vk",
+         field_labels={"hcov_code": "HCOV-code", "hcov_naam": "HCOV-naam"}, scale=25000),
     _dov("gw_kwetsbaarheid", "Grondwaterkwetsbaarheidskaart", "gw_bescherming:gwkwb_kwbschaal",
          ("kwetsbaarheidsschaal", "watervoerende_laag", "deklaag", "dikte_onverzadigde_zone", "indices"),
-         wfs="gw_bescherming:gwkwb_kwbschaal", scale=25000),
+         wfs="gw_bescherming:gwkwb_kwbschaal",
+         field_labels={"kwetsbaarheidsschaal": "Kwetsbaarheid", "watervoerende_laag": "Watervoerende laag",
+                       "deklaag": "Deklaag", "dikte_onverzadigde_zone": "Onverzadigde zone", "indices": "Index"},
+         scale=25000),
     _dov("gxg", "Grondwaterstanden GxG (GHG/GLG)", "gxg:gxg", legend=True, scale=25000),
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
-             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}, scale=10000),
+             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
+             field_labels={"gridcode": "Klasse"}, scale=10000),
     MapEntry("watertoets_fluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden fluviaal",
              WATERINFO_WMS_URL.format(kind="fluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
-             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS}, scale=10000),
+             fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
+             field_labels={"gridcode": "Klasse"}, scale=10000),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
-         scale=10000),
+         field_labels={"Erosieklasse_ALV": "Erosieklasse", "Totale_erosie": "Totale erosie"}, scale=10000),
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
          ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch",
-         scale=25000),
+         field_labels={"Eenheid_G3Dv3_0": "Eenheid", "hoofdlithologie": "Hoofdlithologie",
+                       "code_G3Dv3_0": "Code"}, scale=25000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
+         field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
+                       "risico_inrichting": "Risico-inrichting", "onder_voorbehoud": "Onder voorbehoud"},
          scale=5000),
 ]
 
