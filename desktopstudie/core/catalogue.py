@@ -2,6 +2,7 @@
 All URLs and layer names were verified live on 2026-09-15 (see design spec)."""
 from __future__ import annotations
 
+import types
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
@@ -70,6 +71,15 @@ class MapEntry:
     # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
     # zone does not fit
     scale: int = 5000
+
+    def __post_init__(self) -> None:
+        """Freeze the two label tables into read-only views, the inner ones included. The catalogue
+        is module-level shared state: a caller that wrote into a label table would change the map
+        for every later study in the same QGIS session. `object.__setattr__` is the only way into a
+        frozen dataclass; both fields stay out of `__eq__`/`__hash__`, as they were."""
+        object.__setattr__(self, "value_labels", types.MappingProxyType(
+            {key: types.MappingProxyType(dict(value)) for key, value in self.value_labels.items()}))
+        object.__setattr__(self, "field_labels", types.MappingProxyType(dict(self.field_labels)))
 
 
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
