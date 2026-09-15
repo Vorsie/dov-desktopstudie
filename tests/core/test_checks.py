@@ -1,8 +1,17 @@
 from __future__ import annotations
 
 from desktopstudie.core import checks
-from desktopstudie.core.model import (Cpt, GwFilter, GwLevel, MapFact, Provenance, StudyResult, StudyZone,
-                                      VbLayer, VirtualBorehole)
+from desktopstudie.core.model import (
+    Cpt,
+    GwFilter,
+    GwLevel,
+    MapFact,
+    Provenance,
+    StudyResult,
+    StudyZone,
+    VbLayer,
+    VirtualBorehole,
+)
 
 
 def _result(gent_ring):
@@ -34,9 +43,11 @@ def test_clay_or_peat_within_10_m_below_surface_is_flagged_deeper_is_not(gent_ri
 
 def test_shallow_tertiary_is_flagged_below_3_m(gent_ring):
     r = _result(gent_ring)
-    r.virtual_boreholes["g3dv3_P"] = _vb("g3dv3_P", ("p1", "Quartair", 10.0, 8.0, ""), ("p2", "Paleogeen", 8.0, -50.0, ""))
+    r.virtual_boreholes["g3dv3_P"] = _vb(
+        "g3dv3_P", ("p1", "Quartair", 10.0, 8.0, ""), ("p2", "Paleogeen", 8.0, -50.0, ""))
     assert any(s.code == "ondiep_tertiair" for s in checks.run_all(r))
-    r.virtual_boreholes["g3dv3_P"] = _vb("g3dv3_P", ("p1", "Quartair", 10.0, 5.0, ""), ("p2", "Paleogeen", 5.0, -50.0, ""))
+    r.virtual_boreholes["g3dv3_P"] = _vb(
+        "g3dv3_P", ("p1", "Quartair", 10.0, 5.0, ""), ("p2", "Paleogeen", 5.0, -50.0, ""))
     assert not any(s.code == "ondiep_tertiair" for s in checks.run_all(r))
 
 
@@ -47,13 +58,15 @@ def test_soil_map_wet_drainage_peat_texture_and_built_up_are_flagged(gent_ring):
         {"Bodemtype": "OB", "Textuurklasse_code": None, "Drainageklasse_code": None},
     ]))
     codes = [s.code for s in checks.run_all(r)]
-    assert codes.count("bodem_nat") == 1 and codes.count("bodem_veen_klei") == 1 and codes.count("bodem_antropogeen") == 1
+    assert (codes.count("bodem_nat") == 1 and codes.count("bodem_veen_klei") == 1
+            and codes.count("bodem_antropogeen") == 1)
 
 
 def test_shallow_groundwater_uses_nearest_filter_with_a_level(gent_ring):
     r = _result(gent_ring)
     r.gw_filters = [
-        GwFilter("far", "1", 0, 0, 10.0, None, None, None, None, "", None, distance_m=400.0, latest=GwLevel("2024-01-01", 9.5)),
+        GwFilter("far", "1", 0, 0, 10.0, None, None, None, None, "", None,
+                 distance_m=400.0, latest=GwLevel("2024-01-01", 9.5)),
         GwFilter("near", "1", 0, 0, 10.0, None, None, None, None, "", None, distance_m=50.0, latest=None),
     ]
     sigs = [s for s in checks.run_all(r) if s.code == "ondiep_grondwater"]
