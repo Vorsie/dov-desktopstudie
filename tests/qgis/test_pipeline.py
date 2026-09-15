@@ -144,7 +144,9 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
 def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core_result, offline_shell,
                                                                    tmp_path, no_pdf):
     """Twee studies in dezelfde QGIS-sessie: de tweede hoort de layout van de eerste te vervangen.
-    Anders staan er twee gelijknamige rapporten in de layoutbeheerder en kiest de gebruiker blind."""
+    Anders staan er twee gelijknamige rapporten in de layoutbeheerder en kiest de gebruiker blind.
+    Hetzelfde geldt voor de kaartkopieën die de layout tekent: die staan buiten de lagenboom, dus
+    niemand kan ze met de hand opruimen als ze zich opstapelen."""
     from desktopstudie.qgis import layout, pipeline
 
     pipeline.finish(project, core_result, _meta(), tmp_path / "een", _log(), legends=False)
@@ -152,6 +154,9 @@ def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core
 
     layouts = [item.name() for item in project.layoutManager().printLayouts()]
     assert layouts.count(layout.LAYOUT_NAME) == 1
+    report_copies = [layer for layer in project.mapLayers().values()
+                     if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)]
+    assert len(report_copies) == 6, [layer.name() for layer in report_copies]
 
 
 def test_the_report_maps_label_only_the_investigations_with_a_figure(project, core_result, offline_shell,
