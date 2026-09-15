@@ -89,6 +89,10 @@ SCALE_BAR_SEGMENTS = 2
 SCALE_BAR_STEPS = (10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
                    20000.0, 50000.0)
 SCALE_BAR_FRACTION = 5.0  # one segment is about a fifth of the mapped width
+# The scales a reader expects to see printed above a map: the same 1-2-5 idea as the scale bar,
+# one rung per usable map scale. A map that had to be widened lands on the next rung UP - rounding
+# down would crop away exactly what the widening was for.
+SCALE_STEPS = (1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000)
 # A legend graphic is authored at screen resolution (96 dpi logical pixels); blown up to the full
 # content width its 7 pt labels turn to mush, so it is never drawn larger than this natural size.
 MM_PER_PX = 25.4 / 96.0
@@ -122,6 +126,15 @@ def _segment_length(scale: int) -> float:
     """A scale-bar segment of about a fifth of the mapped width, snapped to the 1-2-5 ladder."""
     target = MAP_W / 1000.0 * scale / SCALE_BAR_FRACTION
     return min(SCALE_BAR_STEPS, key=lambda step: abs(step - target))
+
+
+def _round_scale(scale: float) -> float:
+    """The first scale on the ladder that is at least `scale`, or `scale` itself beyond it.
+
+    Only ever zooms out. Past the last rung the map is already at a country-wide scale and one
+    more doubling would say less than the odd number does.
+    """
+    return next((step for step in SCALE_STEPS if step >= scale - 0.5), scale)
 
 
 def _thousands(value: int) -> str:
@@ -236,6 +249,43 @@ def prepare_legends(entries: Sequence[MapEntry], out_dir, client: Optional[HttpC
     return images
 
 
+def _blank_rows(image: QImage) -> List[bool]:
+    """One flag per pixel row: True where the row is entirely white or entirely transparent.
+
+    Those rows are the gaps between legend entries, and they are where a page break belongs. The
+    whole mask is built in one pass over the raw buffer: a legend is a few thousand rows and
+    reading it pixel by pixel through `pixelColor` takes seconds.
+    """
+    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
+    width, height, stride = rgba.width(), rgba.height(), rgba.bytesPerLine()
+    buffer = rgba.constBits()
+    buffer.setsize(height * stride)
+    data = bytes(buffer)
+    white, clear = b"\xff" * (width * 4), b"\x00" * (width * 4)
+    flags: List[bool] = []
+    for y in range(height):
+        row = data[y * stride:y * stride + width * 4]
+        # The two fast paths cover a solid white row and a fully transparent one, which is what a
+        # gap in a GetLegendGraphic image actually is; the loop is only for mixed rows.
+        flags.append(row == white or row == clear
+                     or all(row[i + 3] == 0 or row[i:i + 3] == b"\xff\xff\xff"
+                            for i in range(0, len(row), 4)))
+    return flags
+
+
+def _cut_row(flags: Sequence[bool], top: int, nominal: int) -> int:
+    """Where to break a strip that would nominally end at `nominal`: the nearest blank row above
+    it, so the break lands in the gap between two legend entries instead of through one.
+
+    Falls back to the nominal break when the slice holds no blank row at all - a legend without
+    any gap has nothing to protect, and a break that never happens fits on no page.
+    """
+    for row in range(nominal, top, -1):
+        if flags[row - 1]:
+            return row
+    return nominal
+
+
 def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
     """(path, width_mm, height_mm) per page-sized slice of a legend image.
 
@@ -254,12 +304,17 @@ def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
     if height_mm <= CONTENT_H + 0.01:
         return [(Path(image_path), width_mm, height_mm)]
     rows = max(1, int(CONTENT_H / mm_per_px))
+    flags = _blank_rows(image)
     strips: List[Tuple[Path, float, float]] = []
-    for number, top in enumerate(range(0, image.height(), rows), start=1):
-        height = min(rows, image.height() - top)
+    top, number = 0, 1
+    while top < image.height():
+        bottom = min(top + rows, image.height())
+        if bottom < image.height():  # the last slice ends where the legend does
+            bottom = _cut_row(flags, top, bottom)
         strip = Path(image_path).with_name(f"{map_id}_{number}.png")
-        image.copy(0, top, image.width(), height).save(str(strip))
-        strips.append((strip, width_mm, height * mm_per_px))
+        image.copy(0, top, image.width(), bottom - top).save(str(strip))
+        strips.append((strip, width_mm, (bottom - top) * mm_per_px))
+        top, number = bottom, number + 1
     return strips
 
 
@@ -372,6 +427,12 @@ class LayoutBuilder:
         zone is simply small on the sheet - but drawing a 2 km zone at 1:2500 would crop it. The
         same holds for the overlays: a page that shows the ground investigations while cutting the
         search radius in half tells the reader nothing was looked for out there.
+
+        Widening for the overlays is the one case where the scale is nobody's choice: it falls out
+        of how far the search radius happens to reach, and the info box then reads "1:6 104". So
+        that width goes back through the 1-2-5 ladder and the extent is rebuilt from the rounded
+        scale. The catalogue scale and the zone factor are deliberate framings and stay as they
+        are - and since the ladder only rounds up, nothing that had to fit stops fitting.
         """
         minx, miny, maxx, maxy = geometry.bbox(self.zone_ring)
         zone_w, zone_h = maxx - minx, maxy - miny
@@ -386,7 +447,9 @@ class LayoutBuilder:
         width_at_scale = MAP_W / 1000.0 * scale  # metres across the paper width at 1:scale
         width_for_zone = max(zone_w, zone_h / ratio) * max(extent_factor, 1.0)
         width_for_overlays = max(maxx - minx, (maxy - miny) / ratio)
-        width = max(width_at_scale, width_for_zone, width_for_overlays)
+        width = max(width_at_scale, width_for_zone)
+        if width_for_overlays > width:
+            width = MAP_W / 1000.0 * _round_scale(width_for_overlays / (MAP_W / 1000.0))
         height = width * ratio
         return QgsRectangle(cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
 
