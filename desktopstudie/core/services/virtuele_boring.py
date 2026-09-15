@@ -89,13 +89,17 @@ def _is_thickness(key: str, value: Any) -> bool:
 
 
 def _usable_records(payload: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[float]]:
-    """Splits the records into those with at least one positive thickness and the chainages of the
-    ones without. A column where every layer is 0.0 lies outside the model: it has neither a
-    surface nor a layer, so it must leave a gap rather than a zero-height column at the floor."""
+    """Splits the records into those with at least one DRAWABLE layer and the chainages of the ones
+    without. A column where every layer is 0.0 lies outside the model: it has neither a surface nor
+    a layer, so it must leave a gap rather than a zero-height column at the floor. Bottom padding
+    does not rescue such a column - a record whose only positive entry is the padding has no
+    geology either, and keeping it would hang an empty column at floor + padding and drag the
+    interpolated surface down to it."""
     usable: List[Dict[str, Any]] = []
     empty: List[float] = []
     for record in payload.get("data") or []:
-        if any(_is_thickness(key, value) for key, value in record.items()):
+        if any(_is_thickness(key, value) and key != PROFILE_PADDING_CODE
+               for key, value in record.items()):
             usable.append(record)
         else:
             empty.append(float(record.get(PROFILE_DISTANCE_KEY, 0.0)))
