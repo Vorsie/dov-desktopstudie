@@ -57,6 +57,9 @@ JSON_NAME = "studie.json"
 DATA_DIR = "data"
 CACHE_DIR = "cache"
 RELIEF_SOURCE = "DHMV II relief"
+# Marks the copies the report maps draw with. They live outside the layer tree, so nobody can
+# remove them by hand; the flag lets a second run clean up after the first.
+REPORT_OVERLAY_FLAG = "desktopstudie/report_overlay"
 # Page PNGs are rendered at the PDF's resolution on purpose: QGIS keeps fetched WMS tiles per
 # request URL, and that URL carries the pixel size. A different dpi asks every service for every
 # tile a second time, which is minutes on a study of ninety-five sheets.
@@ -156,12 +159,17 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
     registered in the project without a tree node: invisible in the layer panel, but part of the
     project, so a layout saved with that project still finds the layers its maps point at.
     """
+    stale = [layer.id() for layer in project.mapLayers().values()
+             if layer.customProperty(REPORT_OVERLAY_FLAG)]
+    if stale:
+        project.removeMapLayers(stale)  # the copies of an earlier run in this session
     report: Dict[str, List[QgsMapLayer]] = {}
     for key, group in overlays.items():
         copies = []
         for layer in group:
             copy = layer.clone()
             copy.setName(layer.name())
+            copy.setCustomProperty(REPORT_OVERLAY_FLAG, True)
             kind = next((k for k, title in layers.POINT_NAMES.items() if title == layer.name()), None)
             if kind is not None:
                 layers.style_points_layer(copy, kind, label_only_figured=True)
