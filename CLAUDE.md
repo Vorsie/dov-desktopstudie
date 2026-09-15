@@ -1,0 +1,57 @@
+# DOV Desktopstudie — projectinstructies
+
+QGIS-plugin die uit een adres, coördinaat of polygoon een geotechnische desktopstudie voor
+Vlaanderen samenstelt: QGIS-project met lagen + PDF-rapport, uitsluitend uit open data van DOV en
+geopunt. Ontwerp: `docs/superpowers/specs/2026-09-15-dov-desktopstudie-design.md` (lees dat eerst).
+
+Onafhankelijk, open-source project (GPL-2.0-or-later). Clean room: kopieer geen code uit andere
+lokale projecten; alleen publiek gedocumenteerde service-eigenaardigheden mogen worden hergebruikt.
+
+## Architectuur in één alinea
+
+`desktopstudie/core/` is **pure Python** (stdlib + numpy + matplotlib, GEEN `qgis`- of
+`PyQt`-import) en bevat catalogus, geometrie, datamodel, services (geocoder, DOV WFS, DOV XML,
+virtuele boring), figuren, signaleringsregels en de orchestrator `study.py`.
+`desktopstudie/qgis/` is de dunne schil: dialoog, kaarttools, lagen, DEM, layout, export,
+QgsTask, instellingen. Kaarten staan uitsluitend in `core/catalogue.py`: één entry per kaart;
+een kaart toevoegen = één entry, geen code.
+
+## Harde regels
+
+- **Geen qgis-import in `core/`.** Bewaakt door `tests/core/test_no_qgis_imports.py`.
+- **Compatibel met QGIS 3.34 t/m 4.x.** `qgisMinimumVersion=3.34`, `supportsQt6=True`. Alleen
+  API's die in 3.34 bestaan. Imports via `qgis.PyQt`. Qt-enums altijd scoped
+  (`Qt.AlignmentFlag.AlignRight`, `QDialog.DialogCode.Accepted`). Python-syntaxis ≥ 3.9: geen
+  `match`, geen geneste f-strings, `from __future__ import annotations` in elk bestand.
+- **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
+  (gebruik `urllib`). Alles rekent in EPSG:31370.
+- **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
+  nadat hij tegen de echte service is gecontroleerd. Fixtures in `tests/core/fixtures/` zijn echte
+  opgeslagen antwoorden (met bron-URL en datum in een `README.md` ernaast).
+- **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; max 500 features → bbox splitsen en
+  op permkey ontdubbelen; CPT qc/Qt in MPa, fs/u in kPa; WCS-GetCoverage is multipart.
+- **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
+  beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan.
+- **Logging**: prefix `[core INFO module]` / `[qgis INFO module]`; per fase een INFO-samenvatting,
+  per item DEBUG; log wat NIET gevonden is.
+- **TDD op de kern**: eerst een falende test in de woorden van de regel, dan de implementatie, dan
+  refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
+- **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
+  boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
+- **Git**: Conventional Commits, één bestand per commit, `main` is de werkbranch tot v0.1.
+
+## Ontwikkelomgeving
+
+- Kern-tests: gewone Python ≥ 3.9 (`py -3.12 -m venv .venv && .venv\Scripts\pip install -e .[dev]`),
+  `pytest tests/core`; live-tests: `pytest -m live`.
+- Schil: de Python van een lokale QGIS-installatie (`C:\Program Files\QGIS <versie>\bin\python-qgis*.bat`).
+  Headless flow: `scripts/run_headless.py`.
+- Plugin laden in QGIS: junction van `desktopstudie/` naar
+  `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie`, daarna Plugin Reloader.
+- Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
+
+## Bekende architecturale schuld
+
+Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
+
+- Nog geen items.
