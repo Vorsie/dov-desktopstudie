@@ -1,10 +1,13 @@
-# tests/core/test_model.py
 from __future__ import annotations
 
+import dataclasses
 import json
+from pathlib import Path
 
+import numpy as np
 import pytest
 
+from desktopstudie.core import geometry as g
 from desktopstudie.core import model as m
 
 
@@ -46,3 +49,50 @@ def test_virtual_borehole_helpers():
     ])
     assert vb.surface_mtaw == 10.0
     assert vb.depth_of(vb.layers[1]) == (1.0, 5.0)
+
+
+def test_representative_point_is_inside_l_shaped_zone():
+    ring = [(0.0, 0.0), (200.0, 0.0), (200.0, 60.0), (60.0, 60.0), (60.0, 200.0), (0.0, 200.0)]
+    zone = m.StudyZone(ring=ring, name="L-zone")
+    assert g.point_in_ring(*zone.representative_point, ring)
+
+
+def test_write_json_handles_numpy_scalars_paths_and_nested_section(gent_ring, tmp_path):
+    zone = m.StudyZone(ring=gent_ring, name="Gent test")
+    layer = m.VbLayer(code="g3dv3_F_1", name="Antropogeen", top_mtaw=10.0, base_mtaw=9.0, thickness_m=1.0,
+                       color="#EA152E", texture="opvulling")
+    vb = m.VirtualBorehole(x=104326.0, y=192506.0, model="g3dv3_F", layers=[layer])
+    section = m.Section(line=((0.0, 0.0), (10.0, 0.0)), boreholes=[vb],
+                         projected=[m.ProjectedPoint("cpt", "S1", 5.0, 1.0, 10.0, 20.0)],
+                         zone_from_m=2.0, zone_to_m=8.0)
+    result = m.StudyResult(zone=zone, created_at="2026-09-15T10:00:00",
+                            relief=(np.float32(8.0), np.float32(10.5), np.float32(9.0)),
+                            figures={"section": Path("figuren/section.png")},
+                            section=section)
+    path = tmp_path / "studie.json"
+    result.write_json(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["relief"] == [8.0, 10.5, 9.0]
+    assert data["figures"]["section"].endswith("section.png")
+    assert data["section"]["boreholes"][0]["layers"][0]["name"] == layer.name
+    assert data["section"]["line"] == [[0.0, 0.0], [10.0, 0.0]]
+
+
+def test_gw_filter_latest_depth_is_surface_minus_level():
+    filt = m.GwFilter(gw_id="1985-007948", filter_no="1", x=0.0, y=0.0, z_mtaw=10.0, aquifer=None,
+                       filter_base_m=None, filter_length_m=None, network=None, url="", report_url=None,
+                       distance_m=0.0, latest=m.GwLevel(date="2024-01-01", level_mtaw=8.5))
+    assert filt.latest_depth_m == pytest.approx(1.5)
+
+    filt_no_surface = dataclasses.replace(filt, z_mtaw=None)
+    assert filt_no_surface.latest_depth_m is None
+
+
+def test_depth_of_with_zero_surface_elevation():
+    vb = m.VirtualBorehole(x=0.0, y=0.0, model="g3dv3_F", layers=[
+        m.VbLayer(code="a", name="Antropogeen", top_mtaw=0.0, base_mtaw=-2.0, thickness_m=2.0,
+                  color="#000000", texture="opvulling"),
+        m.VbLayer(code="b", name="Formatie van Gent", top_mtaw=-2.0, base_mtaw=-5.0, thickness_m=3.0,
+                  color="#FFFF00", texture="eolische dekzanden"),
+    ])
+    assert vb.depth_of(vb.layers[1]) == (2.0, 5.0)
