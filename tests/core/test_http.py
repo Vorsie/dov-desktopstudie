@@ -291,3 +291,18 @@ def test_a_shortened_path_still_names_the_request_it_carried():
     bronnentabel."""
     assert http.short_url(WATERINFO_URL + "?SERVICE=WMS&REQUEST=GetLegendGraphic") == \
         "https://inspirepub.waterinfo.be/.../WMSServer (GetLegendGraphic)"
+
+
+QUARTAIR_DRAWING = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
+                    "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_22010_png")
+
+
+def test_one_endless_path_segment_keeps_its_tail():
+    """De legenda-URL van een quartairprofieltype is één segment van honderd tekens: er valt geen
+    map weg te laten. Wat de lezer eraan heeft staat achteraan - de bestandsnaam met het
+    profieltype erin - dus dat stuk blijft staan."""
+    short = http.short_url(QUARTAIR_DRAWING)
+
+    assert short.startswith("https://datasets.omgeving.vlaanderen.be/...")
+    assert short.endswith("DOV_Quartair_50000_22010_png")
+    assert len(short) < len(QUARTAIR_DRAWING) - 30
