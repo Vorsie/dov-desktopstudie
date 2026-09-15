@@ -9,11 +9,11 @@ from typing import List, Tuple
 import numpy as np
 
 from ..model import Cpt
-from .common import new_figure_grid, save
+from .common import draw_no_data, new_figure_grid, save
 
 QC_AXIS_MAX = 50.0
 QC_AXIS_MIN = 5.0
-NO_DATA_MESSAGE = "geen meetreeks beschikbaar"
+NO_DATA_MESSAGE = "geen meetreeks beschikbaar"  # a CPT misses a measurement series, not layers
 
 
 def _qc_xlim(qc_values: List[float]) -> Tuple[float, bool]:
@@ -32,7 +32,7 @@ def _build_cpt_figure(cpt: Cpt):
     ncols = 3 if has_fs else 1
     fig, axes = new_figure_grid(ncols, figsize=(3.2 * ncols, 7), sharey=True)
     if not has_data:
-        axes[0].text(0.5, 0.5, NO_DATA_MESSAGE, ha="center", va="center", transform=axes[0].transAxes)
+        draw_no_data(axes[0], NO_DATA_MESSAGE)
         axes[0].set_xlabel("qc [MPa]")
     else:
         qc = [v if v is not None else float("nan") for v in p.qc_mpa]
