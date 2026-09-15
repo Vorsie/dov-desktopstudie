@@ -57,6 +57,11 @@ class MapEntry:
     wms_url: str
     wms_layer: str
     attribution: str
+    # A named WMS style; "" asks the service for the layer default. Some maps are only correct
+    # with a named style (gxg), and a style name is NOT a layer name - a GetMap on it fails.
+    # It sits here rather than next to wms_layer because attribution has no default: a defaulted
+    # field before it would break the dataclass, and every positional MapEntry(...) below it.
+    wms_style: str = ""
     licence: str = GEOPUNT_LICENCE
     image_format: str = "image/png"
     opacity: float = 1.0
@@ -84,11 +89,12 @@ class MapEntry:
 
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
-         field_labels: Optional[Dict[str, str]] = None, *, scale: int) -> MapEntry:
+         field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "") -> MapEntry:
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
-                    attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE, legend=legend,
-                    opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs, fact_fields=fields,
-                    value_labels=labels or {}, field_labels=field_labels or {}, scale=scale)
+                    attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
+                    legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
+                    fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
+                    scale=scale)
 
 
 def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
@@ -164,7 +170,9 @@ CATALOGUE: List[MapEntry] = [
          field_labels={"kwetsbaarheidsschaal": "Kwetsbaarheid", "watervoerende_laag": "Watervoerende laag",
                        "deklaag": "Deklaag", "dikte_onverzadigde_zone": "Onverzadigde zone", "indices": "Index"},
          scale=25000),
-    _dov("gxg", "Grondwaterstanden GxG (GHG/GLG)", "gxg:gxg", legend=True, scale=25000),
+    # gxg:gxg is the STYLE, not the layer: the map is gxg:ghg_mmv_main drawn with it (live 2026-09-15).
+    _dov("gxg", "Grondwaterstanden GxG (GHG/GLG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
+         style="gxg:gxg"),
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
