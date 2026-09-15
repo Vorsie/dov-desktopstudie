@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import json
 import pathlib
 from dataclasses import dataclass, field
@@ -40,6 +41,16 @@ class StudyZone:
     @property
     def representative_point(self) -> Point:
         return geometry.representative_point(self.ring)
+
+
+def now_iso() -> str:
+    """The moment a source was consulted, to the second, with the local offset.
+
+    One spelling for the whole project: the orchestrator stamps its own sources with it and the
+    shell stamps the ones only it can reach (the DTM, the WMS layers, the legends), and a report
+    must not mix two notations of the same clock.
+    """
+    return dt.datetime.now().astimezone().replace(microsecond=0).isoformat()
 
 
 @dataclass
