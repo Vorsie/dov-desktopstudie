@@ -79,8 +79,9 @@ def test_vb_figure_axes_and_size():
     vb = parse_doorprik(fixture_json("vb_g3dv3_F.json"), 104326.0, 192506.0, "g3dv3_F")
     fig, ax = vb_column._build_vb_figure(vb, max_depth_m=60.0)
     try:
+        within_cap = sum(1 for layer in vb.layers if vb.depth_of(layer)[0] < 60.0)
         assert ax.get_ylim()[0] > ax.get_ylim()[1]
-        assert len(ax.patches) == len(vb.layers)
+        assert len(ax.patches) == within_cap  # layers below the 60 m cap are clipped away
         fig.canvas.draw()
         assert fig.get_size_inches()[0] == 5.0
     finally:
