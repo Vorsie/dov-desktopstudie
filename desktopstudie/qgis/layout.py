@@ -24,6 +24,7 @@ the pages that were left out, because the numbering belongs to the layout, not t
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
@@ -88,9 +89,9 @@ SCALE_BAR_SEGMENTS = 2
 SCALE_BAR_STEPS = (10.0, 20.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
                    20000.0, 50000.0)
 SCALE_BAR_FRACTION = 5.0  # one segment is about a fifth of the mapped width
-# A legend graphic is authored at screen resolution; blowing it up to the full content width turns
-# 7 pt labels into blurry blocks, so it is never drawn larger than its natural size.
-LEGEND_MM_PER_PX = 25.4 / 96.0
+# A legend graphic is authored at screen resolution (96 dpi logical pixels); blown up to the full
+# content width its 7 pt labels turn to mush, so it is never drawn larger than this natural size.
+MM_PER_PX = 25.4 / 96.0
 MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, not a long table
 
 
@@ -133,20 +134,45 @@ def _joined(*parts: Optional[str]) -> str:
     return " - ".join(part for part in parts if part)
 
 
-def _drawn_size(image_path, max_w: float, max_h: float,
-                mm_per_px: Optional[float] = None) -> Tuple[float, float]:
+def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
+             margin: float) -> Tuple[float, float]:
+    """Width and height in mm for a plain-text box, measured by the label itself.
+
+    `adjustSizeToText()` sizes a label to its text but never wraps it, so on its own it makes a box
+    one row too short the moment a licence line is longer than the box - and that last row then
+    hangs below the frame, right on the attribution. Measuring the lines one at a time answers how
+    many rows the text really takes. It is the *label* that measures, not QFontMetricsF: QGIS makes
+    the same string about seven per cent wider than Qt's metrics do (6 pt licence line: 55.4 mm
+    against 51.9 mm), and that difference is exactly one wrapped row.
+
+    The item is left holding the full text again.
+    """
+    widths: List[float] = []
+    line_h = 2 * margin
+    for line in lines:
+        item.setText(line)
+        item.adjustSizeToText()
+        widths.append(item.rect().width())
+        line_h = item.rect().height()
+    item.setText("\n".join(lines))
+    if not widths:
+        return max_w, line_h
+    width = min(max(widths), max_w)
+    inner = max(width - 2 * margin, 1.0)
+    rows = sum(max(1, int(math.ceil((one - 2 * margin) / inner))) for one in widths)
+    return width, rows * (line_h - 2 * margin) + 2 * margin
+
+
+def _drawn_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
     """The size in mm at which a picture is really drawn inside max_w x max_h, aspect kept.
 
     That is what ResizeMode.Zoom does, but QGIS does it while painting and never tells the layout,
-    so a caption placed under the *frame* floats a hand's width below a square figure. With
-    `mm_per_px` the picture is additionally capped at its natural size.
+    so a caption placed under the *frame* would float a hand's width below a square figure.
     """
     size = QImage(str(image_path)).size()
     if size.isEmpty():
         return max_w, max_h
     scale = min(max_w / size.width(), max_h / size.height())
-    if mm_per_px is not None:
-        scale = min(scale, mm_per_px)
     return size.width() * scale, size.height() * scale
 
 
@@ -222,7 +248,7 @@ def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
     # The scale follows from the WIDTH alone (capped at natural size). Fitting the height too -
     # what ResizeMode.Zoom would do on its own - is exactly the failure mode here: it shrinks a
     # legend of three hundred classes until it fits, and nobody can read it.
-    mm_per_px = min(CONTENT_W / image.width(), LEGEND_MM_PER_PX)
+    mm_per_px = min(CONTENT_W / image.width(), MM_PER_PX)
     width_mm = image.width() * mm_per_px
     height_mm = image.height() * mm_per_px
     if height_mm <= CONTENT_H + 0.01:
@@ -300,8 +326,9 @@ class LayoutBuilder:
         push it clean off the sheet. Growing leftwards from the right margin keeps a long licence
         line on the paper whatever it says.
         """
+        shown = [part for part in lines if part]
         item = QgsLayoutItemLabel(self.layout)
-        item.setText("\n".join(part for part in lines if part))
+        item.setText("\n".join(shown))
         item.setTextFormat(_text_format(size))
         item.setMargin(INFO_MARGIN_MM)
         item.setFrameEnabled(True)
@@ -310,11 +337,12 @@ class LayoutBuilder:
         self.layout.addLayoutItem(item)
         item.attemptMove(point_mm(CONTENT_RIGHT - INFO_W, y), page=page)
         item.attemptResize(size_mm(INFO_W, INFO_H))
-        item.adjustSizeToText()
-        # Pin the right edge to the margin afterwards. adjustSizeToText shifts the box by its own
-        # rules (a reference point of UpperRight still moves it half a step), so the only reliable
-        # way to keep a long licence line on the sheet is to place the box once its width is known.
-        item.attemptMove(point_mm(CONTENT_RIGHT - item.rect().width(), y), page=page)
+        width, height = _fit_box(item, shown, INFO_W, INFO_MARGIN_MM)
+        item.attemptResize(size_mm(width, height))
+        # Pin the right edge to the margin only now: adjustSizeToText shifts a box by its own
+        # rules (a reference point of UpperRight still moves it half a step), so the one reliable
+        # way to keep a long licence line on the sheet is to place it once the width is settled.
+        item.attemptMove(point_mm(CONTENT_RIGHT - width, y), page=page)
         return item
 
     def header(self, chapter: Chapter, title: str, page: int) -> None:
