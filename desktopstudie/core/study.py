@@ -12,7 +12,17 @@ from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
 from . import catalogue, checks, geometry
 from .figures import borehole_column, cpt_figure, section_figure, vb_column
 from .logging_util import Log
-from .model import Borehole, Cpt, GwFilter, MapFact, Provenance, Signalering, StudyResult, StudyZone
+from .model import (
+    Borehole,
+    Cpt,
+    GwFilter,
+    MapFact,
+    Provenance,
+    Section,
+    Signalering,
+    StudyResult,
+    StudyZone,
+)
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
 from .services.dov_wfs import DovWfs, feature_xy
@@ -27,6 +37,22 @@ GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top
 class StudyCancelled(Exception):
     """The caller's should_cancel() asked the run to stop. Not a source failure: it is never
     recorded as one and never swallowed by `guarded`."""
+
+
+class EmptySource(Exception):
+    """A source answered, but with nothing usable in it - a doorprik outside the model, a section
+    line with no geology along it. `guarded` records it as a failed source with this text as the
+    message, so the report says WHAT is missing instead of naming an exception type."""
+
+
+def has_geology(section: Section) -> bool:
+    """True when there is something to draw: at least one profile column with layers, or at least
+    one doorprik anchor with layers. Outside the model both are empty and the figure would be a
+    blank frame that reads as 'no geology here' rather than 'nothing was found here'."""
+    profile = section.profile
+    if profile is not None and any(column.layers for column in profile.columns):
+        return True
+    return any(borehole.layers for borehole in section.boreholes)
 
 
 @dataclass
@@ -88,6 +114,9 @@ class _Runner:
             self.result.provenance.append(Provenance(source, url, _now(), True))
         except StudyCancelled:
             raise  # a cancelled run is not a broken source
+        except EmptySource as exc:
+            self.log.warning(f"{source}: {exc}")
+            self.result.provenance.append(Provenance(source, url, _now(), False, str(exc)))
         except Exception as exc:  # noqa: BLE001 - isolate every source
             self.log.warning(f"{source} niet beschikbaar: {exc}")
             self.result.provenance.append(
@@ -220,18 +249,35 @@ class _Runner:
 
     def virtual_boreholes(self) -> None:
         cx, cy = self.zone.representative_point  # inside the zone, also for L-shaped parcels
+        log = self.log.child("virtuele_boring")
+
+        def fetch(model: str) -> None:
+            borehole = fetch_virtual_borehole(self.client, cx, cy, model, log=log)
+            if not borehole.layers:
+                raise EmptySource("geen lagen op dit punt (buiten het model?)")
+            self.result.virtual_boreholes[model] = borehole
+
         for model in self.s.models_centroid:
             self.guarded(f"Virtuele boring {model}", catalogue.VB_DOORPRIK_URL.format(model=model),
-                         lambda m=model: self.result.virtual_boreholes.__setitem__(
-                             m, fetch_virtual_borehole(self.client, cx, cy, m)))
+                         lambda m=model: fetch(m))
 
     def section(self) -> None:
         if self.zone.section_line is None:
             self.zone.section_line = section_line(self.zone, self.s.section_extension_m)
-        self.result.section = build_section(
+        section = build_section(
             self.client, self.zone.section_line, self.zone, self.result.cpts, self.result.boreholes,
             self.result.gw_filters, self.s.n_section_points, self.s.corridor_m, self.s.model_section,
             log=self.log.child("section"), max_workers=self.s.max_workers, with_profile=self.s.with_profile)
+        # The dense profile is a source of its own: losing it costs the fine columns and leaves
+        # only the handful of anchors, which the reader has to be told about. Not reported when
+        # the caller asked for no profile at all - nothing was tried, so nothing failed.
+        if self.s.with_profile and section.profile is None:
+            self.result.provenance.append(Provenance(
+                "Doorsnede - profielbevraging", catalogue.VB_PROFILE_URL.format(model=self.s.model_section),
+                _now(), False, "profiel niet beschikbaar; alleen doorprik-ankers"))
+        if not has_geology(section):
+            raise EmptySource("geen modellagen langs de lijn")
+        self.result.section = section
 
     def _gfi_points(self) -> List[Tuple[float, float]]:
         """Where to ask a GetFeatureInfo map about the zone: the representative point plus ring
@@ -272,6 +318,19 @@ class _Runner:
                             "Tabel onvolledig; verhoog max_features of verklein de straal.", severity="info")
                 for typename, returned, matched in self.wfs.truncations]
 
+    def _section_signals(self) -> List[Signalering]:
+        """Doorprik points along the section line that failed. A section drawn from fewer columns
+        than were asked for is thinner than it looks, and the gap in it reads as an absence of
+        geology unless the count is stated."""
+        section = self.result.section
+        if section is None or section.failed_points <= 0:
+            return []
+        asked = section.failed_points + len(section.boreholes)
+        return [Signalering("doorsnede_onvolledig",
+                            f"{section.failed_points} van {asked} doorprik-punten mislukt.",
+                            "DOV virtuele boring",
+                            "Doorsnede onvolledig; de kolommen op die punten ontbreken.", severity="info")]
+
     def figures(self) -> None:
         fig_dir = self.out / "figuren"
         for c in self.result.cpts:
@@ -285,7 +344,7 @@ class _Runner:
         for model, vb in self.result.virtual_boreholes.items():
             self.result.figures[f"vb_{model}"] = self._relative(
                 vb_column.plot_virtual_borehole(vb, fig_dir / f"vb_{model}.png"))
-        if self.result.section and (self.result.section.boreholes or self.result.section.profile):
+        if self.result.section is not None and has_geology(self.result.section):
             self.result.figures["section"] = self._relative(
                 section_figure.plot_section(self.result.section, fig_dir / "section.png"))
         self.log.info(f"{len(self.result.figures)} figuren geschreven in {fig_dir}")
@@ -316,7 +375,8 @@ class _Runner:
         self._step(0.85, "Figuren")
         self.guarded("Figuren", "", self.figures)
         self._step(0.92, "Signaleringen")
-        self.result.signaleringen = checks.run_all(self.result) + self._truncation_signals()
+        all_signals = checks.run_all(self.result) + self._truncation_signals() + self._section_signals()
+        self.result.signaleringen = checks.validate(all_signals)
         self.guarded("studie.json", str(self.out / "data" / "studie.json"), self.write_json)
         self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
