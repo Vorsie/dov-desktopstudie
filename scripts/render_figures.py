@@ -12,8 +12,14 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from desktopstudie.core.figures import borehole_column, cpt_figure, section_figure, vb_column  # noqa: E402
-from desktopstudie.core.model import (Borehole, Cpt, LithologyLayer, ProjectedPoint, Section,  # noqa: E402
-                                      VirtualBorehole)
+from desktopstudie.core.model import (  # noqa: E402
+    Borehole,
+    Cpt,
+    LithologyLayer,
+    ProjectedPoint,
+    Section,
+    VirtualBorehole,
+)
 from desktopstudie.core.services.dov_xml import parse_cpt_profile  # noqa: E402
 from desktopstudie.core.services.virtuele_boring import parse_doorprik  # noqa: E402
 from tests.core.conftest import fixture_bytes, fixture_json  # noqa: E402
