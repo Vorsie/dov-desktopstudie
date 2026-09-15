@@ -293,6 +293,48 @@ def test_the_extent_also_holds_what_the_page_asked_to_draw(project, gent_zone, t
     assert wide.contains(search_area.extent())
 
 
+def test_a_map_widened_for_its_overlays_lands_on_a_round_scale(project, gent_zone, tmp_path):
+    """Rekt een kaart open tot de zoekstraal erop past, dan rolt daar een willekeurige schaal uit
+    (1:6 104). De lezer hoort een schaal van de 1-2-5-ladder te zien, naar boven afgerond zodat de
+    kaart alleen ruimer wordt - de zoekcirkel staat er daarna nog altijd volledig op."""
+    from desktopstudie.qgis import layers, layout
+
+    search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
+    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    extent = builder.map_extent(5000, 1.0, [search_area])  # de overzichtspagina van hoofdstuk 5
+
+    assert extent.width() / (layout.MAP_W / 1000.0) == pytest.approx(10000, abs=1)
+    assert extent.contains(search_area.extent())
+
+
+def test_a_map_that_was_not_widened_keeps_the_catalogue_scale(project, gent_zone, tmp_path):
+    """Past alles op de doelschaal, dan blijft die staan: de catalogusschaal is een keuze, geen
+    tussenstap die naar de ladder mag worden getrokken."""
+    from desktopstudie.qgis import layout
+
+    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
+
+
+def test_the_info_box_prints_the_rounded_scale(project, gent_zone, tmp_path):
+    """Wat de lezer op het blad ziet: 1:10 000, niet 1:6 104."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layers, layout
+
+    page = MapPage(MAP_ID, "Overzicht beschikbaar grondonderzoek", legend=False, scale=5000,
+                   extent_factor=1.0, show_investigations=True)
+    overlays = {"zone": [layers.zone_layer(gent_zone)],
+                "investigations": [layers.circle_layer(gent_zone)]}
+    lay = layout.build_layout(project, _report([page]), {}, overlays, tmp_path, gent_zone.ring, _meta())
+
+    texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
+    assert any("schaal 1:10 000" in text for text in texts), texts
+
+
 # --- legendapagina's -------------------------------------------------------------------------
 
 def test_the_legend_page_shows_the_fetched_image_and_is_switchable(make_layout):
@@ -327,6 +369,62 @@ def test_a_legend_taller_than_a_page_is_cut_into_page_sized_strips(make_layout, 
         prop = collection.page(index).dataDefinedProperties().property(
             QgsLayoutObject.DataDefinedProperty.ExcludeFromExports)
         assert prop.expressionString() == "@legendas = 0", f"blad {index} volgt de schakelaar niet"
+
+
+def _striped_png(path, width=200, blocks=100, block_h=30, gap_h=6):
+    """Een legenda zoals een GeoServer ze tekent: gekleurde regels van 30 px, telkens gescheiden
+    door een witte tussenruimte van 6 px. Elke gekleurde regel is een legenda-item."""
+    from qgis.PyQt.QtGui import QColor, QImage, QPainter
+
+    image = QImage(width, blocks * (block_h + gap_h), QImage.Format.Format_ARGB32)
+    image.fill(QColor(255, 255, 255))
+    painter = QPainter(image)
+    for number in range(blocks):
+        painter.fillRect(0, number * (block_h + gap_h), width, block_h, QColor(20, 90 + number % 150, 160))
+    painter.end()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
+def _row_is_white(image, y):
+    from qgis.PyQt.QtGui import QColor
+
+    return all(image.pixelColor(x, y) == QColor(255, 255, 255) for x in range(image.width()))
+
+
+def test_a_strip_boundary_never_runs_through_a_legend_item(qgs_app, tmp_path):
+    """Een snede mag geen legenda-item halveren: waar het blad vol is, hoort ze in de witte
+    tussenruimte boven dat item te vallen, niet dwars door de gekleurde regel die daar ligt."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.qgis import layout
+
+    source = _striped_png(tmp_path / "legendas" / "gxg_ghg.png")
+    strips = layout._legend_strips(source, "gxg_ghg")
+
+    assert len(strips) >= 2, "een strook van 3600 px hoort niet op een blad te passen"
+    heights = []
+    for number, (strip_path, _width, _height) in enumerate(strips, start=1):
+        image = QImage(str(strip_path))
+        heights.append(image.height())
+        if number < len(strips):
+            assert _row_is_white(image, image.height() - 1), f"strook {number} eindigt in een item"
+    assert sum(heights) == QImage(str(source)).height(), "de stroken samen zijn de hele legenda"
+
+
+def test_a_legend_without_any_blank_row_is_still_cut(qgs_app, tmp_path):
+    """Geen witte rij te vinden? Dan wint het blad: snijden op de nominale hoogte, want een strook
+    die nergens wordt afgebroken past op geen enkele pagina."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.qgis import layout
+
+    solid = _striped_png(tmp_path / "legendas" / "vol.png", blocks=1, block_h=3600, gap_h=0)
+    strips = layout._legend_strips(solid, "vol")
+
+    assert len(strips) >= 2
+    assert sum(QImage(str(path)).height() for path, _w, _h in strips) == 3600
 
 
 def test_the_legend_switch_drops_the_pages_from_a_real_export(make_layout, tmp_path):
