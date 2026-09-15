@@ -707,3 +707,40 @@ def test_building_a_layout_stops_when_the_user_cancels(project, gent_zone, tmp_p
     with pytest.raises(Cancelled):
         layout.build_layout(project, _report(pages), {}, {}, tmp_path, gent_zone.ring, _meta(),
                             should_cancel=lambda: True)
+
+
+def test_a_column_of_unbreakable_words_keeps_its_own_width(qgs_app):
+    """WrapText breekt op spaties. Een datum of een permkey heeft er geen, dus die kolom moet haar
+    hele woord krijgen - anders leest de bronnentabel "2026-09-15T22:2" en denkt de lezer dat de
+    studie op een halve seconde is gemaakt. Gemeten op de echte bronnentabel van een studie waarin
+    elke DOV-dienst plat lag."""
+    from desktopstudie.qgis import layout
+
+    columns = ["Bron", "URL", "Opgehaald", "Status"]
+    rows = [["Sonderingen", "https://www.dov.vlaanderen.be/geoserver/wfs", "2026-09-15",
+             "fout: HttpError: netwerkfout voor https://www.dov.vlaanderen.be/geoserver/wfs "
+             "(DescribeFeatureType dov-pub:Sonderingen): RemoteDisconnected: Remote end closed "
+             "connection without response"],
+            ["Grondwaterkwetsbaarheidskaart (feiten)", "https://www.dov.vlaanderen.be/geoserver/wfs",
+             "2026-09-15", "ok"]]
+
+    widths = layout.column_widths(columns, rows, 169.5)
+
+    assert sum(widths) <= 169.5 + 0.01
+    for index, word in ((2, "2026-09-15"), (0, "Grondwaterkwetsbaarheidskaart")):
+        assert widths[index] >= layout._text_width_mm([word], layout.TABLE_FONT_PT), columns[index]
+
+
+def test_one_greedy_column_cannot_eat_the_whole_sheet(qgs_app):
+    """Een kolom met één heel lang woord erin (een URL) mag niet alle ruimte opeisen; de andere
+    kolommen moeten leesbaar blijven."""
+    from desktopstudie.qgis import layout
+
+    columns = ["Naam", "URL"]
+    rows = [["Sonderingen", "https://services.dov.vlaanderen.be/virtueleboringserver/base/"
+                            "virtueleprofielen/doorprik/g3dv3_F"]]
+
+    widths = layout.column_widths(columns, rows, 169.5)
+
+    assert sum(widths) <= 169.5 + 0.01
+    assert widths[0] >= layout._text_width_mm(["Sonderingen"], layout.TABLE_FONT_PT)
