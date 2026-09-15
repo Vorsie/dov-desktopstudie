@@ -132,3 +132,24 @@ def test_the_new_geology_maps_get_a_map_page_and_a_fact_table(gent_ring):
     assert {"grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "pfas_no_regret"} <= set(map_ids)
     pfas = next(p for p in geo.pages if isinstance(p, rc.TablePage) and p.title.startswith("PFAS"))
     assert pfas.columns == ["PFAS-dossier", "Gemeente", "Straat", "Status", "Geldig vanaf", "Maatregelen (link)"]
+
+
+def test_the_sources_table_prints_a_date_and_a_short_url(gent_ring):
+    """Een volledige tijdstempel met tijdzone ("2026-09-15T22:21:09+02:00") en een URL met de hele
+    CQL-polygoon erin passen op geen blad: ze worden afgekapt en zeggen dan niets meer. De datum en
+    de dienst zijn wat de lezer nodig heeft om een bron terug te vinden."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [Provenance(
+        "Sonderingen",
+        "https://www.dov.vlaanderen.be/geoserver/wfs?service=WFS&request=GetFeature"
+        "&typeNames=dov-pub%3ASonderingen&CQL_FILTER=DWITHIN%28geom%2CPOLYGON%28%28104226%20192406"
+        "%2C104426%20192406%29%29%2C500%2Cmeters%29",
+        "2026-09-15T22:21:09+02:00", True)]
+    report = rc.build_report(result, rc.ReportMeta(project="T", author="A", company="B"))
+
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Geraadpleegde"))
+    row = sources.rows[0]
+    assert row[2] == "2026-09-15"
+    assert "CQL_FILTER" not in row[1] and row[1].startswith("https://www.dov.vlaanderen.be/geoserver/wfs")
