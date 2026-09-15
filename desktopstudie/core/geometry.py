@@ -3,7 +3,7 @@ without a repeated closing vertex."""
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 Point = Tuple[float, float]
 Ring = List[Point]
@@ -95,6 +95,21 @@ def sample_line(p: Point, q: Point, n: int) -> List[Point]:
     if n < 2:
         return [p]
     return [(p[0] + (q[0] - p[0]) * i / (n - 1), p[1] + (q[1] - p[1]) * i / (n - 1)) for i in range(n)]
+
+
+def interpolate(along: float, xs: Sequence[float], ys: Sequence[Optional[float]]) -> float:
+    """Linear interpolation of `ys` over `xs` (both in sampling order, xs ascending), holding the
+    first and last value flat outside the sampled range. Samples whose y is None are dropped, so
+    a gap is bridged rather than turned into a hole; 0.0 when no sample has a value at all."""
+    pts = [(x, y) for x, y in zip(xs, ys) if y is not None]
+    if not pts:
+        return 0.0
+    if along <= pts[0][0]:
+        return pts[0][1]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if x0 <= along <= x1:
+            return y0 + (y1 - y0) * (along - x0) / (x1 - x0) if x1 > x0 else y0
+    return pts[-1][1]
 
 
 def project_onto_line(pt: Point, p: Point, q: Point) -> Tuple[float, float]:
