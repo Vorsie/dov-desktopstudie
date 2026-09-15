@@ -76,3 +76,16 @@ def test_representative_point_is_centroid_for_convex_ring(gent_ring):
 def test_centroid_is_stable_for_a_thin_sliver_at_lambert_scale():
     ring = [(104226.0, 192406.0), (104426.0, 192406.0), (104426.0, 192406.000001), (104226.0, 192406.000001)]
     assert g.centroid(ring) == pytest.approx((104326.0, 192406.0), abs=1e-3)
+
+
+def test_interpolate_holds_the_end_values_flat_outside_the_sampled_range():
+    assert g.interpolate(50.0, [0.0, 100.0], [10.0, 12.0]) == 11.0
+    assert g.interpolate(-5.0, [0.0, 100.0], [10.0, 12.0]) == 10.0   # before the first sample
+    assert g.interpolate(500.0, [0.0, 100.0], [10.0, 12.0]) == 12.0  # past the last sample
+
+
+def test_interpolate_ignores_samples_without_a_value():
+    assert g.interpolate(500.0, [0.0, 100.0], [10.0, None]) == 10.0
+    assert g.interpolate(5.0, [], []) == 0.0            # nothing to interpolate at all
+    assert g.interpolate(5.0, [0.0], [None]) == 0.0
+    assert g.interpolate(3.0, [3.0, 3.0], [8.0, 9.0]) == 8.0  # samples at the same x: the first wins
