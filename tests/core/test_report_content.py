@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from desktopstudie.core import report_content as rc
-from desktopstudie.core.model import Cpt, MapFact, Signalering, StudyResult, StudyZone
+from desktopstudie.core.model import (
+    Cpt,
+    MapFact,
+    Signalering,
+    StudyResult,
+    StudyZone,
+    VbLayer,
+    VirtualBorehole,
+)
 
 
 def _result(gent_ring):
@@ -70,6 +78,29 @@ def test_empty_result_builds_without_crash_and_explains_gaps(gent_ring):
     sec = report.chapters[5]
     assert any(isinstance(p, rc.MapPage) for p in sec.pages)
     assert any(isinstance(p, rc.TextPage) and "niet beschikbaar" in p.html for p in sec.pages)
+
+
+def test_chapter_4_falls_back_when_no_virtual_borehole_has_layers(gent_ring):
+    # A model that answered with zero layers is not a virtual borehole; showing its empty table
+    # instead of the fallback text would read as "the ground here has no geology".
+    r = _result(gent_ring)
+    r.virtual_boreholes["g3dv3_F"] = VirtualBorehole(x=0.0, y=0.0, model="g3dv3_F", layers=[])
+    vb_chapter = rc.build_report(r, rc.ReportMeta(project="P1", author="A", company="C")).chapters[3]
+    assert any(isinstance(p, rc.TextPage) and "niet beschikbaar" in p.html for p in vb_chapter.pages)
+    assert not any(isinstance(p, rc.TablePage) for p in vb_chapter.pages)
+
+
+def test_an_empty_virtual_borehole_table_says_why_it_is_empty(gent_ring):
+    r = _result(gent_ring)
+    r.virtual_boreholes["g3dv3_F"] = VirtualBorehole(x=0.0, y=0.0, model="g3dv3_F", layers=[
+        VbLayer("g3dv3_F_2", "Formatie van Gent", 14.6, 10.0, 4.6, "#FFFF00", "dekzand")])
+    r.virtual_boreholes["hcovv2_S"] = VirtualBorehole(x=0.0, y=0.0, model="hcovv2_S", layers=[])
+    vb_chapter = rc.build_report(r, rc.ReportMeta(project="P1", author="A", company="C")).chapters[3]
+    tables = {p.title: p for p in vb_chapter.pages if isinstance(p, rc.TablePage)}
+    filled = next(t for title, t in tables.items() if "G3Dv3" in title)
+    empty = next(t for title, t in tables.items() if "HCOV" in title)
+    assert filled.rows and filled.note == ""
+    assert empty.rows == [] and empty.note == "Geen modellagen op dit punt."
 
 
 def test_meta_has_no_none_values(gent_ring):
