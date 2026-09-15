@@ -16,13 +16,17 @@ class GeocodeHit:
     postcode: str
     location_type: str
 
+    @property
+    def is_precise(self) -> bool:
+        return self.location_type.startswith("basisregisters_huisnummer")
+
 
 def geocode(client, query: str, max_results: int = 5) -> List[GeocodeHit]:
     payload = client.get_json(GEOCODER_URL, {"q": query, "c": max_results})
     hits: List[GeocodeHit] = []
     for item in payload.get("LocationResult", []):
         loc = item.get("Location", {})
-        if "X_Lambert72" not in loc:
+        if "X_Lambert72" not in loc or "Y_Lambert72" not in loc:
             continue
         hits.append(GeocodeHit(
             address=item.get("FormattedAddress", ""),
