@@ -4,7 +4,7 @@ from desktopstudie.core.figures import borehole_column, common, cpt_figure, sect
 from desktopstudie.core.figures.common import plt
 from desktopstudie.core.model import Borehole, Cpt, CptProfile, LithologyLayer, ProjectedPoint, Section, VirtualBorehole
 from desktopstudie.core.services.dov_xml import parse_cpt_profile
-from desktopstudie.core.services.virtuele_boring import parse_doorprik
+from desktopstudie.core.services.virtuele_boring import parse_doorprik, parse_profile
 from tests.core.conftest import fixture_bytes, fixture_json
 
 
@@ -37,12 +37,6 @@ def test_vb_column_and_section(tmp_path):
                              ProjectedPoint("boring", "B1", 250.0, -3.0, None, 10.0)],  # no Z: hangs from the surface
                   zone_from_m=100.0, zone_to_m=300.0)
     assert _png_ok(section_figure.plot_section(sec, tmp_path / "sec.png", max_depth_m=60.0))
-
-
-def test_section_surface_interpolation():
-    assert section_figure._surface_at(50.0, [0.0, 100.0], [10.0, 12.0]) == 11.0
-    assert section_figure._surface_at(-5.0, [0.0, 100.0], [10.0, 12.0]) == 10.0
-    assert section_figure._surface_at(500.0, [0.0, 100.0], [10.0, None]) == 10.0
 
 
 def test_section_columns_are_placed_at_their_true_chainage():
@@ -200,3 +194,65 @@ def test_draw_depth_column_reports_the_labels_it_had_to_skip():
         assert skipped == 60 - len(ax.texts)
     finally:
         plt.close(fig)
+
+
+ANCHOR_ORDER = ["g3dv3_F_2", "g3dv3_F_8", "g3dv3_F_31", "g3dv3_F_32", "g3dv3_F_33",
+                "g3dv3_F_35", "g3dv3_F_36", "g3dv3_F_37", "g3dv3_F_42", "g3dv3_F_50"]
+
+
+def _profile_section():
+    vb = parse_doorprik(fixture_json("vb_g3dv3_F.json"), 104326.0, 192506.0, "g3dv3_F")
+    profile = parse_profile(fixture_json("vb_profile_g3dv3_F.json"), "g3dv3_F", ANCHOR_ORDER,
+                            lambda along: 14.62, 100.0)
+    anchors = [VirtualBorehole(104126.0 + 200.0 * i, 192506.0, "g3dv3_F", vb.layers) for i in range(3)]
+    section = Section(line=((104126.0, 192506.0), (104526.0, 192506.0)), boreholes=anchors,
+                      projected=[ProjectedPoint("cpt", "S407", 200.0, 5.0, 14.0, 32.0)],
+                      zone_from_m=100.0, zone_to_m=300.0, profile=profile)
+    return section, profile
+
+
+def test_section_with_a_profile_draws_one_rectangle_per_visible_profile_layer():
+    section, profile = _profile_section()
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        visible = sum(1 for column in profile.columns for layer in column.layers
+                      if layer.top_mtaw > column.surface_mtaw - 60.0)
+        assert len(ax.patches) == visible + 1  # + the shaded zone span
+        # columns are contiguous: each one spans exactly the profile resolution and they touch
+        widths = {round(patch.get_width(), 6) for patch in ax.patches}
+        assert profile.resolution_m in widths
+        lefts = sorted({round(patch.get_x(), 6) for patch in ax.patches if patch.get_width() == 100.0})
+        assert lefts == [-50.0, 50.0, 150.0, 250.0, 350.0]
+    finally:
+        plt.close(fig)
+
+
+def test_section_with_a_profile_marks_the_doorprik_anchors_in_the_legend():
+    section, _ = _profile_section()
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert "doorprik" in labels
+        assert "maaiveld (G3Dv3)" in labels and "onderzoekszone" in labels
+        dashed = [line for line in ax.lines if line.get_linestyle() in ("--", (0, (5.0, 5.0)))]
+        assert len(dashed) == 3  # one per doorprik anchor
+    finally:
+        plt.close(fig)
+
+
+def test_section_without_a_profile_still_draws_the_anchor_columns(tmp_path):
+    section, _ = _profile_section()
+    section.profile = None
+    fig, ax = section_figure._build_section_figure(section, max_depth_m=60.0)
+    try:
+        assert len(ax.patches) > 1
+        labels = [t.get_text() for t in ax.get_legend().get_texts()]
+        assert "doorprik" not in labels  # the anchors are the columns here, no separate marker
+    finally:
+        plt.close(fig)
+    assert _png_ok(section_figure.plot_section(section, tmp_path / "fallback.png", max_depth_m=60.0))
+
+
+def test_section_profile_png_is_written(tmp_path):
+    section, _ = _profile_section()
+    assert _png_ok(section_figure.plot_section(section, tmp_path / "profile.png", max_depth_m=60.0))
