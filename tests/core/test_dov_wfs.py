@@ -66,12 +66,31 @@ def test_duplicate_ids_across_pages_are_dropped():
         ("startIndex=5", body),
         ("startIndex=0", body),
     ])
+    # INFO-level sink: proves the shortfall is reported at WARNING severity, visible without
+    # DEBUG turned on -- not merely present because DEBUG lets everything through.
     messages: list[str] = []
-    wfs = DovWfs(client, page_size=5, log=Log("test", sink=messages.append, level="DEBUG"))
+    wfs = DovWfs(client, page_size=5, log=Log("test", sink=messages.append, level="INFO"))
     feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
     assert len(feats) == 5
     assert wfs.truncations == []
-    assert any("dubbele features" in m for m in messages)
+    assert any("server leverde 5 unieke van 10 features" in m for m in messages)
+
+
+def test_matched_is_kept_when_a_later_page_omits_number_matched():
+    # page 2 has no numberMatched key at all; the value learned from page 1 (167) must survive,
+    # not be reset to None -- otherwise no truncation would ever be recorded for this fetch.
+    page2 = fixture_json("wfs_sonderingen_page2.json")
+    page2.pop("numberMatched", None)
+    page2_body = json.dumps(page2).encode("utf-8")
+    client = FixtureClient([
+        ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
+        ("startIndex=5", page2_body),
+        ("startIndex=0", "wfs_sonderingen_dwithin.json"),
+    ])
+    wfs = DovWfs(client, page_size=5)
+    feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
+    assert len(feats) == 10
+    assert wfs.truncations == [("dov-pub:Sonderingen", 10, 167)]
 
 
 def test_hybrid_truncation_and_duplicates_records_truncation():
