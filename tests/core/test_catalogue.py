@@ -136,3 +136,24 @@ def test_the_landslide_maps_expose_the_class_and_the_report_link():
     assert c.by_id("grondverschuiving_gevoeligheid").legend is True
     assert "rapport" in c.by_id("grondverschuiving_gekarteerd").fact_fields
     assert c.by_id("grondverschuiving_gekarteerd").scale == 10000
+
+
+def test_the_label_tables_of_a_catalogue_entry_cannot_be_written_into():
+    # The catalogue is module-level shared state: a caller that wrote into a label table would
+    # change the map for every later study in the same QGIS session. The write has to fail here,
+    # not show up as a wrong header three reports later.
+    entry = c.by_id("watertoets_fluviaal")
+    with pytest.raises(TypeError):
+        entry.value_labels["gridcode"]["0"] = "iets anders"
+    with pytest.raises(TypeError):
+        entry.value_labels["gridcode"] = {}
+    with pytest.raises(TypeError):
+        entry.field_labels["gridcode"] = "Iets anders"
+    assert entry.value_labels["gridcode"]["0"].startswith("A - ")
+    assert entry.field_labels["gridcode"] == "Klasse"
+
+
+def test_a_catalogue_entry_without_label_tables_still_reads_like_a_mapping():
+    entry = c.by_id("grb")
+    assert entry.value_labels == {} and entry.field_labels == {}
+    assert entry.value_labels.get("x", {}).get("y") is None
