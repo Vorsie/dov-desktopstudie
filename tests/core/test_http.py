@@ -225,3 +225,13 @@ def test_default_fetch_surfaces_a_reset_connection_and_the_client_retries_it():
         with pytest.raises(http.HttpError):
             client.get(url)
     assert len(attempts) == 2
+
+
+def test_cache_mode_off_does_not_create_the_cache_directory(tmp_path):
+    def fetch(url, timeout, user_agent):
+        return b'{"a": 1}'
+
+    cache = tmp_path / "cache"
+    client = http.HttpClient(cache_dir=cache, fetch=fetch, cache_mode="off")
+    client.get_json("https://x.be/a")
+    assert not cache.exists()  # caching off means no trace on disk at all
