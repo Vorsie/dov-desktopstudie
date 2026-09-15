@@ -98,7 +98,7 @@ CATALOGUE: List[MapEntry] = [
     # --- geologie en bodem ---
     _dov("bodemkaart", "Bodemkaart van Vlaanderen", "bodemkaart:bodemtypes",
          ("Bodemtype", "Bodemserie", "Beknopte_omschrijving_bodemserie", "Textuurklasse", "Drainageklasse",
-          "Gegeneraliseerde_legende"),
+          "Gegeneraliseerde_legende", "Textuurklasse_code", "Drainageklasse_code"),
          wfs="bodemkaart:bodemtypes", scale=10000),
     _dov("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", "quartair:quartair_samengesteld",
          ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende", scale=25000),
