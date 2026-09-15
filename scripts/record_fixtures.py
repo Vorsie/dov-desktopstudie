@@ -7,9 +7,11 @@ Only stdlib; usable from any Python >= 3.9.
 from __future__ import annotations
 
 import datetime as dt
+import json
 import sys
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "core" / "fixtures"
@@ -22,12 +24,20 @@ WATERINFO = (
 ZONE = "POLYGON((104226 192406,104426 192406,104426 192606,104226 192606,104226 192406))"
 
 
-def wfs(typename: str, cql: str, count: int = 5, extra: dict | None = None) -> str:
+def wfs(
+    typename: str,
+    cql: str,
+    count: int = 5,
+    extra: dict | None = None,
+    props: tuple[str, ...] = (),
+) -> str:
     params = {
         "service": "WFS", "version": "2.0.0", "request": "GetFeature",
         "typeNames": typename, "outputFormat": "application/json",
         "srsName": "EPSG:31370", "CQL_FILTER": cql, "count": str(count),
     }
+    if props:
+        params["propertyName"] = ",".join(props)
     params.update(extra or {})
     return WFS + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 
@@ -80,15 +90,18 @@ FIXTURES: list[tuple[str, str]] = [
     ("wfs_quartair_200k_intersects.json",
      wfs("quartair:quartair_200k", f"INTERSECTS(geom,{ZONE})")),
     ("wfs_tertiair_50k_intersects.json",
-     wfs("neo_paleo:tertiair_50k", f"INTERSECTS(shape,{ZONE})")),
+     wfs("neo_paleo:tertiair_50k", f"INTERSECTS(shape,{ZONE})",
+         props=("dataengine_id", "code", "formatie", "lid", "beschrijving", "typeov", "volgorde"))),
     ("wfs_hcov_0100_vk_intersects.json",
-     wfs("hcov:hcov_0100_vk", f"INTERSECTS(geometry,{ZONE})")),
+     wfs("hcov:hcov_0100_vk", f"INTERSECTS(geometry,{ZONE})",
+         props=("id", "hcov_code", "hcov_naam"))),
     ("wfs_gwkwb_kwbschaal_intersects.json",
      wfs("gw_bescherming:gwkwb_kwbschaal", f"INTERSECTS(shape,{ZONE})")),
     ("wfs_ovam_uitspraak_intersects.json",
      wfs("ovam:uitspraak_bodemonderzoeken", f"INTERSECTS(geom,{ZONE})")),
     ("wfs_indexplastisch_intersects.json",
-     wfs("plastische_gronden:IndexPlastisch", f"INTERSECTS(geom,{ZONE})")),
+     wfs("plastische_gronden:IndexPlastisch", f"INTERSECTS(geom,{ZONE})",
+         props=("id", "code_H3Dv2_0", "Eenheid_G3Dv3_0", "code_G3Dv3_0", "hoofdlithologie"))),
     ("wfs_erosie_2014_intersects.json",
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          f"INTERSECTS(the_geom,{ZONE})")),
@@ -112,6 +125,16 @@ def fetch(url: str) -> bytes:
         return resp.read()
 
 
+def validate(name: str, data: bytes) -> None:
+    """Raise ValueError with a short reason if the body is not a usable fixture."""
+    if b"ExceptionReport" in data or b"ServiceException" in data:
+        raise ValueError("service returned an exception report")
+    if name.endswith(".json"):
+        json.loads(data)
+    elif name.endswith(".xml"):
+        ET.fromstring(data)
+
+
 def main() -> int:
     FIXTURE_DIR.mkdir(parents=True, exist_ok=True)
     today = dt.date.today().isoformat()
@@ -121,9 +144,13 @@ def main() -> int:
     for name, url in FIXTURES:
         try:
             data = fetch(url)
+            validate(name, data)
         except Exception as exc:  # noqa: BLE001 - report and continue
-            print(f"FAIL {name}: {exc}")
+            reason = str(exc)
+            print(f"FAIL {name}: {reason}")
             failed += 1
+            note = f"MISLUKT op {today}: {reason}; bestand op schijf komt van een eerdere run"
+            lines.append(f"| `{name}` | <{url}> | {note} |")
             continue
         (FIXTURE_DIR / name).write_bytes(data)
         print(f"ok   {name} ({len(data)} bytes)")
