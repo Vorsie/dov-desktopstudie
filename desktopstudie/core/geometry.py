@@ -1,4 +1,3 @@
-# desktopstudie/core/geometry.py
 """Pure planar geometry on tuples, in metres (EPSG:31370). Rings are lists of (x, y)
 without a repeated closing vertex."""
 from __future__ import annotations
@@ -30,11 +29,15 @@ def area(ring: Sequence[Point]) -> float:
 
 
 def centroid(ring: Sequence[Point]) -> Point:
+    # Shift to a local origin before accumulating: at Lambert-72 scale (coordinates ~1e5) the
+    # shoelace terms otherwise subtract two large near-equal numbers and lose precision for a
+    # thin ring, e.g. a sliver where the vertices agree to 6+ significant digits.
+    ox, oy = ring[0]
     a = 0.0
     cx = cy = 0.0
     for i in range(len(ring)):
-        x1, y1 = ring[i]
-        x2, y2 = ring[(i + 1) % len(ring)]
+        x1, y1 = ring[i][0] - ox, ring[i][1] - oy
+        x2, y2 = ring[(i + 1) % len(ring)][0] - ox, ring[(i + 1) % len(ring)][1] - oy
         cross = x1 * y2 - x2 * y1
         a += cross
         cx += (x1 + x2) * cross
@@ -42,7 +45,7 @@ def centroid(ring: Sequence[Point]) -> Point:
     if abs(a) < 1e-12:  # degenerate: mean of vertices
         return (sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring))
     a *= 0.5
-    return (cx / (6.0 * a), cy / (6.0 * a))
+    return (cx / (6.0 * a) + ox, cy / (6.0 * a) + oy)
 
 
 def bbox(ring: Sequence[Point]) -> BBox:
@@ -105,6 +108,8 @@ def project_onto_line(pt: Point, p: Point, q: Point) -> Tuple[float, float]:
 
 
 def point_in_ring(x: float, y: float, ring: Sequence[Point]) -> bool:
+    """Points exactly on an edge are classified side-dependently (PNPOLY behaviour); regardless,
+    distance_to_ring returns 0 for them."""
     inside = False
     n = len(ring)
     for i in range(n):
@@ -115,6 +120,32 @@ def point_in_ring(x: float, y: float, ring: Sequence[Point]) -> bool:
             if x < x_cross:
                 inside = not inside
     return inside
+
+
+def representative_point(ring: Sequence[Point]) -> Point:
+    """A point guaranteed to lie inside the ring, unlike centroid() for a non-convex ring (e.g.
+    an L-shape) where the plain area centroid can fall in the notch outside the shape. Returns
+    centroid(ring) when that already lies inside; otherwise the midpoint of the widest horizontal
+    chord through the ring at the centroid's y."""
+    cx, cy = centroid(ring)
+    if point_in_ring(cx, cy, ring):
+        return (cx, cy)
+    n = len(ring)
+    crossings = []
+    for i in range(n):
+        x1, y1 = ring[i]
+        x2, y2 = ring[(i + 1) % n]
+        if (y1 > cy) != (y2 > cy):
+            crossings.append(x1 + (cy - y1) * (x2 - x1) / (y2 - y1))
+    if not crossings:  # degenerate: no edge crosses the centroid's y
+        return (cx, cy)
+    crossings.sort()
+    best_lo, best_hi, best_width = crossings[0], crossings[0], -1.0
+    for i in range(0, len(crossings) - 1, 2):
+        lo, hi = crossings[i], crossings[i + 1]
+        if hi - lo > best_width:
+            best_lo, best_hi, best_width = lo, hi, hi - lo
+    return ((best_lo + best_hi) / 2.0, cy)
 
 
 def _distance_to_segment(pt: Point, a: Point, b: Point) -> float:
