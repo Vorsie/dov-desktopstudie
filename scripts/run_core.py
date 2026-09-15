@@ -2,6 +2,8 @@
 
   python scripts/run_core.py --adres "Kortrijksesteenweg 100 Gent" --buffer 50 --out uitvoer/gent
   python scripts/run_core.py --x 104326 --y 192506 --buffer 50 --out uitvoer/gent
+
+Afsluitcodes: 0 = volledig, 2 = adres niet gevonden, 3 = klaar maar met mislukte bronnen.
 """
 from __future__ import annotations
 
@@ -30,6 +32,8 @@ def main() -> int:
                     help="use: schijfcache gebruiken; refresh: opnieuw ophalen en cache bijwerken; off: geen cache")
     ap.add_argument("--out", required=True, help="uitvoermap (krijgt data/ en figuren/)")
     args = ap.parse_args()
+    if args.adres and (args.x is not None or args.y is not None):
+        ap.error("geef --adres OF --x/--y, niet allebei")
     if not args.adres and (args.x is None or args.y is None):
         ap.error("geef --adres of zowel --x als --y")
     out = Path(args.out)
@@ -40,7 +44,6 @@ def main() -> int:
         hits = geocode(client, args.adres)
         if not hits:
             log.error(f"adres niet gevonden: {args.adres}")
-            print("adres niet gevonden")
             return 2
         x, y, address = hits[0].x, hits[0].y, hits[0].address
     else:
@@ -48,13 +51,15 @@ def main() -> int:
     zone = StudyZone(ring=geometry.buffer_point(x, y, args.buffer), name=address or f"{x:.0f}/{y:.0f}",
                      radius_m=args.straal, address=address)
     result = study.run(zone, study.Settings(radius_m=args.straal), client, out,
-                       progress=lambda f, m: print(f"{f:5.0%} {m}"), log=log)
+                       progress=lambda f, m: print(f"{f:5.0%} {m}"), log=log.child("study"))
     report = build_report(result, ReportMeta(project=zone.name, author="run_core", company="-"))
+    failed = [p.source for p in result.provenance if not p.ok]
     print(f"hoofdstukken: {[c.title for c in report.chapters]}")
     print(f"figuren: {len(result.figures)}")
     print(f"signaleringen: {[s.code for s in result.signaleringen]}")
-    print(f"bronnen mislukt: {[p.source for p in result.provenance if not p.ok]}")
-    return 0
+    print(f"bronnen mislukt: {failed}")
+    # 0 = alles opgehaald, 2 = adres niet gevonden, 3 = studie klaar maar met gaten erin
+    return 3 if failed else 0
 
 
 if __name__ == "__main__":
