@@ -7,10 +7,13 @@ from __future__ import annotations
 import pytest
 
 GENT = (104326.0, 192506.0)
-# Een L-vormige zone: het zwaartepunt ligt in de inham, dus een cirkel om het zwaartepunt is
-# aantoonbaar iets anders dan de zone plus zoekstraal.
-L_RING = [(104226.0, 192406.0), (104426.0, 192406.0), (104426.0, 192606.0), (104326.0, 192606.0),
-          (104326.0, 192506.0), (104226.0, 192506.0)]
+# Een L-vormige zone van 2 x 2 km. Groot en hoekig genoeg om een cirkel om het zwaartepunt te
+# ontmaskeren: die cirkel (straal = zoekstraal + de grootste halve bbox-zijde) laat de verste
+# hoek van deze L buiten zich, en rekt tegelijk ver voorbij de zone waar de zone smal is.
+L_RING = [(104000.0, 192000.0), (106000.0, 192000.0), (106000.0, 194000.0), (105000.0, 194000.0),
+          (105000.0, 193000.0), (104000.0, 193000.0)]
+L_RADIUS = 250.0
+L_WEST_EDGE_X = 104000.0  # de westrand van de L, op de hoogte van de onderste balk
 
 
 def _zone(ring, radius_m):
@@ -78,25 +81,41 @@ def test_memory_layers_from_zone_and_points(qgs_app, gent_zone):
 
 
 def test_the_search_area_covers_the_whole_zone(qgs_app):
-    """De zoekstraallaag is het gebied dat de kern echt doorzocht: de zone plus radius_m rondom,
-    niet een cirkel om het zwaartepunt. Voor een L-vormige zone ligt de hele zone erin."""
+    """De zoekstraallaag is het gebied dat de kern echt doorzocht - de kern vraagt DOV om
+    DWITHIN(zone, radius_m), dus de zone plus radius_m rondom, niet een cirkel om het
+    zwaartepunt. Bij deze L valt de verste hoek buiten zo'n cirkel."""
     from desktopstudie.qgis import layers
 
-    area = next(layers.circle_layer(_zone(L_RING, 250.0)).getFeatures()).geometry()
+    area = next(layers.circle_layer(_zone(L_RING, L_RADIUS)).getFeatures()).geometry()
     assert area.contains(_polygon(L_RING))
 
 
-def test_the_search_area_reaches_exactly_the_radius_from_the_zone_edge(qgs_app, gent_zone):
-    """gent_zone is een cirkel van 50 m rond Gent met radius_m 500: de oostrand ligt op
-    x = 104376, dus 499 m verder ligt er nog in en 501 m verder niet meer."""
+def test_the_search_area_reaches_exactly_the_radius_from_the_zone_edge(qgs_app):
+    """Precies radius_m vanaf de zonerand, gemeten loodrecht op die rand: 1 m ervoor ligt erin,
+    1 m erna erbuiten. Een cirkel om het zwaartepunt haalt hier geen van beide."""
     from qgis.core import QgsGeometry, QgsPointXY
 
     from desktopstudie.qgis import layers
 
-    area = next(layers.circle_layer(gent_zone).getFeatures()).geometry()
-    edge_x, y = GENT[0] + 50.0, GENT[1]
-    assert area.contains(QgsGeometry.fromPointXY(QgsPointXY(edge_x + 499.0, y)))
-    assert not area.contains(QgsGeometry.fromPointXY(QgsPointXY(edge_x + 501.0, y)))
+    area = next(layers.circle_layer(_zone(L_RING, L_RADIUS)).getFeatures()).geometry()
+    y = 192500.0  # midden van de onderste balk, ruim van de hoeken vandaan
+    inside = QgsGeometry.fromPointXY(QgsPointXY(L_WEST_EDGE_X - (L_RADIUS - 1.0), y))
+    outside = QgsGeometry.fromPointXY(QgsPointXY(L_WEST_EDGE_X - (L_RADIUS + 1.0), y))
+    assert area.contains(inside)
+    assert not area.contains(outside)
+
+
+def test_the_search_area_does_not_bulge_where_the_zone_is_narrow(qgs_app):
+    """De valkuil van de zwaartepuntcirkel: bij een langgerekte zone rekt die ver voorbij de
+    smalle kant. 480 m boven de bovenrand van de onderste balk hoort buiten de zoekstraal van
+    250 m te liggen - daar zocht de kern niet."""
+    from qgis.core import QgsGeometry, QgsPointXY
+
+    from desktopstudie.qgis import layers
+
+    area = next(layers.circle_layer(_zone(L_RING, L_RADIUS)).getFeatures()).geometry()
+    far_north_of_the_lower_bar = QgsGeometry.fromPointXY(QgsPointXY(104500.0, 193000.0 + 480.0))
+    assert not area.contains(far_north_of_the_lower_bar)
 
 
 def test_the_search_area_layer_has_a_stable_name(qgs_app, gent_zone):
