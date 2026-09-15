@@ -1,7 +1,36 @@
-# tests/core/test_catalogue.py
 from __future__ import annotations
 
+import pytest
+
 from desktopstudie.core import catalogue as c
+from tests.core.conftest import fixture_json
+
+FIXTURE_FOR = {
+    "bodemkaart": "wfs_bodemtypes_intersects.json",
+    "quartair": "wfs_quartair_samengesteld_intersects.json",
+    "quartair_200k": "wfs_quartair_200k_intersects.json",
+    "quartair_dikte": "wfs_quartair_isopachen_intersects.json",
+    "tertiair": "wfs_tertiair_50k_intersects.json",
+    "hcov": "wfs_hcov_0100_vk_intersects.json",
+    "gw_kwetsbaarheid": "wfs_gwkwb_kwbschaal_intersects.json",
+    "erosie": "wfs_erosie_2014_intersects.json",
+    "krimp_zwel": "wfs_indexplastisch_intersects.json",
+    "ovam": "wfs_ovam_uitspraak_intersects.json",
+    "watertoets_pluviaal": "watertoets_fluviaal_hit.json",
+    "watertoets_fluviaal": "watertoets_fluviaal_hit.json",
+}
+
+
+def test_fact_fields_exist_in_recorded_fixtures():
+    for e in c.entries():
+        if not e.fact_mode:
+            continue
+        assert e.id in FIXTURE_FOR, e.id
+        data = fixture_json(FIXTURE_FOR[e.id])
+        features = data["features"]
+        assert features, f"{e.id}: fixture {FIXTURE_FOR[e.id]} has no features"
+        for field_name in e.fact_fields:
+            assert field_name in features[0]["properties"], f"{e.id}: missing field {field_name!r}"
 
 
 def test_ids_are_unique_and_chapters_known():
@@ -33,3 +62,20 @@ def test_fact_entries_declare_fields():
 def test_watertoets_labels_translate_gridcode():
     e = c.by_id("watertoets_fluviaal")
     assert e.value_labels["gridcode"]["3"].startswith("D - ")
+
+
+def test_entries_are_hashable():
+    entries = c.entries()
+    assert len({e for e in entries}) == len(entries)
+    hash(c.by_id("watertoets_fluviaal"))  # must not raise
+
+
+def test_entries_filter_by_chapter_and_enabled():
+    assert [e.id for e in c.entries("ligging")] == ["grb", "ortho", "ngi_topo", "dhmv_hillshade", "dhmv_dtm"]
+    assert len(c.entries("historisch")) == 7
+    assert len(c.entries("historisch", enabled_only=False)) == 8
+
+
+def test_by_id_unknown_raises_key_error():
+    with pytest.raises(KeyError):
+        c.by_id("does_not_exist")
