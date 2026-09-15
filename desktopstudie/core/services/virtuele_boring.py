@@ -17,16 +17,6 @@ from ..catalogue import VB_DOORPRIK_URL, VB_PROFILE_URL
 from ..logging_util import Log
 from ..model import ProfileColumn, SectionProfile, VbLayer, VirtualBorehole
 
-MODEL_TITLES = {
-    "g3dv3_F": "G3Dv3 - formaties",
-    "g3dv3_L": "G3Dv3 - leden",
-    "g3dv3_P": "G3Dv3 - periodes",
-    "g3dv3_T": "G3Dv3 - tijdvakken",
-    "hcovv1": "HCOV v1",
-    "hcovv2_H": "HCOV v2 - hoofdeenheden",
-    "hcovv2_S": "HCOV v2 - subeenheden",
-    "hcovv2_B": "HCOV v2 - basiseenheden",
-}
 FALLBACK_COLOR = "#cccccc"
 # The chainage entry of a profile record: never a thickness.
 PROFILE_DISTANCE_KEY = "dist"
