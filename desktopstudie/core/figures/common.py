@@ -14,7 +14,6 @@ from typing import List, Tuple
 import matplotlib
 
 matplotlib.use("Agg")  # also pins the backend for anyone who does import pyplot (tests, notebooks)
-import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.backends.backend_agg import FigureCanvasAgg  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.patches import Rectangle  # noqa: E402
@@ -74,8 +73,7 @@ def save(fig, path: Path) -> Path:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=DPI, bbox_inches="tight")
-    plt.close(fig)  # no-op for a new_figure figure; still frees the last pyplot-made ones
-    return path
+    return path  # nothing to close: the figure is not parked in a pyplot registry
 
 
 def lithology_colour(text: str) -> str:
