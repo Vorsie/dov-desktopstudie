@@ -2,7 +2,7 @@
 layers[] = metadata keyed by code (name, beschrijving, dovlayercolor, texturen)."""
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from ..catalogue import VB_DOORPRIK_URL
 from ..model import VbLayer, VirtualBorehole
@@ -25,12 +25,16 @@ def parse_doorprik(payload: Dict[str, Any], x: float, y: float, model: str) -> V
     layers = []
     for row in payload.get("data", []):
         info = meta.get(row.get("name"), {})
+        top, base = float(row["top"]), float(row["base"])
+        thickness = row.get("thickness")
+        if thickness is None:
+            thickness = top - base
         layers.append(VbLayer(
             code=str(row.get("name")),
             name=info.get("name") or str(row.get("name")),
-            top_mtaw=float(row["top"]),
-            base_mtaw=float(row["base"]),
-            thickness_m=float(row.get("thickness", float(row["top"]) - float(row["base"]))),
+            top_mtaw=top,
+            base_mtaw=base,
+            thickness_m=float(thickness),
             color=info.get("dovlayercolor") or FALLBACK_COLOR,
             texture=info.get("texturen") or "",
         ))
@@ -43,7 +47,14 @@ def fetch_virtual_borehole(client, x: float, y: float, model: str) -> VirtualBor
     return parse_doorprik(payload, x, y, model)
 
 
+def layers_named(borehole: VirtualBorehole, name: str) -> List[VbLayer]:
+    """Layers whose name starts with `name`, case-insensitively (DOV varies capitalisation and
+    appends suffixes such as sub-member names to an otherwise-matching layer name)."""
+    needle = name.strip().lower()
+    return [layer for layer in borehole.layers if layer.name.lower().startswith(needle)]
+
+
 def base_of(borehole: VirtualBorehole, name: str) -> Optional[float]:
-    """Base elevation (mTAW) of the deepest layer whose name equals `name`."""
-    matches = [layer for layer in borehole.layers if layer.name == name]
+    """Base elevation (mTAW) of the deepest layer whose name starts with `name` (see `layers_named`)."""
+    matches = layers_named(borehole, name)
     return min(layer.base_mtaw for layer in matches) if matches else None
