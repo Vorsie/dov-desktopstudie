@@ -6,7 +6,7 @@ only turns those into QgsMapLayers, gives them the house style and writes them t
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Collection, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from qgis.core import (
     Qgis,
@@ -50,7 +50,12 @@ POINT_STYLE = {  # kind -> (colour, marker)
 }
 POINT_NAMES = {"sondering": "Sonderingen", "boring": "Boringen", "peilput": "Peilputten"}
 POINT_FIELDS = [("nummer", "string"), ("afstand_m", "double"), ("diepte_m", "double"), ("datum", "string"),
-                ("methode", "string"), ("z_mtaw", "double"), ("url", "string")]
+                ("methode", "string"), ("z_mtaw", "double"), ("url", "string"), ("met_figuur", "integer")]
+# Which points carry a label on a report map. Two hundred numbers on top of each other make the
+# overview page unreadable, and only the handful with a figure in the report can be looked up
+# anyway - so on paper those are labelled and the rest are drawn as symbols. In QGIS every point
+# keeps its number: there the reader can zoom.
+FIGURED_LABEL = 'CASE WHEN "met_figuur" = 1 THEN "nummer" END'
 DEPTH_ALIAS = "diepte / filterbasis (m)"
 LABEL_FIELD = "nummer"
 LABEL_SIZE_PT = 7.0
@@ -145,11 +150,15 @@ def style_section_line_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
     return layer
 
 
-def style_points_layer(layer: QgsVectorLayer, kind: str) -> QgsVectorLayer:
+def style_points_layer(layer: QgsVectorLayer, kind: str,
+                       label_only_figured: bool = False) -> QgsVectorLayer:
     """Marker, colour, size and the number label of one investigation kind.
 
     The units are pinned on purpose: without them a symbol follows whatever the host project
     happens to use, and the same study prints differently on another machine.
+
+    `label_only_figured` labels only the points that have a figure in the report (see
+    FIGURED_LABEL); that is the version the report maps draw.
     """
     colour, marker = POINT_STYLE[kind]
     symbol = QgsMarkerSymbol.createSimple(
@@ -158,7 +167,8 @@ def style_points_layer(layer: QgsVectorLayer, kind: str) -> QgsVectorLayer:
     symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
     layer.renderer().setSymbol(symbol)
     settings = QgsPalLayerSettings()
-    settings.fieldName = LABEL_FIELD
+    settings.fieldName = FIGURED_LABEL if label_only_figured else LABEL_FIELD
+    settings.isExpression = label_only_figured
     text_format = QgsTextFormat()
     text_format.setSize(LABEL_SIZE_PT)
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
@@ -226,10 +236,14 @@ def line_layer(zone: StudyZone) -> QgsVectorLayer:
     return style_section_line_layer(layer)
 
 
-def points_layer(kind: str, items: Iterable[Investigation]) -> QgsVectorLayer:
+def points_layer(kind: str, items: Iterable[Investigation],
+                 figured: Collection[str] = ()) -> QgsVectorLayer:
     """One labelled point layer per investigation kind ("sondering" / "boring" / "peilput").
+
     A peilput has no single number and no total depth, so it falls back to gw_id/filter_no and
-    to the filter base - hence the alias on diepte_m."""
+    to the filter base - hence the alias on diepte_m. `figured` holds the permkeys that got a
+    figure in the report; those are the points a report map labels.
+    """
     layer = _memory("Point", POINT_NAMES[kind], POINT_FIELDS)
     features = []
     for item in items:
@@ -239,7 +253,8 @@ def points_layer(kind: str, items: Iterable[Investigation]) -> QgsVectorLayer:
         number = getattr(item, "number", None) or f"{gw_id}/{filter_no}"
         depth = getattr(item, "depth_m", None) if hasattr(item, "depth_m") else getattr(item, "filter_base_m", None)
         feature.setAttributes([number, float(item.distance_m), depth, getattr(item, "date", None),
-                               getattr(item, "method", None), getattr(item, "z_mtaw", None), item.url])
+                               getattr(item, "method", None), getattr(item, "z_mtaw", None), item.url,
+                               1 if getattr(item, "permkey", None) in figured else 0])
         features.append(feature)
     _add(layer, features)
     return style_points_layer(layer, kind)
@@ -316,7 +331,8 @@ def gpkg_layer(gpkg: Path, name: str) -> QgsVectorLayer:
     return QgsVectorLayer(f"{gpkg}|layername={name}", name, "ogr")
 
 
-def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None) -> QgsProject:
+def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
+                       wms_layers: Optional[Dict[str, QgsMapLayer]] = None) -> QgsProject:
     """A fresh project holding the whole study: the catalogue maps as WMS layers and the study's
     own layers read back from `gpkg`.
 
@@ -324,22 +340,28 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None) -> 
     session that made it - so nothing here may point at a memory layer. `QgsProject.addMapLayer`
     drops an invalid layer, which is exactly right for a WMS that was unreachable while the study
     ran: the project keeps the maps that work instead of failing to open. Every drop is logged.
+
+    `wms_layers` (map id -> layer) hands over what the caller has already built; each one is
+    CLONED, because a project owns its layers and the caller's belong to its own project. Building
+    them again would cost a second GetCapabilities per map - thirty round trips for nothing.
     """
     gpkg = Path(gpkg)
+    ready = dict(wms_layers or {})
     project = QgsProject()
     project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
     for chapter, title in chapter_groups.items():
-        wms_layers: List[QgsMapLayer] = []
+        rasters: List[QgsMapLayer] = []
         for entry in catalogue.entries(chapter):
-            layer = wms_layer(entry)
+            known = ready.get(entry.id)
+            layer = known.clone() if known is not None else wms_layer(entry)
             if not layer.isValid():
                 if log:
                     log.warning(f"WMS-laag niet geldig, niet in het project: {entry.id}")
                 continue
-            wms_layers.append(layer)
-        add_group(project, title, wms_layers, visible=False)
+            rasters.append(layer)
+        add_group(project, title, rasters, visible=False)
         if log:
-            log.info(f"{title}: {len(wms_layers)} WMS-lagen")
+            log.info(f"{title}: {len(rasters)} WMS-lagen")
     for title, names in GPKG_GROUPS:
         group_layers: List[QgsMapLayer] = []
         for name in names:
