@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import matplotlib.pyplot as plt
 import pytest
 
 from desktopstudie.core.figures import borehole_column, common, cpt_figure, section_figure, vb_column
-from desktopstudie.core.figures.common import plt
 from desktopstudie.core.model import (
     Borehole,
     Cpt,
@@ -373,3 +373,41 @@ def test_a_crowded_virtual_borehole_figure_says_how_many_labels_it_left_out():
         assert any(t.get_text().endswith("laaglabels weggelaten") for t in ax.texts)
     finally:
         plt.close(fig)
+
+
+def _cpt_with_profile() -> Cpt:
+    return Cpt("2024-090319", "S407", 0, 0, 8.0, 32.2, "2024-04-05", "continu elektrisch", None, None, None, "",
+               12.0, profile=parse_cpt_profile(fixture_bytes("sondering_2024-090319.xml")))
+
+
+def _simple_virtual_borehole() -> VirtualBorehole:
+    layers = [VbLayer(code=f"c{i}", name=f"Eenheid {i}", top_mtaw=20.0 - 3 * i, base_mtaw=17.0 - 3 * i,
+                      thickness_m=3.0, color="#abcdef", texture="") for i in range(4)]
+    return VirtualBorehole(0.0, 0.0, "g3dv3_F", layers)
+
+
+def test_figure_modules_leave_no_pyplot_state_behind():
+    """pyplot parks every figure it makes in a process-global registry and only lets go when
+    someone closes it. In a long-running QGIS session that is a leak, and from a worker thread it
+    is a race on shared state - so the figure modules must not go through pyplot at all. The
+    figures are kept alive in a list on purpose: the question is what the registry holds, not what
+    the garbage collector happens to have swept."""
+    before = plt.get_fignums()
+    figures = [
+        common.new_figure((4.0, 3.0)),
+        common.new_figure_grid(3, (9.0, 4.0), sharey=True),
+        cpt_figure._build_cpt_figure(_cpt_with_profile()),
+        borehole_column._build_borehole_figure(_crowded_column(5)),
+        vb_column._build_vb_figure(_simple_virtual_borehole()),
+        section_figure._build_section_figure(_profile_section()[0]),
+    ]
+    assert len(figures) == 6
+    assert before == [], f"an earlier test leaked pyplot figures: {before}"
+    assert plt.get_fignums() == [], "a figure module registered a figure with pyplot"
+
+
+def test_saving_a_figure_does_not_need_pyplot(tmp_path):
+    fig, ax = common.new_figure((4.0, 3.0))
+    ax.plot([0, 1], [0, 1])
+    assert _png_ok(common.save(fig, tmp_path / "plain.png"))
+    assert plt.get_fignums() == []
