@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
 
 from qgis.core import (
     Qgis,
@@ -50,9 +50,9 @@ from qgis.core import (
     QgsRectangle,
     QgsTextFormat,
 )
-from qgis.PyQt.QtGui import QColor, QFont, QImage
+from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF, QImage
 
-from ..core import catalogue, geometry
+from ..core import catalogue, geometry, parallel
 from ..core.catalogue import MapEntry
 from ..core.report_content import Chapter, FigurePage, MapPage, Report, TablePage, TextPage
 from ..core.services.http import HttpClient, HttpError, build_url
@@ -97,6 +97,37 @@ SCALE_STEPS = (1000, 2000, 2500, 5000, 10000, 20000, 25000, 50000, 100000)
 # content width its 7 pt labels turn to mush, so it is never drawn larger than this natural size.
 MM_PER_PX = 25.4 / 96.0
 MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, not a long table
+# A table of this many columns does not fit a portrait sheet, whatever the widths: the sonderingen
+# table has nine, and squeezed into 180 mm its last column falls off the paper.
+WIDE_TABLE_COLUMNS = 7
+# QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
+# line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
+# that factor - a column measured too narrow wraps text that had room.
+TEXT_WIDTH_FUDGE = 1.07
+TABLE_FONT_PT = 7.0
+LEGEND_WORKERS = 4
+
+
+class PageMetrics(NamedTuple):
+    """What is usable on one sheet, per orientation. Everything else on the page - the header, the
+    footer, a table frame - is placed from these, so a landscape sheet is not a special case with
+    its own numbers scattered through the builder."""
+    orientation: int
+    content_w: float
+    content_h: float
+    footer_y: float
+
+
+PORTRAIT = QgsLayoutItemPage.Orientation.Portrait
+LANDSCAPE = QgsLayoutItemPage.Orientation.Landscape
+# Portrait keeps the numbers the report was built around; landscape is the same A4 turned over:
+# 297 - 2 x 15 mm of width, and a content band that ends above the footer at 210 - 12 mm.
+_METRICS = {PORTRAIT: PageMetrics(PORTRAIT, CONTENT_W, CONTENT_H, FOOTER_Y),
+            LANDSCAPE: PageMetrics(LANDSCAPE, 267.0, 160.0, 198.0)}
+
+
+def _page_metrics(orientation=PORTRAIT) -> PageMetrics:
+    return _METRICS[orientation]
 
 
 def _font(size: float, bold: bool = False) -> QFont:
@@ -126,6 +157,56 @@ def _segment_length(scale: int) -> float:
     """A scale-bar segment of about a fifth of the mapped width, snapped to the 1-2-5 ladder."""
     target = MAP_W / 1000.0 * scale / SCALE_BAR_FRACTION
     return min(SCALE_BAR_STEPS, key=lambda step: abs(step - target))
+
+
+def _text_width_mm(strings: Sequence[str], size: float, bold: bool = False) -> float:
+    """The width in mm of the widest of `strings`, set in the house face at `size` points.
+
+    Measured against a device with a pinned resolution rather than the screen: the same table has
+    to come out the same width on a 96 dpi CI image and on the 144 dpi laptop the plugin runs on,
+    and a QFontMetricsF without a device follows whatever the screen says. The result carries
+    TEXT_WIDTH_FUDGE, because QGIS lays a string out slightly wider than Qt measures it.
+    """
+    device = QImage(1, 1, QImage.Format.Format_ARGB32)
+    dots_per_metre = int(round(1000.0 / 25.4 * 96.0))  # 96 dpi, the resolution MM_PER_PX assumes
+    device.setDotsPerMeterX(dots_per_metre)
+    device.setDotsPerMeterY(dots_per_metre)
+    metrics = QFontMetricsF(_font(size, bold), device)
+    widest = max((metrics.horizontalAdvance(str(text)) for text in strings), default=0.0)
+    return widest * MM_PER_PX * TEXT_WIDTH_FUDGE
+
+
+def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], available: float,
+                  size: float = TABLE_FONT_PT) -> List[float]:
+    """A width in mm per column, together no wider than `available`.
+
+    Left alone, QGIS gives every column the same share of the frame and CLIPS what does not fit -
+    which is how the nine-column sonderingen table lost its last column and half of every
+    contractor name. So each column asks for what its longest cell needs, never less than its own
+    header, and what is left over is shared out in proportion to what each column still wants.
+    When even the headers do not fit, everything shrinks proportionally and WrapText breaks the
+    rest over two lines: narrow beats invisible.
+    """
+    if not columns:
+        return []
+    heading = [_text_width_mm([column], size, bold=True) for column in columns]
+    wanted = [max(head, _text_width_mm([row[index] for row in rows] or [""], size))
+              for index, head in enumerate(heading)]
+    if sum(wanted) <= available:
+        return wanted
+    if sum(heading) >= available:
+        return [head * available / sum(heading) for head in heading]
+    extra = [want - head for want, head in zip(wanted, heading)]
+    slack = available - sum(heading)
+    return [head + slack * (want / sum(extra)) for head, want in zip(heading, extra)]
+
+
+def _fiche_note(links: Sequence[str]) -> str:
+    """Where the permkeys in a fiche column can be looked up. The table prints the permkey alone -
+    the whole URL is wider than the sheet - so the page says once what goes in front of it."""
+    first = next((link for link in links if link), "")
+    base = first.rsplit("/", 1)[0]
+    return f"DOV-fiches: {base}/<nummer in de laatste kolom>" if base else ""
 
 
 def _round_scale(scale: float) -> float:
@@ -226,27 +307,33 @@ def fetch_legend(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Opti
 
 
 def prepare_legends(entries: Sequence[MapEntry], out_dir, client: Optional[HttpClient] = None,
-                    log=None) -> Dict[str, Path]:
-    """map_id -> legend PNG, for the entries that ask for a legend.
+                    log=None, should_cancel: Optional[Callable[[], bool]] = None
+                    ) -> Tuple[Dict[str, Path], List[MapEntry]]:
+    """(map_id -> legend PNG, entries that came back without one).
 
     Fetched here rather than by the layout so that one failing service costs one legend page, not
-    the report, and so the shell can run this phase with its own progress and cancellation.
+    the report, and so the shell can run this phase with its own progress and cancellation. The
+    fourteen legends are independent downloads from three services, so they go out in parallel;
+    each still fails on its own, and the caller gets the misses back to record as failed sources.
     """
     out_dir = Path(out_dir)
     if client is None:
         client = HttpClient(cache_dir=out_dir / "data" / "cache", log=log)
     wanted = [entry for entry in entries if entry.legend]
     images: Dict[str, Path] = {}
-    for entry in wanted:
+
+    def fetch(entry: MapEntry) -> None:
         path = fetch_legend(entry, out_dir, client, log)
         if path is not None:
             images[entry.id] = path
+
+    parallel.load_each(wanted, fetch, "legenda", LEGEND_WORKERS, log, should_cancel)
+    missing = [entry for entry in wanted if entry.id not in images]
     if log:
-        missing = [entry.id for entry in wanted if entry.id not in images]
         log.info(f"Legendas opgehaald: {len(images)}/{len(wanted)}")
         if missing:
-            log.warning(f"Geen legenda voor: {', '.join(missing)}")
-    return images
+            log.warning(f"Geen legenda voor: {', '.join(entry.id for entry in missing)}")
+    return images, missing
 
 
 def _blank_rows(image: QImage) -> List[bool]:
@@ -324,7 +411,8 @@ class LayoutBuilder:
     def __init__(self, project: QgsProject, report: Report,
                  layers_by_map: Dict[str, List[QgsMapLayer]],
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
-                 legends: bool = True, legend_images: Optional[Dict[str, Path]] = None):
+                 legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
+                 log=None, should_cancel: Optional[Callable[[], bool]] = None):
         """layers_by_map: map_id -> [QgsMapLayer, ...] to draw (WMS + basemap); overlays: keys
         'zone', 'investigations', 'section' -> the memory layers a page may ask to draw on top;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them."""
@@ -333,6 +421,8 @@ class LayoutBuilder:
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
         self.legend_images = dict(legend_images or {})
+        self.log = log
+        self.should_cancel = should_cancel or (lambda: False)
         self.layout = QgsPrintLayout(project)
         self.layout.initializeDefaults()  # this already gives page 0, in A4 landscape
         self.layout.setName(LAYOUT_NAME)
@@ -341,24 +431,35 @@ class LayoutBuilder:
 
     # --- page furniture ---------------------------------------------------------------------------
 
-    def new_page(self) -> int:
+    def new_page(self, orientation=PORTRAIT) -> int:
         """Append a page and return its index - read from the collection, never counted here.
 
         A table that runs on appends pages of its own, so a counter of ours drifts behind and the
         next report page lands on top of the last table page.
+
+        Portrait unless the content says otherwise: a nine-column table or a figure wider than it
+        is tall gets a landscape sheet, because squeezed into 180 mm the one loses its last column
+        and the other becomes a strip across the top of an empty page.
         """
+        self._raise_if_cancelled()
         collection = self.layout.pageCollection()
         if self._first_page_used:
             page = QgsLayoutItemPage(self.layout)
-            page.setPageSize(PAGE_SIZE, QgsLayoutItemPage.Orientation.Portrait)
+            page.setPageSize(PAGE_SIZE, orientation)
             collection.addPage(page)
         else:
             # initializeDefaults() laid page 0 down in A4 *landscape*. The report is portrait from
             # cover to cover, and on a landscape first page everything below 210 mm - the table of
             # contents, the disclaimer - simply falls off the paper.
-            collection.page(0).setPageSize(PAGE_SIZE, QgsLayoutItemPage.Orientation.Portrait)
+            collection.page(0).setPageSize(PAGE_SIZE, orientation)
             self._first_page_used = True
         return collection.pageCount() - 1
+
+    def _raise_if_cancelled(self) -> None:
+        """Between two pages is where a build can stop. Ninety-five sheets take half a minute to
+        lay out, and a user who pressed cancel should not wait for the other half."""
+        if self.should_cancel():
+            raise parallel.Cancelled("afgebroken door de gebruiker")
 
     def label(self, text: str, x: float, y: float, w: float, h: float, page: int, size: float = 9,
               html: bool = False, frame: bool = False, bold: bool = False) -> QgsLayoutItemLabel:
@@ -400,15 +501,16 @@ class LayoutBuilder:
         item.attemptMove(point_mm(CONTENT_RIGHT - width, y), page=page)
         return item
 
-    def header(self, chapter: Chapter, title: str, page: int) -> None:
-        self.label(f"{chapter.number}. {chapter.title}", MARGIN, 10, CONTENT_W, 8, page,
+    def header(self, chapter: Chapter, title: str, page: int,
+               metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
+        self.label(f"{chapter.number}. {chapter.title}", MARGIN, 10, metrics.content_w, 8, page,
                    size=13, bold=True)
-        self.label(title, MARGIN, 18, CONTENT_W, 7, page, size=10)
+        self.label(title, MARGIN, 18, metrics.content_w, 7, page, size=10)
 
-    def footer(self, page: int) -> None:
+    def footer(self, page: int, metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
         text = _joined(self.meta.get("company"), self.meta.get("project"),
                        "pagina [% @layout_page %] / [% @layout_numpages %]")
-        self.label(text, MARGIN, FOOTER_Y, CONTENT_W, 6, page, size=7)
+        self.label(text, MARGIN, metrics.footer_y, metrics.content_w, 6, page, size=7)
 
     def _date(self) -> str:
         """One date for the whole report: when the study ran, not when a page happened to be drawn.
@@ -551,11 +653,15 @@ class LayoutBuilder:
     # --- figure, table and text pages --------------------------------------------------------------
 
     def figure_page(self, chapter: Chapter, page: FigurePage) -> None:
-        index = self.new_page()
-        self.header(chapter, page.title, index)
         # StudyResult.figures are forward-slash paths relative to the output directory.
         image = self.out_dir / page.image_path
-        width, height = _drawn_size(image, CONTENT_W, CONTENT_H - 12.0)
+        size = QImage(str(image)).size()
+        # A figure wider than it is tall (the section) fills a landscape sheet; on a portrait one
+        # it shrinks to a strip across the top and leaves two thirds of the paper empty.
+        metrics = _page_metrics(LANDSCAPE if size.width() > size.height() else PORTRAIT)
+        index = self.new_page(metrics.orientation)
+        self.header(chapter, page.title, index, metrics)
+        width, height = _drawn_size(image, metrics.content_w, metrics.content_h - 12.0)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
         picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
@@ -563,10 +669,11 @@ class LayoutBuilder:
         picture.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
         picture.attemptResize(size_mm(width, height))
         if page.caption:
-            self.label(page.caption, MARGIN, CONTENT_TOP + height + 2.0, CONTENT_W, 10, index, size=7)
-        self.footer(index)
+            self.label(page.caption, MARGIN, CONTENT_TOP + height + 2.0, metrics.content_w, 10, index,
+                       size=7)
+        self.footer(index, metrics)
 
-    def _fit_continuation_frames(self, table: QgsLayoutMultiFrame) -> int:
+    def _fit_continuation_frames(self, table: QgsLayoutMultiFrame, metrics: PageMetrics) -> int:
         """Pull the follow-on frames into the content band; return the last page the table uses.
 
         QGIS lays every continuation frame of an ExtendToNextPage table over the *whole* sheet,
@@ -575,42 +682,79 @@ class LayoutBuilder:
         need one more page, so the re-flow repeats until the page count settles.
         """
         collection = self.layout.pageCollection()
+        settled = False
         for _ in range(MAX_TABLE_REFLOW):
             before = collection.pageCount()
             for frame in table.frames()[1:]:
                 frame.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=frame.page())
-                frame.attemptResize(size_mm(CONTENT_W, CONTENT_H))
+                frame.attemptResize(size_mm(metrics.content_w, metrics.content_h))
             table.recalculateFrameSizes()
             if collection.pageCount() == before:
+                settled = True
                 break
+        if not settled and self.log:
+            # Not "a long table" but a table that keeps growing every pass. Saying so beats a
+            # report with a tail of stray sheets that nobody can explain afterwards.
+            self.log.warning(f"Tabel groeide na {MAX_TABLE_REFLOW} herberekeningen nog; "
+                             "paginanummers kunnen verspringen")
         return max((frame.page() for frame in table.frames()), default=collection.pageCount() - 1)
 
     def table_page(self, chapter: Chapter, page: TablePage) -> None:
-        index = self.new_page()
-        self.header(chapter, page.title, index)
+        """One table, on as many sheets as it needs.
+
+        Two decisions before anything is drawn. A table of WIDE_TABLE_COLUMNS columns or more gets
+        a landscape sheet - nine columns in 180 mm cost the last one, which is how the DOV fiche
+        numbers walked off the paper. And every column is given an explicit width measured from
+        its own content, because the default (equal shares, clipped) is what cut every contractor
+        name in half.
+        """
+        rows = [[str(cell) for cell in row] for row in page.rows]
+        metrics = _page_metrics(LANDSCAPE if len(page.columns) >= WIDE_TABLE_COLUMNS else PORTRAIT)
+        index = self.new_page(metrics.orientation)
+        self.header(chapter, page.title, index, metrics)
         table = QgsLayoutItemTextTable(self.layout)
         self.layout.addMultiFrame(table)
-        table.setColumns([QgsLayoutTableColumn(heading) for heading in page.columns])
-        table.setContents([[str(cell) for cell in row] for row in page.rows])
+        # What the columns may share is the frame minus what the table spends around them: a cell
+        # margin left and right of every column, and a grid line between and outside them. Measured
+        # on 3.40.15 `totalWidth()` is exactly the sum of those three, so leaving the grid out of
+        # the sum puts the table 2.5 mm over the frame edge.
+        count = len(page.columns)
+        grid = (count + 1) * table.gridStrokeWidth() if table.showGrid() else 0.0
+        available = metrics.content_w - 2 * table.cellMargin() * count - grid
+        columns = []
+        for heading, width in zip(page.columns, column_widths(list(page.columns), rows, available)):
+            column = QgsLayoutTableColumn(heading)
+            column.setWidth(width)
+            columns.append(column)
+        table.setColumns(columns)
+        table.setContents(rows)
         table.setHeaderMode(QgsLayoutTable.HeaderMode.AllFrames)
         # A borehole table easily outgrows one sheet; truncating it silently would lose rows.
         table.setResizeMode(QgsLayoutMultiFrame.ResizeMode.ExtendToNextPage)
-        table.setContentTextFormat(_text_format(7))
-        table.setHeaderTextFormat(_text_format(7, bold=True))
+        # With fixed widths a long sentence has to break inside its column; without this QGIS
+        # writes it straight through the next column and off the sheet.
+        table.setWrapBehavior(QgsLayoutTable.WrapBehavior.WrapText)
+        table.setContentTextFormat(_text_format(TABLE_FONT_PT))
+        table.setHeaderTextFormat(_text_format(TABLE_FONT_PT, bold=True))
         frame = QgsLayoutFrame(self.layout, table)
         # Into the layout before it is moved: attemptMove resolves `page` via the page collection.
         self.layout.addLayoutItem(frame)
         frame.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
-        frame.attemptResize(size_mm(CONTENT_W, CONTENT_H))
+        frame.attemptResize(size_mm(metrics.content_w, metrics.content_h))
         table.addFrame(frame)
         table.recalculateFrameSizes()
-        last = self._fit_continuation_frames(table)
+        last = self._fit_continuation_frames(table, metrics)
         if page.note:
-            self.label(page.note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
-        self.footer(index)
+            self.label(page.note, MARGIN, NOTE_Y, metrics.content_w, 5, index, size=7)
+        self.footer(index, metrics)
         for extra in range(index + 1, last + 1):
-            self.header(chapter, f"{page.title} (vervolg)", extra)
-            self.footer(extra)
+            self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+            self.footer(extra, metrics)
+        fiches = _fiche_note(page.links or [])
+        if fiches:
+            # Under the table, on its last sheet: that is where the reader has the numbers.
+            self.label(fiches, MARGIN, CONTENT_TOP + metrics.content_h + 2.0, metrics.content_w, 5,
+                       last, size=6)
 
     def text_page(self, chapter: Chapter, page: TextPage) -> None:
         index = self.new_page()
@@ -651,6 +795,7 @@ class LayoutBuilder:
         self.title_page()
         for chapter in self.report.chapters:
             for page in chapter.pages:
+                self._raise_if_cancelled()
                 if isinstance(page, MapPage):
                     self.map_page(chapter, page)
                 elif isinstance(page, FigurePage):
@@ -667,8 +812,8 @@ class LayoutBuilder:
 
 def build_layout(project: QgsProject, report: Report, layers_by_map: Dict[str, List[QgsMapLayer]],
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
-                 legends: bool = True,
-                 legend_images: Optional[Dict[str, Path]] = None) -> QgsPrintLayout:
+                 legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
+                 should_cancel: Optional[Callable[[], bool]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, layers_by_map, overlays, out_dir, zone_ring, meta,
-                         legends, legend_images).build()
+                         legends, legend_images, log, should_cancel).build()
