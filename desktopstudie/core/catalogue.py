@@ -154,8 +154,11 @@ CATALOGUE: List[MapEntry] = [
                        "Drainageklasse": "Drainage", "Gegeneraliseerde_legende": "Legende",
                        "Textuurklasse_code": "Textuurcode", "Drainageklasse_code": "Drainagecode"},
          scale=10000),
+    # legend=False, same reason as hcov below: GetLegendGraphic answers with a single 20x20 swatch
+    # that names no class at all, and a page holding one coloured square helps nobody. The fact
+    # table lists the profile types inside the zone instead.
     _dov("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", "quartair:quartair_samengesteld",
-         ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende",
+         ("profieltype", "legende"), wfs="quartair:quartair_samengesteld_50k_legende", legend=False,
          field_labels={"profieltype": "Profieltype", "legende": "Legende (link)"}, scale=25000),
     _dov("quartair_200k", "Quartairgeologische kaart 1/200 000", "quartair:quartair_200k",
          ("type", "profiel"), wfs="quartair:quartair_200k",
@@ -167,8 +170,10 @@ CATALOGUE: List[MapEntry] = [
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
          scale=25000),
+    # legend=False: the legend of this single-class layer is a 20x20 swatch without a label - a
+    # whole sheet for one coloured square. The HCOV code and name of the zone are in the fact table.
     _dov("hcov", "HCOV 0100 - Quartaire aquifersystemen (voorkomen)", "hcov:hcov_0100_vk",
-         ("hcov_code", "hcov_naam"), wfs="hcov:hcov_0100_vk",
+         ("hcov_code", "hcov_naam"), wfs="hcov:hcov_0100_vk", legend=False,
          field_labels={"hcov_code": "HCOV-code", "hcov_naam": "HCOV-naam"}, scale=25000),
     _dov("gw_kwetsbaarheid", "Grondwaterkwetsbaarheidskaart", "gw_bescherming:gwkwb_kwbschaal",
          ("kwetsbaarheidsschaal", "watervoerende_laag", "deklaag", "dikte_onverzadigde_zone", "indices"),
