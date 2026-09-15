@@ -11,7 +11,8 @@ lokale projecten; alleen publiek gedocumenteerde service-eigenaardigheden mogen 
 
 `desktopstudie/core/` is **pure Python** (stdlib + numpy + matplotlib, GEEN `qgis`- of
 `PyQt`-import) en bevat catalogus, geometrie, datamodel, services (geocoder, DOV WFS, DOV XML,
-virtuele boring), figuren, signaleringsregels en de orchestrator `study.py`.
+virtuele boring, WMS GetFeatureInfo/watertoets), figuren, signaleringsregels en de orchestrator
+`study.py`.
 `desktopstudie/qgis/` is de dunne schil: dialoog, kaarttools, lagen, DEM, layout, export,
 QgsTask, instellingen. Kaarten staan uitsluitend in `core/catalogue.py`: één entry per kaart;
 een kaart toevoegen = één entry, geen code.
@@ -34,6 +35,10 @@ een kaart toevoegen = één entry, geen code.
   harde 500-limiet meer waargenomen op 2026-09-15; page_size=500 als veilige default); features
   over pagina's ontdubbelen op id; afkapping door max_features wordt gelogd en in het rapport
   gemeld; CPT qc/Qt in MPa, fs/u in kPa; WCS-GetCoverage is multipart.
+- **`xml.etree.ElementTree`-valkuil bij DOV-XML.** `Element.iter(tag)` doet exacte tag-matching en
+  ondersteunt het `{*}naam`-namespace-jokerteken NIET (dat werkt alleen in de ElementPath-syntax
+  van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
+  `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
 - **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
   beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan.
 - **Logging**: prefix `[core INFO module]` / `[qgis INFO module]`; per fase een INFO-samenvatting,
