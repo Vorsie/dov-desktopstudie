@@ -306,3 +306,69 @@ def test_live_pipeline_for_gent(project, tmp_path):
     assert isinstance(out.result.relief, tuple) and len(out.result.relief) == 3
     assert out.result.cpts and out.result.boreholes
     print("\n".join(line for line in lines if "WARNING" in line)[:2000])
+
+
+def test_a_layout_that_cannot_be_installed_stops_the_run(project, core_result, offline_shell, tmp_path,
+                                                         monkeypatch, no_pdf):
+    """`addLayout` neemt het eigendom over en VERNIETIGT de layout als ze weigert. Doorgaan met dat
+    object is werken in vrijgegeven geheugen; dan hoort de run te stoppen met een leesbare fout."""
+    from desktopstudie.qgis import pipeline
+
+    monkeypatch.setattr(type(project.layoutManager()), "addLayout", lambda self, lay: False)
+
+    with pytest.raises(RuntimeError, match="Layout"):
+        pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+
+def test_a_geopackage_that_cannot_be_written_still_leaves_the_json(project, core_result, offline_shell,
+                                                                   tmp_path, monkeypatch, no_pdf):
+    """Het gewone geval bij herhaald draaien: de vorige studie houdt het GeoPackage vast. Dan hoort
+    de gebruiker nog altijd zijn data te krijgen - studie.json staat er, de fout staat in
+    `failures`, en het rapport gaat gewoon door."""
+    from desktopstudie.qgis import layers, pipeline
+
+    def locked(*args, **kwargs):
+        raise RuntimeError("GeoPackage schrijven mislukt voor Onderzoekszone: database is locked")
+
+    monkeypatch.setattr(layers, "write_geopackage", locked)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert (tmp_path / "data" / "studie.json").exists(), "de json is het goedkoopste product"
+    assert out.geopackage is None and out.project_file is None
+    assert out.failures and "locked" in out.failures[0]
+    assert out.pdf is not None, "een vastgehouden GeoPackage kost het rapport niet"
+
+
+def test_the_json_is_written_before_the_heavy_products(project, core_result, offline_shell, tmp_path,
+                                                        monkeypatch, no_pdf):
+    """Volgorde van goedkoop naar duur: wie halverwege afbreekt, houdt in elk geval de data."""
+    from desktopstudie.qgis import layers, pipeline
+
+    order = []
+    real_gpkg = layers.write_geopackage
+    monkeypatch.setattr(layers, "write_geopackage",
+                        lambda *a, **k: (order.append("gpkg"), real_gpkg(*a, **k))[1])
+    real_write = type(core_result).write_json
+    monkeypatch.setattr(type(core_result), "write_json",
+                        lambda self, path: (order.append("json"), real_write(self, path))[1])
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert order == ["json", "gpkg"]
+
+
+def test_a_cancelled_export_is_not_swallowed_as_a_failure(project, core_result, offline_shell, tmp_path,
+                                                          monkeypatch):
+    """Afbreken is geen mislukte export: het hoort door te komen als StudyCancelled, niet als een
+    regel in `failures` met een run die daarna "klaar" meldt."""
+    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.qgis import export, pipeline
+
+    def cancelled(lay, path, dpi=150):
+        raise StudyCancelled("afgebroken door de gebruiker")
+
+    monkeypatch.setattr(export, "export_pdf", cancelled)
+
+    with pytest.raises(StudyCancelled):
+        pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
