@@ -31,6 +31,7 @@ Progress = Callable[[float, str], None]
 
 MESSAGE_CHARS = 200  # a provenance message is a summary; the full text goes to the log
 GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top of the centre
+GFI_WORKERS = 2  # inside the pool over the maps, so this multiplies with Settings.max_workers
 # One fiche out of a hundred: a short breath. Three full-minute waits on a record that is down
 # cost the whole study its time, while the WFS query that fills a table keeps the patient default.
 ITEM_TIMEOUT_S = 15.0
@@ -302,7 +303,19 @@ class _Runner:
             per_point[index] = wms_gfi.feature_info_at_point(self.client, entry.wms_url, entry.wms_layer,
                                                              x, y, log=gfi_log)
 
-        self._load_each(list(enumerate(points)), ask, f"{entry.id} (GetFeatureInfo)")
+        # Two workers, not the full pool: this runs INSIDE the pool over the maps, so the two
+        # multiply. Four maps times four points is sixteen requests at once from one desktop, and
+        # a service that answers 429 makes the study slower than asking politely would have.
+        failed = self._load_each(list(enumerate(points)), ask, f"{entry.id} (GetFeatureInfo)",
+                                 max_workers=GFI_WORKERS)
+        if failed == len(points):
+            # Every point failed: the map is not empty, it is unreachable. Returning [] here would
+            # print "Geen kaarteenheden binnen de zone" - a flood map that is down would read as a
+            # plot without flood risk.
+            raise EmptySource(f"geen van de {len(points)} GetFeatureInfo-punten antwoordde")
+        if failed:
+            self.log.warning(f"{entry.id}: {failed} van {len(points)} GetFeatureInfo-punten mislukt; "
+                             f"de eenhedenlijst kan onvolledig zijn")
         rows: List[dict] = []
         seen = set()
         for index in range(len(points)):
@@ -337,9 +350,10 @@ class _Runner:
                 fetched[entry.id] = self._fact_rows(entry)
             except StudyCancelled:
                 raise
-            except Exception as exc:  # noqa: BLE001 - kept for `guarded` to record below
+            except Exception as exc:  # noqa: BLE001 - handed to `guarded` below, not swallowed
+                # Stored, not re-raised: `guarded` records and logs it on the main thread, and
+                # raising here as well would put the same failure in the log twice.
                 fetched[entry.id] = exc
-                raise
 
         self._load_each(wanted, fetch, "kaartfeiten")
         for entry in wanted:
