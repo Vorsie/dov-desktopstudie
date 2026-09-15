@@ -182,9 +182,11 @@ def _draw_test_labels(fig, ax, projected: Sequence[ProjectedPoint]) -> Tuple[int
                         rotation_mode="anchor", ha="left", va="center", fontsize=TEST_LABEL_PT,
                         clip_on=False)
             for p in order]
-    fig.canvas.draw()  # text extents are only real once the figure has been laid out once
+    # A renderer is enough to measure text; fig.canvas.draw() would paint every column first,
+    # which on a 40-column profile costs more than the whole rest of the figure.
+    renderer = fig.canvas.get_renderer()
     px_per_pt = fig.dpi / 72.0
-    boxes = [ann.get_window_extent() for ann in anns]
+    boxes = [ann.get_window_extent(renderer) for ann in anns]
     lane_step_pt = max(box.height for box in boxes) / px_per_pt + LANE_GAP_PT
     axes_px = ax.get_window_extent().width
     x_lo, x_hi = ax.get_xlim()
