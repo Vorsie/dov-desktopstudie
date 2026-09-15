@@ -20,14 +20,40 @@ USER_AGENT = "dov-desktopstudie/0.1 (+https://github.com/Vorsie/dov-desktopstudi
 
 CACHE_MODES = ("use", "refresh", "off")
 RETRYABLE_STATUSES = (408, 429)
+# The longest path the sources table can print whole. A URL carries no spaces, so the table has
+# nothing to wrap on and cuts it off mid-word instead: the watertoets service (125 characters)
+# ends on the sheet as "...overstromingsgev", which is the address of nothing. About eighty
+# characters fit that column on the rendered page; a path longer than this is folded rather than
+# given a wider column at the cost of the three next to it.
+MAX_PATH_CHARS = 70
+ELIDED = "..."
+
+
+def _short_path(base: str) -> str:
+    """The service plus the last path segment, when the whole path is too long to print.
+
+    Which segment to keep is the question, and for every long path in this project the last one is
+    the answer: `.../doorprik/g3dv3_F` names the model, `.../MapServer/WMSServer` names the kind of
+    service. What the fold costs - pluviaal against fluviaal in the watertoets URL - stands in the
+    source column beside it, and the whole URL stays in `Provenance.url` and `HttpError.url`.
+    """
+    if len(base) <= MAX_PATH_CHARS:
+        return base
+    parts = urllib.parse.urlsplit(base)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if len(segments) < 2:
+        return base  # host plus one segment is already the whole address; nothing to fold away
+    return f"{parts.scheme}://{parts.netloc}/{ELIDED}/{segments[-1]}"
 
 
 def short_url(url: str) -> str:
     """The URL without its query string, plus the WFS request and typeNames when it carries them.
     A DOV GetFeature URL holds the whole CQL polygon: repeating that in every log line and in every
     provenance message buries the failure itself, while the bare path alone would no longer say
-    WHICH layer failed. `HttpError.url` keeps the full URL for whoever has to retry it."""
+    WHICH layer failed. A path too long for a table column is folded to host + last segment by
+    `_short_path`. `HttpError.url` keeps the full URL for whoever has to retry it."""
     base, _, query = url.partition("?")
+    base = _short_path(base)
     values = urllib.parse.parse_qs(query)
     lowered = {key.lower(): vals[0] for key, vals in values.items() if vals}
     named = [lowered[key] for key in ("request", "typenames") if lowered.get(key)]
