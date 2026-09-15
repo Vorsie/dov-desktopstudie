@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from desktopstudie.core.logging_util import Log
 from desktopstudie.core.services import geocoder
 from tests.core.conftest import FixtureClient
 
@@ -19,6 +20,24 @@ def test_geocode_returns_lambert72_candidates_in_order():
 def test_geocode_empty_result_gives_empty_list():
     client = FixtureClient([("geolocation", b'{"LocationResult":[]}')])
     assert geocoder.geocode(client, "onbestaand") == []
+
+
+def test_geocode_without_candidates_is_warned_about_not_silently_returned():
+    # An address the geocoder does not know answers HTTP 200 with an empty LocationResult; the
+    # caller has to be told WHICH query found nothing, not just handed an empty list.
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = FixtureClient([("geolocation", b'{"LocationResult":[]}')])
+    assert geocoder.geocode(client, "onbestaand", log=log) == []
+    assert any("onbestaand" in m and "geen" in m for m in messages)
+
+
+def test_geocode_with_candidates_is_not_warned_about():
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = FixtureClient([("geolocation/v4/Location", "geocoder_kortrijksesteenweg.json")])
+    assert geocoder.geocode(client, "Kortrijksesteenweg 100 Gent", log=log)
+    assert messages == []
 
 
 def test_geocode_hit_is_precise_for_a_house_number_match():
