@@ -54,7 +54,18 @@ from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF, QImage
 
 from ..core import catalogue, geometry, parallel
 from ..core.catalogue import MapEntry
-from ..core.report_content import Chapter, FigurePage, MapPage, Report, TablePage, TextPage
+from ..core.model import StudyResult
+from ..core.report_content import (
+    QUARTAIR_CODE,
+    QUARTAIR_ID,
+    QUARTAIR_IMAGE,
+    Chapter,
+    FigurePage,
+    MapPage,
+    Report,
+    TablePage,
+    TextPage,
+)
 from ..core.services.http import HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
 
@@ -109,6 +120,10 @@ TABLE_FONT_PT = 7.0
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
+# The quartair profile-type drawings land next to the map legends, under their own prefix so a
+# second run overwrites the file of the same profile type instead of collecting copies.
+ZONE_LEGEND_PREFIX = "quartair_"
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
@@ -361,6 +376,59 @@ def prepare_legends(entries: Sequence[MapEntry], out_dir, client: Optional[HttpC
         if missing:
             log.warning(f"Geen legenda voor: {', '.join(entry.id for entry in missing)}")
     return images, missing
+
+
+# --- the drawings behind the zone legend ----------------------------------------------------------
+
+def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
+    """URL -> profile type, one entry per distinct drawing the quartair rows point at.
+
+    The WFS answers with a row per map polygon, so a zone crossing the same profile type twice
+    carries the same URL twice; fetching it twice would cost the service two requests for one file.
+    """
+    targets: Dict[str, str] = {}
+    for fact in result.map_facts:
+        if fact.map_id != QUARTAIR_ID:
+            continue
+        for row in fact.rows:
+            url, code = str(row.get(QUARTAIR_IMAGE) or ""), str(row.get(QUARTAIR_CODE) or "")
+            if url.startswith("http") and code and url not in targets:
+                targets[url] = code
+    return targets
+
+
+def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
+                               should_cancel: Optional[Callable[[], bool]] = None
+                               ) -> Dict[str, Path]:
+    """The DOV drawing of every quartair profile type in the zone: {legend URL -> saved PNG}.
+
+    That drawing IS the legend of the quartair map - its GetLegendGraphic is a 20 x 20 stamp
+    without a class name - so the shell fetches it here and hands it to `build_report`, which turns
+    it into a figure page per profile type. The core fetches nothing itself.
+
+    What does not come back has no entry, and `report_content` then leaves that figure page out
+    rather than promising a drawing that is not there. The URLs end in "_png" but are download
+    links that answer an error page with HTTP 200, so the bytes are checked before they are saved
+    as an image.
+    """
+    targets = zone_legend_targets(result)
+    images: Dict[str, Path] = {}
+
+    def fetch(item: Tuple[str, str]) -> None:
+        url, code = item
+        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
+        if not data.startswith(PNG_MAGIC):
+            raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
+        path = Path(out_dir) / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        images[url] = path
+
+    parallel.load_each(list(targets.items()), fetch, "profieltypelegenda", LEGEND_WORKERS, log,
+                       should_cancel)
+    if log and targets:
+        log.info(f"Profieltypelegendas opgehaald: {len(images)}/{len(targets)}")
+    return images
 
 
 def _blank_rows(image: QImage) -> List[bool]:
