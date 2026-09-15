@@ -181,6 +181,23 @@ def test_a_column_outside_the_model_is_skipped_and_warned_about():
     assert any("50" in m and "1 kolom" in m for m in messages)
 
 
+def test_a_column_with_only_padding_is_dropped():
+    # INV is bottom padding, never a drawable layer, so a record whose only positive entry is INV
+    # has no geology either: it lies outside the model exactly like an all-zero column and must be
+    # dropped, not drawn as a zero-layer column hanging at minValue + INV.
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    payload = {"minValue": -10.0, "maxValue": -6.0, "layers": [], "data": [
+        {"dist": 0.0, "h_1": 4.0, "INV": 0.0},
+        {"dist": 50.0, "h_1": 0.0, "INV": 1.5},
+        {"dist": 100.0, "h_1": 4.0, "INV": 0.0}]}
+    profile = vb.parse_profile(payload, "x", [], lambda along: -6.0, log=log)
+    assert [column.along_m for column in profile.columns] == [0.0, 100.0]
+    assert any("50" in m and "1 kolom" in m for m in messages)
+    surface_at = vb.profile_surface_at(payload)
+    assert surface_at(50.0) == pytest.approx(-6.0)  # bridged, not -8.5 (the floor plus the padding)
+
+
 def test_a_column_outside_the_model_carries_no_surface_either():
     payload = {"minValue": -10.0, "maxValue": -6.0, "layers": [], "data": [
         {"dist": 0.0, "h_1": 4.0}, {"dist": 50.0, "h_1": 0.0}]}
