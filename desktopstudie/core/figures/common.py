@@ -66,23 +66,34 @@ def lithology_colour(text: str) -> str:
     return FALLBACK_LITHOLOGY_COLOUR
 
 
-def draw_depth_column(ax, bands: List[Band], max_depth_m: float, label_chars: int = 55) -> float:
+def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
+                      label_chars: int = 48) -> Tuple[float, int]:
     """Draws stacked `bands` (top_m, base_m, colour, label) as rectangles in x in [0, 1], with a
-    label per band at x=1.05. Labels are placed top to bottom without overlapping: each one sits
-    at its band's midpoint unless that would collide with the previous label, in which case it is
-    pushed down by at least one label-height step; a thin leader line then connects the band to
-    its moved label. Bands (and their labels) below `max_depth_m` are skipped. Returns the drawn
-    depth range (<= max_depth_m), which the caller uses as the y-axis range."""
+    label per band at x=1.05. Labels are placed top to bottom without overlapping and without
+    leaving the axes: each one sits at its band's midpoint unless that would collide with the
+    previous label or with the top edge, in which case it is pushed down by at least one
+    label-height step; a thin leader line then connects the band to its moved label. A label
+    pushed past the bottom edge is pulled back to half a step above it, and dropped altogether
+    when that would collide with the label above. Bands (and their labels) below `max_depth_m`
+    are skipped. Returns (drawn depth range (<= max_depth_m), which the caller uses as the
+    y-axis range; number of labels dropped for lack of room)."""
     visible = [(top, min(base, max_depth_m), colour, label) for top, base, colour, label in bands
                if top < max_depth_m]
     drawn_depth = min(max_depth_m, max((base for _, base, _, _ in visible), default=max_depth_m))
     for top, base, colour, _ in visible:
         ax.add_patch(plt.Rectangle((0, top), 1, base - top, facecolor=colour, edgecolor="black", lw=0.5))
     step = LABEL_STEP_FRACTION * drawn_depth
+    lowest = drawn_depth - step / 2.0  # a label centred deeper than this would cross the bottom edge
     prev_y = None
+    skipped = 0
     for top, base, _, label in visible:
         mid = (top + base) / 2.0
-        y = mid if prev_y is None else max(mid, prev_y + step)
+        y = max(mid, step / 2.0) if prev_y is None else max(mid, prev_y + step)
+        if y > lowest:
+            if prev_y is not None and lowest < prev_y + step:
+                skipped += 1
+                continue
+            y = lowest
         prev_y = y
         ax.text(1.05, y, textwrap.shorten(label, label_chars), va="center", fontsize=7, clip_on=True)
         if y != mid:
@@ -91,4 +102,4 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float, label_chars: in
     ax.set_ylim(drawn_depth, 0)
     ax.set_xticks([])
     ax.set_ylabel("diepte [m-mv]")
-    return drawn_depth
+    return drawn_depth, skipped
