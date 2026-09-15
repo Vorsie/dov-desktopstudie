@@ -9,6 +9,8 @@ import pytest
 from desktopstudie.core import geometry, study
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import StudyZone
+from desktopstudie.core.report_content import ReportMeta, TextPage, build_report
+from desktopstudie.core.section import section_line
 from desktopstudie.core.services.http import HttpError
 from tests.core.conftest import FixtureClient
 
@@ -93,6 +95,55 @@ def test_failing_source_is_isolated_and_reported(gent_ring, tmp_path):
     assert failed and failed[0].source.startswith("Bodemkaart")
     assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
     assert result.section is not None  # the rest still ran
+
+
+def _outside_the_models_client():
+    """Every doorprik answers "no layers" (HTTP 200 with an empty data[], what DOV returns outside
+    Flanders) and the profile query is down: nothing to draw a section from anywhere."""
+    client = _client()
+    client.routes.insert(0, ("profielbevraging", HttpError("https://x/profiel", 500, "down")))
+    client.routes.insert(0, ("doorprik", b'{"data": [], "layers": []}'))
+    return client
+
+
+def test_a_point_outside_the_models_reports_empty_sources_instead_of_empty_figures(gent_ring, tmp_path):
+    # "Nooit stil een leeg resultaat teruggeven": a virtual borehole without layers and a section
+    # without geology are FAILED sources in the report, not ok sources with an empty picture.
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=3),
+                       _outside_the_models_client(), tmp_path)
+    failed = {p.source: p.message for p in result.provenance if not p.ok}
+    assert {f"Virtuele boring {m}" for m in ("g3dv3_F", "g3dv3_L", "g3dv3_P", "hcovv2_S")} <= set(failed)
+    assert all("geen lagen op dit punt" in failed[f"Virtuele boring {m}"]
+               for m in ("g3dv3_F", "g3dv3_L", "g3dv3_P", "hcovv2_S"))
+    assert "profiel niet beschikbaar" in failed["Doorsnede - profielbevraging"]
+    assert "geen modellagen langs de lijn" in failed["Doorsnede (virtuele boringen langs de lijn)"]
+    assert result.virtual_boreholes == {}  # an empty borehole is not stored
+    assert result.section is None
+    assert "section" not in result.figures
+    assert not (tmp_path / "figuren" / "section.png").exists()
+    # the report says so in words, in the chapter that would otherwise show an empty column
+    report = build_report(result, ReportMeta(project="P", author="A", company="C"))
+    assert any(isinstance(page, TextPage) and "niet beschikbaar" in page.html
+               for page in report.chapters[3].pages)
+    # exit code 3 in run_core keys off exactly this count, and it is unchanged: failed is failed
+    assert result.summary()["n_sources_failed"] == len(failed)
+    assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
+
+
+def test_failed_section_points_are_reported_as_a_signalering(gent_ring, tmp_path):
+    # A section drawn from fewer columns than were asked for is thinner than it looks; the gap has
+    # to be named, not left to the reader.
+    client = _client()
+    line = section_line(StudyZone(ring=gent_ring, name="z"), study.Settings().section_extension_m)
+    first = geometry.sample_line(line[0], line[1], 3)[0]
+    client.routes.insert(0, (f"x={first[0]:.2f}", HttpError("https://x/doorprik", 500, "down")))
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=3),
+                       client, tmp_path)
+    assert result.section is not None and result.section.failed_points == 1
+    sigs = [s for s in result.signaleringen if s.code == "doorsnede_onvolledig"]
+    assert len(sigs) == 1
+    assert sigs[0].fact.startswith("1 van 3 doorprik-punten mislukt")
+    assert sigs[0].severity == "info"
 
 
 def _warnings():
