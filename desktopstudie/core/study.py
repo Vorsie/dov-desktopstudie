@@ -32,6 +32,12 @@ Progress = Callable[[float, str], None]
 
 MESSAGE_CHARS = 200  # a provenance message is a summary; the full text goes to the log
 GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top of the centre
+# The two signals that come from the run itself rather than from `checks`: nothing in the result
+# still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
+# (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
+TRUNCATION_CODE = "wfs_afgekapt"
+SECTION_CODE = "doorsnede_onvolledig"
+ORCHESTRATOR_CODES = (TRUNCATION_CODE, SECTION_CODE)
 
 
 class StudyCancelled(Exception):
@@ -316,7 +322,7 @@ class _Runner:
 
     def _truncation_signals(self) -> List[Signalering]:
         """WFS results cut off by max_features are reported, never silently dropped."""
-        return [Signalering("wfs_afgekapt", f"{typename}: {returned} van {matched} objecten opgehaald.", "DOV WFS",
+        return [Signalering(TRUNCATION_CODE, f"{typename}: {returned} van {matched} objecten opgehaald.", "DOV WFS",
                             "Tabel onvolledig; verhoog max_features of verklein de straal.", severity="info")
                 for typename, returned, matched in self.wfs.truncations]
 
@@ -328,7 +334,7 @@ class _Runner:
         if section is None or section.failed_points <= 0:
             return []
         asked = section.failed_points + len(section.boreholes)
-        return [Signalering("doorsnede_onvolledig",
+        return [Signalering(SECTION_CODE,
                             f"{section.failed_points} van {asked} doorprik-punten mislukt.",
                             "DOV virtuele boring",
                             "Doorsnede onvolledig; de kolommen op die punten ontbreken.", severity="info")]
@@ -383,6 +389,17 @@ class _Runner:
         self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
         return self.result
+
+
+def orchestrator_signals(result: StudyResult) -> List[Signalering]:
+    """The signals in `result` that only this module could have produced.
+
+    `checks.run_all` reads the result and rebuilds every rule-based signal from it, so a caller
+    that re-runs the rules (the shell does, once the relief is measured) can throw the old list
+    away - except for these two. A truncated WFS list and a failed doorprik leave no trace in the
+    data itself, only in this run, so they are carried over rather than recomputed.
+    """
+    return [signal for signal in result.signaleringen if signal.code in ORCHESTRATOR_CODES]
 
 
 def run(zone: StudyZone, settings: Settings, client, out_dir: Path, progress: Optional[Progress] = None,
