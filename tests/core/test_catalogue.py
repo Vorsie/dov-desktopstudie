@@ -85,3 +85,4 @@ def test_every_map_has_a_positive_scale_and_low_resolution_maps_zoom_out():
     assert all(e.scale > 0 for e in c.CATALOGUE)
     assert c.by_id("ferraris").scale > c.by_id("grb").scale
     assert c.by_id("quartair_200k").scale > c.by_id("bodemkaart").scale
+    assert all(1000 <= e.scale <= 200000 for e in c.CATALOGUE)
