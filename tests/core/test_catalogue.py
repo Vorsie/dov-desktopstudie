@@ -87,6 +87,14 @@ def test_by_id_unknown_raises_key_error():
         c.by_id("does_not_exist")
 
 
+def test_every_fact_field_has_a_readable_label():
+    for e in c.CATALOGUE:
+        if e.fact_mode is None:
+            continue
+        missing = [f for f in e.fact_fields if f not in e.field_labels]
+        assert not missing, f"{e.id} missing labels for {missing}"
+
+
 def test_every_map_has_a_positive_scale_and_low_resolution_maps_zoom_out():
     assert all(e.scale > 0 for e in c.CATALOGUE)
     assert c.by_id("ferraris").scale > c.by_id("grb").scale
