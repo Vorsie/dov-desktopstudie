@@ -62,8 +62,15 @@ def core_result(gent_zone, tmp_path):
 
 @pytest.fixture
 def offline_shell(monkeypatch, gent_zone):
-    """Geen enkele service: elke WMS-laag is een memory-laag en het reliëf is een vaste tuple van
-    4,4 m verschil - genoeg om de reliëfregel te laten aanslaan."""
+    """Geen enkele service, en een catalogus van drie kaarten.
+
+    Elke WMS-laag is een memory-laag en het reliëf is een vaste tuple van 4,4 m verschil - genoeg
+    om de reliëfregel te laten aanslaan. De catalogus wordt teruggebracht tot een kaart per
+    hoofdstuk omdat deze tests over de volgorde en de producten van de pijplijn gaan, niet over de
+    omvang van de catalogus: met alle dertig kaarten kost één rapport vijf minuten renderen en
+    wordt de suite niet meer gedraaid. De live test onderaan dekt de echte catalogus.
+    """
+    from desktopstudie.core import catalogue
     from desktopstudie.qgis import dem, layers
 
     def fake_wms(entry):
@@ -71,6 +78,9 @@ def offline_shell(monkeypatch, gent_zone):
         layer.setName(entry.title)
         return layer
 
+    # grb blijft: hoofdstuk 5 en 6 tekenen hun overzichtskaart daarop.
+    monkeypatch.setattr(catalogue, "CATALOGUE",
+                        [catalogue.by_id(map_id) for map_id in ("grb", "ferraris", "bodemkaart")])
     monkeypatch.setattr(layers, "wms_layer", fake_wms)
     monkeypatch.setattr(dem, "relief_of_zone",
                         lambda zone_layer, log=None, should_cancel=None: (5.0, 9.4, 7.1))
