@@ -563,3 +563,146 @@ def test_the_footer_leaves_out_what_the_study_does_not_know(project, gent_zone, 
                               {"project": "", "company": "", "created_at": "2026-09-15T10:00:00"})
     footer = next(lbl for lbl in _items_of(lay, 0, QgsLayoutItemLabel) if "@layout_page" in lbl.text())
     assert footer.text().startswith("pagina ")
+
+
+# --- brede tabellen --------------------------------------------------------------------------
+
+def _sonderingen_page():
+    """De echte sonderingentabel: negen kolommen, gevuld met opgeslagen DOV-antwoorden. De lange
+    uitvoerdersnaam ("Rijksinstituut voor Grondmechanica (RIG)") is wat de tabel van het blad
+    duwde."""
+    from desktopstudie.core.model import Cpt, StudyResult, StudyZone
+    from desktopstudie.core.report_content import ReportMeta, TablePage, build_report
+    from tests.core.conftest import fixture_json
+
+    features = fixture_json("wfs_sonderingen_dwithin.json")["features"]
+    cpts = []
+    for number, feature in enumerate(features):
+        p = feature["properties"]
+        url = p["fiche"]
+        cpts.append(Cpt(permkey=url.rsplit("/", 1)[-1], number=p["sondeernummer"], x=p["X_mL72"], y=p["Y_mL72"],
+                        z_mtaw=p.get("Z_mTAW"), depth_m=p.get("diepte_tot_m"), date=p.get("datum_aanvang"),
+                        method=p.get("sondeermethode"), cone=p.get("conus"), contractor=p.get("uitvoerder"),
+                        project=p.get("opdrachten"), url=url, distance_m=float(number * 37)))
+    zone = StudyZone(ring=[(104226.0, 192406.0), (104426.0, 192406.0), (104426.0, 192606.0)], name="z")
+    result = StudyResult(zone=zone, created_at="2026-09-15T10:00:00", cpts=cpts)
+    report = build_report(result, ReportMeta(project="T", author="A", company="B"))
+    pages = [p for chapter in report.chapters for p in chapter.pages if isinstance(p, TablePage)]
+    return next(p for p in pages if p.title.startswith("Sonderingen"))
+
+
+def _signaleringen_page():
+    """De signaleringentabel: vier kolommen met hele zinnen erin, letterlijk uit een echte studie
+    (Gent, 2026-09-15). Die moeten afbreken binnen hun kolom in plaats van eruit te lopen."""
+    from desktopstudie.core.report_content import TablePage
+
+    return TablePage("Signaleringen", ["Feit", "Bron", "Aandachtspunt", "Ernst"], [
+        ["Maaiveld varieert van 12.5 tot 16.2 mTAW in de zone.", "DHMV II",
+         "Aandachtspunt voor het grondonderzoek: reliefverschil; niveaus van proeven nauwkeurig inmeten.",
+         "aandacht"],
+        ["Krimp-zwelgevoelige grond binnen de zone: Formatie van Kortrijk (klei).",
+         "DOV - plastische gronden",
+         "Funderingsniveau en vochthuishouding beoordelen; zettingen door krimp en zwel mogelijk.",
+         "aandacht"],
+        ["3 sondering(en) binnen 50 m van de zone.", "DOV",
+         "Bestaande data bruikbaar als referentie voor het onderzoeksprogramma.", "info"]])
+
+
+def _table_of(lay):
+    from qgis.core import QgsLayoutItemTextTable
+
+    return [frame for frame in lay.multiFrames() if isinstance(frame, QgsLayoutItemTextTable)][0]
+
+
+def test_a_wide_table_lands_on_a_landscape_sheet_with_every_column_on_it(project, gent_zone, tmp_path):
+    """Negen kolommen passen niet op een staand blad: de laatste ("DOV-fiche") viel eraf en de
+    uitvoerder werd halverwege afgekapt. Zo'n tabel hoort liggend, met expliciete kolombreedtes
+    die samen binnen de bladbreedte blijven, en met alle negen koppen erop."""
+    from qgis.core import QgsLayoutItemPage
+
+    from desktopstudie.qgis import layout
+
+    page = _sonderingen_page()
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    sheet = lay.pageCollection().page(1)
+    metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Landscape)
+    assert sheet.pageSize().width() > sheet.pageSize().height(), "brede tabel hoort liggend"
+    table = _table_of(lay)
+    assert [column.heading() for column in table.columns] == page.columns
+    assert all(column.width() > 0 for column in table.columns), "elke kolom krijgt een eigen breedte"
+    assert table.totalWidth() <= metrics.content_w + 0.5, f"{table.totalWidth()} mm past niet"
+    assert table.frames()[0].rect().width() <= metrics.content_w + 0.5
+
+
+def test_a_narrow_table_stays_portrait_and_wraps_its_long_sentences(project, gent_zone, tmp_path):
+    """Vier kolommen met hele zinnen: die horen binnen hun kolom af te breken, niet buiten het
+    blad door te lopen - en het blad blijft staand."""
+    from qgis.core import QgsLayoutItemPage, QgsLayoutTable
+
+    from desktopstudie.qgis import layout
+
+    page = _signaleringen_page()
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    sheet = lay.pageCollection().page(1)
+    metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Portrait)
+    assert sheet.pageSize().height() > sheet.pageSize().width(), "vier kolommen passen staand"
+    table = _table_of(lay)
+    assert table.wrapBehavior() == QgsLayoutTable.WrapBehavior.WrapText
+    assert [column.heading() for column in table.columns] == page.columns
+    assert table.totalWidth() <= metrics.content_w + 0.5, f"{table.totalWidth()} mm past niet"
+
+
+def test_a_table_of_fiches_says_where_the_fiches_live(project, gent_zone, tmp_path):
+    """De tabel toont de permkey, niet de hele URL - anders is de kolom breder dan het blad. Waar
+    die permkey op te zoeken valt, hoort dan wel op het blad te staan."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    page = _sonderingen_page()
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    texts = [item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel)]
+    assert any("https://www.dov.vlaanderen.be/data/sondering/" in text for text in texts), texts
+
+
+def test_a_figure_wider_than_tall_gets_a_landscape_sheet(project, gent_zone, tmp_path):
+    """De doorsnede is breder dan hoog. Op een staand blad wordt ze tot een strook op de
+    bovenhelft geperst; liggend gebruikt ze het blad."""
+    from desktopstudie.core.report_content import FigurePage
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "figuren" / "breed.png", 1400, 1142)
+    lay = layout.build_layout(project, _report([FigurePage("Doorsnede", "figuren/breed.png")]), {}, {},
+                              tmp_path, gent_zone.ring, _meta())
+
+    sheet = lay.pageCollection().page(1)
+    assert sheet.pageSize().width() > sheet.pageSize().height()
+
+
+def test_a_tall_figure_stays_on_a_portrait_sheet(project, gent_zone, tmp_path):
+    from desktopstudie.core.report_content import FigurePage
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "figuren" / "hoog.png", 535, 985)
+    lay = layout.build_layout(project, _report([FigurePage("Sondering", "figuren/hoog.png")]), {}, {},
+                              tmp_path, gent_zone.ring, _meta())
+
+    sheet = lay.pageCollection().page(1)
+    assert sheet.pageSize().height() > sheet.pageSize().width()
+
+
+def test_building_a_layout_stops_when_the_user_cancels(project, gent_zone, tmp_path):
+    """Een rapport van vijfennegentig bladen bouwen duurt een halve minuut; afbreken hoort niet op
+    het einde daarvan te wachten."""
+    from desktopstudie.core.parallel import Cancelled
+    from desktopstudie.core.report_content import TextPage
+    from desktopstudie.qgis import layout
+
+    pages = [TextPage(f"Blad {number}", "<p>tekst</p>") for number in range(20)]
+
+    with pytest.raises(Cancelled):
+        layout.build_layout(project, _report(pages), {}, {}, tmp_path, gent_zone.ring, _meta(),
+                            should_cancel=lambda: True)
