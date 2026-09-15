@@ -16,6 +16,9 @@ FIXTURE_FOR = {
     "erosie": "wfs_erosie_2014_intersects.json",
     "krimp_zwel": "wfs_indexplastisch_intersects.json",
     "ovam": "wfs_ovam_uitspraak_intersects.json",
+    "grondverschuiving_gevoeligheid": "wfs_grndversch_gevoeligh_intersects.json",
+    "grondverschuiving_gekarteerd": "wfs_grndversch_gekarteerd_intersects.json",
+    "pfas_no_regret": "wfs_pfas_no_regret_intersects.json",
     "watertoets_pluviaal": "watertoets_fluviaal_hit.json",
     "watertoets_fluviaal": "watertoets_fluviaal_hit.json",
 }
@@ -79,7 +82,7 @@ def test_entries_are_hashable():
 def test_entries_filter_by_chapter_and_enabled():
     assert [e.id for e in c.entries("ligging")] == ["grb", "ortho", "ngi_topo", "dhmv_hillshade", "dhmv_dtm"]
     assert len(c.entries("historisch")) == 7
-    assert len(c.entries("historisch", enabled_only=False)) == 8
+    assert len(c.entries("historisch", enabled_only=False)) == 9  # + ngi_hist and bommenkaart
 
 
 def test_by_id_unknown_raises_key_error():
@@ -109,3 +112,27 @@ def test_service_urls_carry_their_template_placeholders():
     assert all(url.startswith("https://") for url in
                (c.DOV_WFS_URL, c.DOV_WMS_URL, c.GEOCODER_URL, c.VB_DOORPRIK_URL, c.VB_PROFILE_URL,
                 c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
+
+
+def test_bommenkaart_is_a_documented_empty_slot_naming_the_explosives_risk():
+    slot = c.by_id("bommenkaart")
+    assert slot.chapter == "historisch"
+    assert slot.enabled is False
+    assert "geen open data" in slot.note and "WMS" in slot.note
+    assert "explosieven" in slot.note
+
+
+def test_the_pfas_map_names_ovam_as_its_source():
+    entry = c.by_id("pfas_no_regret")
+    assert entry.chapter == "geologie"
+    assert entry.attribution == "OVAM / Vlaamse overheid via DOV"
+    # no_regret_zones is a STYLE of pfas:no_regret_huidig, not a WMS layer of its own
+    assert entry.wms_layer == "pfas:no_regret_huidig"
+    assert entry.wfs_typename == "pfas:no_regret_huidig"
+
+
+def test_the_landslide_maps_expose_the_class_and_the_report_link():
+    assert c.by_id("grondverschuiving_gevoeligheid").fact_fields == ("gevoelighd", "klasse")
+    assert c.by_id("grondverschuiving_gevoeligheid").legend is True
+    assert "rapport" in c.by_id("grondverschuiving_gekarteerd").fact_fields
+    assert c.by_id("grondverschuiving_gekarteerd").scale == 10000
