@@ -108,9 +108,9 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
    de zone, beide zijden verlengd (standaard 100 m); optioneel zelf tekenen of uit een laag kiezen.
 2. **Ophalen** (QgsTask → `core.study.run`): WFS-punten binnen `DWITHIN(straal)` (CPT, boringen,
    peilputten, interpretaties); XML-details voor de dichtstbijzijnde N per type (max 4 threads);
-   virtuele boringen op de centroid (`g3dv3_L`, `hcovv2_S`) en op M punten langs de doorsnedelijn
+   virtuele boringen op het representatieve punt van de zone (de centroid als die binnen de zone ligt, anders een punt op de breedste koorde; `g3dv3_L`, `hcovv2_S`) en op M punten langs de doorsnedelijn
    (`g3dv3_F`); kaartfeiten via WFS `INTERSECTS(zone)` per catalogus-entry met `wfs_typename`;
-   watertoets via GetFeatureInfo op centroid en hoekpunten. Elke bron faalt **geïsoleerd**: fout →
+   watertoets via GetFeatureInfo op het representatieve punt en de hoekpunten. Elke bron faalt **geïsoleerd**: fout →
    `Signalering("bron niet beschikbaar")` + log; het rapport gaat door.
 3. **Figuren** (kern, matplotlib Agg → PNG in `figuren/`): qc/fs/Rf-diagram per CPT, lithologiekolom
    per boring, virtuele-boringkolom, doorsnede (formaties in `dovlayercolor`, maaiveldlijn uit de
@@ -139,8 +139,8 @@ lagen echte QGIS-lagen zijn. Nieuwe kaarten toevoegen = één catalogus-entry.
 3. **Geologie en bodem**: bodemkaart, Quartair (samengesteld 1/50 000) + Quartairdikte, Tertiair
    (1/50 000), HCOV, grondwaterkwetsbaarheid, GxG, watertoets pluviaal/fluviaal, erosie, krimp-zwel,
    OVAM-uitspraken; per kaart een tabel met de kaarteenheden die de zone snijden.
-4. **Virtuele boring** op het zwaartepunt: G3Dv3 formaties + leden (top/basis mTAW, dikte), HCOV;
-   kolomfiguur.
+4. **Virtuele boring** op het representatieve punt van de zone: G3Dv3 formaties + leden (top/basis
+   mTAW, dikte), HCOV; kolomfiguur.
 5. **Grondonderzoek DOV** binnen de straal: overzichtskaart met gelabelde punten; tabellen CPT /
    boringen / peilputten (afstand, diepte, datum, methode, uitvoerder, opdracht, DOV-link);
    bijlagen: qc-diagrammen (N dichtstbijzijnde CPT's, standaard 5), lithologiekolommen (N boringen,
