@@ -26,6 +26,9 @@ ZONE = "POLYGON((104226 192406,104426 192406,104426 192606,104226 192606,104226 
 # picked because it is the one place a live probe found both the erosie- and the (sparse)
 # isopachen-layer returning numberMatched > 0 for the same square.
 ZONE_RURAL = "POLYGON((89500 181500,90500 181500,90500 182500,89500 182500,89500 181500))"
+# Square (500 x 500 m) near Kluisbergen/Ronse where a live probe found a parcel with
+# Totale_erosie "hoog" among the first 5 results, for a fixture-driven erosie:hoog test.
+ZONE_EROSIE_HOOG = "POLYGON((99750 164750,100250 164750,100250 165250,99750 165250,99750 164750))"
 
 
 def wfs(
@@ -109,6 +112,10 @@ FIXTURES: list[tuple[str, str]] = [
     ("wfs_erosie_2014_intersects.json",
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          f"INTERSECTS(the_geom,{ZONE_RURAL})", 5,
+         props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
+    ("wfs_erosie_2014_hoog.json",
+     wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
+         f"INTERSECTS(the_geom,{ZONE_EROSIE_HOOG})", 5,
          props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
     ("wfs_quartair_isopachen_intersects.json",
      wfs("dov-pub:Quartair_Isopachen", f"INTERSECTS(geometry,{ZONE_RURAL})", 5,
