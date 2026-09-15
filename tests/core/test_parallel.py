@@ -10,7 +10,6 @@ import pytest
 from desktopstudie.core import parallel
 from desktopstudie.core.logging_util import Log
 
-
 ITEM_S = 0.5  # lang genoeg om het verschil tussen een en twee rondes te meten
 
 
