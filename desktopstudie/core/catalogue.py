@@ -9,6 +9,12 @@ DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/wfs"
 DOV_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/wms"
 GEOCODER_URL = "https://geo.api.vlaanderen.be/geolocation/v4/Location"
 VB_DOORPRIK_URL = "https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/{model}"
+# Profile query: one column of layer THICKNESSES per distance step along a line; the record
+# carries no absolute elevations, so callers stack from a known surface (see virtuele_boring).
+VB_PROFILE_URL = (
+    "https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/{model}"
+    "/profielbevraging/lagen"
+)
 WATERINFO_WMS_URL = (
     "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
