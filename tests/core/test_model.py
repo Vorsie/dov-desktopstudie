@@ -69,11 +69,13 @@ def test_write_json_handles_numpy_scalars_paths_and_nested_section(gent_ring, tm
                             relief=(np.float32(8.0), np.float32(10.5), np.float32(9.0)),
                             figures={"section": Path("figuren/section.png")},
                             section=section)
+    result.figures["arr"] = np.array([1.0, 2.0])  # type mismatch is deliberate: pins array serialisation
     path = tmp_path / "studie.json"
     result.write_json(path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["relief"] == [8.0, 10.5, 9.0]
     assert data["figures"]["section"].endswith("section.png")
+    assert data["figures"]["arr"] == [1.0, 2.0]
     assert data["section"]["boreholes"][0]["layers"][0]["name"] == layer.name
     assert data["section"]["line"] == [[0.0, 0.0], [10.0, 0.0]]
 
