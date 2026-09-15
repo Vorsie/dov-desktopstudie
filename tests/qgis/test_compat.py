@@ -26,16 +26,19 @@ def test_version_is_three_or_four(qgs_app):
 
 
 def test_an_enum_value_is_named_not_numbered(qgs_app):
-    """Een kale "3" in een logregel zegt niemand iets. PyQt5 levert QGIS-enums als gewone getallen
-    zonder `.name`, dus de naam wordt bij de houder opgezocht."""
+    """Een kale "3" in een logregel zegt niemand iets. PyQt5 levert de oude QGIS-enums als gewone
+    getallen zonder `.name`, dus de naam wordt bij de houder opgezocht; een echte Python-enum
+    (QGIS 3.36+ en Qt6) draagt haar naam zelf."""
+    from qgis.analysis import QgsZonalStatistics
     from qgis.core import QgsLayoutExporter
 
     from desktopstudie.qgis import compat
 
-    holder = QgsLayoutExporter.ExportResult
-    assert compat.enum_name(holder, holder.Success) == "Success"
-    assert compat.enum_name(holder, holder.FileError) == "FileError"
-    assert compat.enum_name(holder, 999) == "999"
+    result = QgsLayoutExporter.ExportResult
+    assert compat.enum_name(QgsLayoutExporter, result.Success) == "Success"
+    assert compat.enum_name(QgsLayoutExporter, result.FileError) == "FileError"
+    assert compat.enum_name(QgsLayoutExporter, 999) == "999"
+    assert compat.enum_name(QgsZonalStatistics.Result, QgsZonalStatistics.Result.LayerTypeWrong) == "LayerTypeWrong"
 
 
 def test_offscreen_without_a_font_dir_gets_one(qgs_app, monkeypatch):
