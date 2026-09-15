@@ -26,6 +26,10 @@ RETRYABLE_STATUSES = (408, 429)
 # characters fit that column on the rendered page; a path longer than this is folded rather than
 # given a wider column at the cost of the three next to it.
 MAX_PATH_CHARS = 70
+# How much of a single over-long segment survives the fold. The DOV download links are one segment
+# of a hundred characters whose tail is the file name (DOV_Quartair_50000_22010_png), so the tail
+# is what is kept - and the tail is what tells two of those links apart.
+MAX_SEGMENT_CHARS = 32
 ELIDED = "..."
 
 
@@ -34,15 +38,21 @@ def _short_path(base: str) -> str:
 
     Which segment to keep is the question, and for every long path in this project the last one is
     the answer: `.../doorprik/g3dv3_F` names the model, `.../MapServer/WMSServer` names the kind of
-    service. What the fold costs - pluviaal against fluviaal in the watertoets URL - stands in the
-    source column beside it, and the whole URL stays in `Provenance.url` and `HttpError.url`.
+    service, `...DOV_Quartair_50000_22010_png` names the drawing. What the fold costs - pluviaal
+    against fluviaal in the watertoets URL - stands in the source column beside it, and the whole
+    URL stays in `Provenance.url` and `HttpError.url`.
     """
     if len(base) <= MAX_PATH_CHARS:
         return base
     parts = urllib.parse.urlsplit(base)
     segments = [segment for segment in parts.path.split("/") if segment]
+    if not segments:
+        return base
+    if len(segments[-1]) > MAX_SEGMENT_CHARS:
+        # Dropping folders does not help here: the length is inside one segment.
+        return f"{parts.scheme}://{parts.netloc}/{ELIDED}{segments[-1][-MAX_SEGMENT_CHARS:]}"
     if len(segments) < 2:
-        return base  # host plus one segment is already the whole address; nothing to fold away
+        return base  # host plus one short segment is already the whole address
     return f"{parts.scheme}://{parts.netloc}/{ELIDED}/{segments[-1]}"
 
 
