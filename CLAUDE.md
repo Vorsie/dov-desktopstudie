@@ -86,6 +86,11 @@ een kaart toevoegen = één entry, geen code.
   `pytest tests/core`; live-tests: `pytest -m live`.
 - Schil: de Python van een lokale QGIS-installatie (`C:\Program Files\QGIS <versie>\bin\python-qgis*.bat`).
   Headless flow: `scripts/run_headless.py`.
+- Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
+  (of `--x/--y`); `--straal` zet de zoekstraal, `--buffer` de zonecirkel, `--cache use|refresh|off`
+  de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen kaarten en geen PDF.
+- Fixtures verversen: `python scripts/record_fixtures.py` (schrijft `tests/core/fixtures/` opnieuw,
+  inclusief de bron-URL en datum in de README ernaast).
 - Plugin laden in QGIS: junction van `desktopstudie/` naar
   `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie`, daarna Plugin Reloader.
 - Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
@@ -97,3 +102,9 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 - **StudyZone is één ring (geen gaten, geen multipart)** / eenvoud in v1; de schil vlakt een
   geselecteerd feature af tot zijn buitenring / herbekijken zodra een gebruiker een multipolygoon
   of een perceel met een gat aanlevert.
+- **Gecodeerde-lithologiecodes (FZ, SI, SN, ...) worden rauw getoond** / de officiële DOV-codelijst
+  is niet als open XSD gevonden / herbekijken zodra een collega de codes in het rapport onleesbaar
+  vindt: vertaaltabel in de presentatielaag toevoegen, raw code als tooltip behouden.
+- **Geen rapport zonder QGIS** / kaartpagina's en PDF komen uit QGIS-layouts; `run_core.py` levert
+  alleen data, figuren en JSON / herbekijken als collega's zonder QGIS de studie willen draaien:
+  "lite"-CLI met matplotlib-kaarten via WMS GetMap.
