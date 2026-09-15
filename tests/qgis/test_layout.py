@@ -232,6 +232,26 @@ def test_the_info_boxes_stay_inside_the_right_margin(make_layout):
         assert box.pos().x() > MARGIN, "een infovak hoort rechts op de kaart te staan"
 
 
+def test_a_long_source_line_makes_its_info_box_taller(project, gent_zone, tmp_path):
+    """Een lange bronregel breekt binnen het vakje af. Wie alleen de losse regels meet en het
+    afbreken vergeet, maakt het vakje een regel te kort en laat de laatste regel onder het kader
+    uithangen - precies op de bronvermelding."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout
+
+    def source_box_height(map_id):
+        lay = layout.build_layout(project, _report([MapPage(map_id, "Kaart", legend=False)]),
+                                  {}, {}, tmp_path, gent_zone.ring, _meta())
+        boxes = [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]
+        source = max(boxes, key=lambda box: box.pos().y())  # het bronvak staat onderaan de kaart
+        return source.rect().height()
+
+    # ortho draagt de langste bronvermelding van de catalogus, grb een van de kortste
+    assert source_box_height("ortho") > source_box_height("grb")
+
+
 def test_the_north_arrow_is_readable_over_the_map(make_layout):
     """Een zwarte pijl op een donker luchtfotodak is onzichtbaar; hij krijgt een eigen wit vlak."""
     from qgis.core import QgsLayoutItemPicture
