@@ -1,7 +1,8 @@
 """DOV WFS 2.0.0 access. Rules learned from the live service: never send BBOX together with
-CQL_FILTER (fold spatial predicates into CQL); at most 500 features per response, so page with
-startIndex/count; the geometry attribute name differs per layer (geom/shape/geometry/the_geom),
-so look it up with DescribeFeatureType once per layer."""
+CQL_FILTER (fold spatial predicates into CQL); no hard per-response limit was observed on
+2026-09-15; page with startIndex/count (page_size 500 as a safe default), de-duplicate across
+pages, and report truncation; the geometry attribute name differs per layer
+(geom/shape/geometry/the_geom), so look it up with DescribeFeatureType once per layer."""
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Set, Tuple
