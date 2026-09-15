@@ -254,3 +254,24 @@ def test_a_long_failure_message_is_trimmed_in_the_provenance(gent_ring, tmp_path
                        client, tmp_path)
     failed = [p for p in result.provenance if not p.ok]
     assert failed and len(failed[0].message) <= 220  # "HttpError: " plus 200 characters of text
+
+
+def test_the_orchestrator_signals_survive_a_second_pass_of_the_rules(gent_ring):
+    """De schil draait `checks.run_all` opnieuw zodra het reliëf binnen is. Die regels kennen de
+    afkapping van een WFS en een onvolledige doorsnede niet - die weet alleen de orchestrator -
+    dus moeten ze apart uit het resultaat te halen zijn, of ze verdwijnen bij die tweede pas."""
+    from desktopstudie.core.model import Signalering, StudyResult
+
+    result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="2026-09-15T10:00:00")
+    result.signaleringen = [
+        Signalering("wfs_afgekapt", "dov-pub:Sonderingen: 5 van 90 objecten opgehaald.", "DOV WFS", "x",
+                    severity="info"),
+        Signalering("overstroming", "klasse C", "VMM", "y"),
+        Signalering("doorsnede_onvolledig", "1 van 3 doorprik-punten mislukt.", "DOV", "z", severity="info"),
+    ]
+
+    kept = study.orchestrator_signals(result)
+
+    assert [s.code for s in kept] == ["wfs_afgekapt", "doorsnede_onvolledig"]
+    assert study.orchestrator_signals(StudyResult(zone=StudyZone(ring=gent_ring, name="z"),
+                                                 created_at="2026-09-15T10:00:00")) == []
