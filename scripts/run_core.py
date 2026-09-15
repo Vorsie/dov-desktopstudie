@@ -41,7 +41,7 @@ def main() -> int:
     client = HttpClient(cache_dir=out / "data" / "cache", cache_mode=args.cache, log=log.child("http"))
     address = None
     if args.adres:
-        hits = geocode(client, args.adres)
+        hits = geocode(client, args.adres, log=log.child("geocoder"))
         if not hits:
             log.error(f"adres niet gevonden: {args.adres}")
             return 2
