@@ -234,10 +234,10 @@ class StudyResult:
 
 
 def _jsonable(value: Any) -> Any:
-    """json.dumps(default=...) hook: paths become their string form, numpy scalars (which carry
-    an .item() but are not one of json's native types) unwrap to the plain Python value."""
+    """json.dumps(default=...) hook: paths become their string form, numpy scalars and arrays
+    (which carry a .tolist() but are not one of json's native types) unwrap to plain Python."""
     if isinstance(value, pathlib.PurePath):
         return str(value)
-    if hasattr(value, "item"):
-        return value.item()
+    if hasattr(value, "tolist"):
+        return value.tolist()
     raise TypeError(f"not JSON serialisable: {type(value).__name__}")
