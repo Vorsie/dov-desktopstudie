@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from desktopstudie.core.logging_util import Log
 
 
@@ -35,3 +37,8 @@ def test_child_inherits_level():
     log.info("wordt genegeerd")
     log.warning("bron niet bereikbaar")
     assert lines == ["[core WARNING section] bron niet bereikbaar"]
+
+
+def test_unknown_level_is_rejected_at_construction():
+    with pytest.raises(ValueError):
+        Log("study", level="TRACE")
