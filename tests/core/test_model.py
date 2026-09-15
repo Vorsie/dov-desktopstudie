@@ -98,3 +98,27 @@ def test_depth_of_with_zero_surface_elevation():
                   color="#FFFF00", texture="eolische dekzanden"),
     ])
     assert vb.depth_of(vb.layers[1]) == (2.0, 5.0)
+
+
+def test_section_carries_a_stacked_profile_that_round_trips_to_json(gent_ring, tmp_path):
+    layer = m.VbLayer(code="g3dv3_F_31", name="Formatie van Maldegem", top_mtaw=10.84, base_mtaw=-11.34,
+                      thickness_m=22.18, color="#93AB71", texture="klei")
+    profile = m.SectionProfile(model="g3dv3_F", resolution_m=10.0, columns=[
+        m.ProfileColumn(along_m=0.0, surface_mtaw=14.62, layers=[layer]),
+        m.ProfileColumn(along_m=10.0, surface_mtaw=14.50, layers=[layer]),
+    ])
+    section = m.Section(line=((0.0, 0.0), (10.0, 0.0)), boreholes=[], projected=[], zone_from_m=0.0,
+                        zone_to_m=10.0, profile=profile)
+    assert section.failed_points == 0  # profile is the last field, so failed_points keeps its default
+    result = m.StudyResult(zone=m.StudyZone(ring=gent_ring, name="z"), created_at="t", section=section)
+    path = tmp_path / "studie.json"
+    result.write_json(path)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["section"]["profile"]["resolution_m"] == 10.0
+    assert data["section"]["profile"]["columns"][1]["along_m"] == 10.0
+    assert data["section"]["profile"]["columns"][0]["layers"][0]["code"] == "g3dv3_F_31"
+
+
+def test_a_section_without_a_profile_defaults_to_none():
+    section = m.Section(line=((0.0, 0.0), (10.0, 0.0)), boreholes=[], projected=[], zone_from_m=0.0, zone_to_m=10.0)
+    assert section.profile is None
