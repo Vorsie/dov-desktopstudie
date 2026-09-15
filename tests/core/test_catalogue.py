@@ -100,3 +100,12 @@ def test_every_map_has_a_positive_scale_and_low_resolution_maps_zoom_out():
     assert c.by_id("ferraris").scale > c.by_id("grb").scale
     assert c.by_id("quartair_200k").scale > c.by_id("bodemkaart").scale
     assert all(1000 <= e.scale <= 200000 for e in c.CATALOGUE)
+
+
+def test_service_urls_carry_their_template_placeholders():
+    assert "{model}" in c.VB_DOORPRIK_URL
+    assert "{model}" in c.VB_PROFILE_URL and c.VB_PROFILE_URL.endswith("/profielbevraging/lagen")
+    assert "{kind}" in c.WATERINFO_WMS_URL
+    assert all(url.startswith("https://") for url in
+               (c.DOV_WFS_URL, c.DOV_WMS_URL, c.GEOCODER_URL, c.VB_DOORPRIK_URL, c.VB_PROFILE_URL,
+                c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
