@@ -129,4 +129,9 @@ class HttpClient:
         return self.get(url, params).decode("utf-8")
 
     def get_json(self, url: str, params: Optional[Dict[str, Any]] = None) -> Any:
-        return json.loads(self.get_text(url, params))
+        raw = self.get_text(url, params)
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError as exc:
+            full_url = build_url(url, params)
+            raise HttpError(full_url, 200, f"geen JSON in het antwoord: {raw[:200]!r}") from exc
