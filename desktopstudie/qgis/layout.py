@@ -105,6 +105,9 @@ WIDE_TABLE_COLUMNS = 7
 # that factor - a column measured too narrow wraps text that had room.
 TEXT_WIDTH_FUDGE = 1.07
 TABLE_FONT_PT = 7.0
+# No single column may claim more than this of the width, however long its longest word is: a URL
+# of ninety characters would otherwise leave the other columns a few millimetres each.
+MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
 
 
@@ -176,6 +179,19 @@ def _text_width_mm(strings: Sequence[str], size: float, bold: bool = False) -> f
     return widest * MM_PER_PX * TEXT_WIDTH_FUDGE
 
 
+def _floor_width(heading: str, cells: Sequence[str], available: float, size: float) -> float:
+    """The width below which a column starts losing characters instead of lines.
+
+    WrapText breaks on spaces, so the longest word in a column is as narrow as it can honestly
+    get: squeeze past it and QGIS cuts the word off - "2026-09-15T22:2" instead of a timestamp,
+    "Grondwaterkwetsb" instead of a map name. One greedy column (a URL is a single word of ninety
+    characters) must still not swallow the sheet, hence the cap.
+    """
+    words = [word for cell in cells for word in str(cell).split()] or [""]
+    longest = max(_text_width_mm([heading], size, bold=True), _text_width_mm(words, size))
+    return min(longest, available * MAX_COLUMN_SHARE)
+
+
 def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], available: float,
                   size: float = TABLE_FONT_PT) -> List[float]:
     """A width in mm per column, together no wider than `available`.
@@ -189,16 +205,20 @@ def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], availab
     """
     if not columns:
         return []
-    heading = [_text_width_mm([column], size, bold=True) for column in columns]
-    wanted = [max(head, _text_width_mm([row[index] for row in rows] or [""], size))
-              for index, head in enumerate(heading)]
+    cells = [[row[index] for row in rows] or [""] for index in range(len(columns))]
+    wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
+              for column, column_cells in zip(columns, cells)]
     if sum(wanted) <= available:
         return wanted
-    if sum(heading) >= available:
-        return [head * available / sum(heading) for head in heading]
-    extra = [want - head for want, head in zip(wanted, heading)]
-    slack = available - sum(heading)
-    return [head + slack * (want / sum(extra)) for head, want in zip(heading, extra)]
+    floor = [_floor_width(column, column_cells, available, size)
+             for column, column_cells in zip(columns, cells)]
+    if sum(floor) >= available:
+        return [width * available / sum(floor) for width in floor]
+    extra = [want - base for want, base in zip(wanted, floor)]
+    slack = available - sum(floor)
+    if sum(extra) <= 0:
+        return floor
+    return [base + slack * (want / sum(extra)) for base, want in zip(floor, extra)]
 
 
 def _fiche_note(links: Sequence[str]) -> str:
