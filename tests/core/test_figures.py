@@ -496,15 +496,17 @@ def _hatched_formations(ax):
 
 
 def test_two_formations_in_near_identical_colours_are_told_apart_by_a_hatch():
-    # DOV hands out several flat yellows a few hundredths of an RGB step apart; printed side by
-    # side they read as one unit, which is exactly the mistake a section must not invite.
-    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#f3de78"), max_depth_m=60.0)
+    # DOV hands out several flat yellows close together in RGB; a pair 0.10 apart - inside the
+    # 0.12 threshold - still reads as one unit printed side by side, which is exactly the mistake
+    # a section must not invite.
+    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#dbe07a"), max_depth_m=60.0)
     assert _hatched_formations(ax) == {"Formatie van Rozebeke"}  # the later one gets the hatch
     hatched = [p for p in ax.patches if p.get_hatch()]
     assert hatched, "the columns themselves must carry the hatch, not just the legend"
 
 
 def test_formations_in_clearly_different_colours_stay_flat():
-    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#6b4f2a"), max_depth_m=60.0)
+    # 0.15 apart clears the 0.12 threshold: distinct enough on paper that no hatch is needed.
+    fig, ax = section_figure._build_section_figure(_colour_section("#f5e07a", "#cfe07a"), max_depth_m=60.0)
     assert _hatched_formations(ax) == set()
     assert not [p for p in ax.patches if p.get_hatch()]
