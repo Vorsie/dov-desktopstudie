@@ -83,17 +83,20 @@ def _build_profile(client, line: Tuple[Point, Point], anchors: Sequence[VirtualB
     """The dense profile, stacked from the top because the answer holds thicknesses only. Its own
     datum is preferred: it reproduces the doorprik surface exactly (see `profile_surface_at`) and,
     unlike a surface interpolated between anchors a hundred metres apart, it does not tilt the
-    layer boundaries inside a G3Dv3 grid cell. The anchors are the fallback for an answer without
-    a datum, and the layer order always comes from the first anchor."""
+    layer boundaries inside a G3Dv3 grid cell. The anchors give the stacking order and are the
+    fallback surface for an answer without a datum; with no anchors at all the profile has to carry
+    both itself, so the units stack on their numeric suffix and a missing datum is fatal."""
     resolution_m = max(MIN_PROFILE_RESOLUTION_M, length / PROFILE_COLUMNS)
-    order = [layer.code for layer in anchors[0].layers]
+    order = [layer.code for layer in anchors[0].layers] if anchors else []
     payload = fetch_profile(client, model, line[0], line[1], resolution_m, log=log)
-    surface_at = profile_surface_at(payload)
+    surface_at = profile_surface_at(payload, log=log)
     if surface_at is None:
+        if not anchors:
+            raise RuntimeError("profiel zonder eigen maaiveld-datum en geen doorprik-anker om op te hangen")
         if log:
             log.warning(f"profiel {model} zonder eigen maaiveld-datum; terugval op de doorprik-ankers")
         surface_at = _anchor_surface(line, anchors)
-    return parse_profile(payload, model, order, surface_at, resolution_m)
+    return parse_profile(payload, model, order, surface_at, resolution_m, log=log)
 
 
 def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequence[Cpt],
@@ -103,8 +106,9 @@ def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequ
     length = geometry.distance(line[0], line[1])
     points = geometry.sample_line(line[0], line[1], n_points)
     vbs, failed = _fetch_points(client, points, model, max_workers, log)
-    if not vbs:
-        raise RuntimeError("geen enkele virtuele boring langs de doorsnedelijn beschikbaar")
+    # The profile is tried even when every anchor failed: it carries both the layers and, through
+    # its own datum, the elevations, so it alone is enough for a section. Only when both sources
+    # are gone is there nothing left to draw.
     profile: Optional[SectionProfile] = None
     if with_profile:
         try:
@@ -112,6 +116,8 @@ def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequ
         except Exception as exc:  # isolate: without the profile the doorprik section is still valid
             if log:
                 log.warning(f"profiel langs de doorsnedelijn niet beschikbaar: {type(exc).__name__}: {exc}")
+    if not vbs and profile is None:
+        raise RuntimeError("geen virtuele boring en geen profiel langs de doorsnedelijn beschikbaar")
     projected: List[ProjectedPoint] = []
     for c in cpts:
         projected.append(_project("cpt", c.number, c.x, c.y, c.z_mtaw, c.depth_m, line))
