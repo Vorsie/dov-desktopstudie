@@ -1,6 +1,10 @@
-"""De layout uit de rapportboom: één pagina per rapportpagina, een aparte legendapagina achter
-elke kaart die er een vraagt, en de extentregel van een kaartpagina. Alles offline: er wordt niets
-geëxporteerd en de "WMS-laag" is een memory-laag, zodat de test niets van een service verwacht."""
+"""De layout uit de rapportboom: een pagina per rapportpagina, aparte legendapagina's achter elke
+kaart die er een vraagt, de extentregel van een kaartpagina en wat er gebeurt als een tabel niet
+op een blad past.
+
+Bijna alles offline: de "WMS-laag" is een memory-laag en de legenda is een zelfgemaakte PNG, zodat
+de test niets van een service verwacht. Alleen de legenda-ophaler heeft een live variant, want
+alleen de echte GeoServer bewijst dat de GetLegendGraphic-URL klopt."""
 from __future__ import annotations
 
 import pytest
@@ -8,30 +12,37 @@ import pytest
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
 ZONE_WIDTH_M = 100.0  # de Gent-zone is een cirkel van 50 m straal
 TABLE_COLUMNS = ["Eenheid", "Top (mTAW)", "Basis (mTAW)"]
+FIGURE_REL = "figuren/sondering.png"
 
 
-def _png(path):
-    """Een echte 100 x 100 PNG: QgsLayoutItemPicture weigert een pad dat geen afbeelding is."""
+def _png(path, width=100, height=100):
+    """Een echte PNG: QgsLayoutItemPicture weigert een pad dat geen afbeelding is."""
     from qgis.PyQt.QtGui import QColor, QImage
 
-    image = QImage(100, 100, QImage.Format.Format_RGB32)
+    image = QImage(width, height, QImage.Format.Format_RGB32)
     image.fill(QColor(30, 80, 160))
     path.parent.mkdir(parents=True, exist_ok=True)
     assert image.save(str(path))
+    return path
 
 
-def _report(figure_rel_path):
-    from desktopstudie.core.report_content import Chapter, FigurePage, MapPage, Report, TablePage, TextPage
+def _report(pages):
+    from desktopstudie.core.report_content import Chapter, Report
 
-    pages = [
+    return Report(title="Desktopstudie testproject", meta={}, chapters=[Chapter(1, "Test", pages)])
+
+
+def _standard_pages():
+    from desktopstudie.core.report_content import FigurePage, MapPage, TablePage, TextPage
+
+    return [
         MapPage(MAP_ID, "Ligging op de GRB-basiskaart", legend=True, scale=2500, extent_factor=3.0),
-        FigurePage("Sondering GEO-01", figure_rel_path, caption="Sondering nabij de zone"),
+        FigurePage("Sondering GEO-01", FIGURE_REL, caption="Sondering nabij de zone"),
         TablePage("Lagen", list(TABLE_COLUMNS),
                   [[f"laag {i}", f"{10 - i}.00", f"{9 - i}.00"] for i in range(4)],
                   note="Modelwaarden, geen terreinmeting."),
         TextPage("Bronnen", "<p>DOV en geopunt, opgehaald op 2026-09-15.</p>"),
     ]
-    return Report(title="Desktopstudie testproject", meta={}, chapters=[Chapter(1, "Test", pages)])
 
 
 def _meta():
@@ -42,22 +53,25 @@ def _meta():
 
 
 @pytest.fixture
-def built(project, gent_zone, tmp_path):
-    """De layout, plus alles wat een test erover nodig heeft. De 'WMS'-laag is een memory-laag die
-    wél in het project zit: een legendaknoop bewaart een laag-id en zoekt de laag in het project."""
+def make_layout(project, gent_zone, tmp_path):
+    """Bouwt een layout uit opgegeven rapportpagina's, met een memory-laag als "WMS-laag"."""
     from desktopstudie.qgis import layers, layout
 
-    figure_rel = "figuren/sondering.png"
-    _png(tmp_path / figure_rel)
+    _png(tmp_path / FIGURE_REL)
     wms_stand_in = layers.zone_layer(gent_zone)
     wms_stand_in.setName("GRB-basiskaart")
     project.addMapLayer(wms_stand_in, False)
     zone = layers.zone_layer(gent_zone)
     project.addMapLayer(zone, False)
 
-    def build(legends=True):
-        return layout.build_layout(project, _report(figure_rel), {MAP_ID: [wms_stand_in]},
-                                   {"zone": [zone]}, tmp_path, gent_zone.ring, _meta(), legends=legends)
+    def build(pages=None, legends=True, legend_images=None, overlays=None):
+        if legend_images is None:
+            legend_images = {MAP_ID: _png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)}
+        merged = {"zone": [zone]}
+        merged.update(overlays or {})
+        return layout.build_layout(project, _report(_standard_pages() if pages is None else pages),
+                                   {MAP_ID: [wms_stand_in]}, merged, tmp_path, gent_zone.ring,
+                                   _meta(), legends=legends, legend_images=legend_images)
 
     return build
 
@@ -66,19 +80,40 @@ def _items_of(lay, index, cls):
     return [item for item in lay.pageCollection().itemsOnPage(index) if isinstance(item, cls)]
 
 
-def test_a_page_per_report_page_plus_a_title_page_and_a_legend_page(built):
-    """Titelblad + vier rapportpagina's + één legendapagina, want de kaart vraagt een legenda."""
-    lay = built()
+def _footers_on(lay, index):
+    from qgis.core import QgsLayoutItemLabel
+
+    return [lbl for lbl in _items_of(lay, index, QgsLayoutItemLabel) if "@layout_page" in lbl.text()]
+
+
+# --- paginastructuur -------------------------------------------------------------------------
+
+def test_a_page_per_report_page_plus_a_title_page_and_a_legend_page(make_layout):
+    """Titelblad + vier rapportpagina's + een legendapagina, want de kaart vraagt een legenda."""
+    lay = make_layout()
     assert lay.pageCollection().pageCount() == 1 + 4 + 1
 
 
-def test_every_page_is_a4_portrait(built):
+def test_without_legends_no_legend_pages_are_made(make_layout):
+    """De schakelaar van de plugin/CLI: geen legendapagina's, de rest ongewijzigd."""
+    lay = make_layout(legends=False)
+    assert lay.pageCollection().pageCount() == 1 + 4
+
+
+def test_a_map_without_a_fetched_legend_gets_no_legend_page(make_layout):
+    """Een legenda die niet opgehaald raakte, levert geen lege pagina op - dat zou de lezer een
+    legenda beloven die er niet is."""
+    lay = make_layout(legend_images={})
+    assert lay.pageCollection().pageCount() == 1 + 4
+
+
+def test_every_page_is_a4_portrait(make_layout):
     """Van kaft tot kaft staand A4. `QgsPrintLayout.initializeDefaults()` legt zijn eerste pagina
     liggend neer, en op een liggend titelblad valt alles onder 210 mm - de inhoudsopgave, de
     disclaimer - gewoon van het papier af."""
     from desktopstudie.qgis import compat
 
-    lay = built()  # de layout moet blijven leven: met haar sterven haar pagina's
+    lay = make_layout()
     collection = lay.pageCollection()
     for index in range(collection.pageCount()):
         size = collection.page(index).pageSize()
@@ -87,13 +122,67 @@ def test_every_page_is_a4_portrait(built):
         assert size.height() == pytest.approx(297.0, abs=0.5), f"pagina {index} is niet 297 mm hoog"
 
 
-def test_without_legends_no_legend_pages_are_made(built):
-    """De schakelaar van de plugin/CLI: geen legendapagina's, de rest ongewijzigd."""
-    lay = built(legends=False)
-    assert lay.pageCollection().pageCount() == 1 + 4
+def test_every_page_carries_exactly_one_footer(make_layout):
+    """Elke pagina draagt haar eigen voettekst met het paginanummer. Twee voetteksten betekent dat
+    twee rapportpagina's op hetzelfde blad zijn beland; nul betekent een blad dat uit het niets
+    opdook - allebei gaten die je pas in de PDF ziet."""
+    lay = make_layout()
+    for index in range(lay.pageCollection().pageCount()):
+        assert len(_footers_on(lay, index)) == 1, f"pagina {index}"
 
 
-def test_the_map_page_carries_the_map_scale_bar_arrow_and_info_boxes_but_no_legend(built):
+# --- overlopende tabel -----------------------------------------------------------------------
+
+def _long_table_report():
+    from desktopstudie.core.report_content import TablePage, TextPage
+
+    return [TablePage("Lange tabel", list(TABLE_COLUMNS),
+                      [[f"laag {i}", f"{i}.00", f"{i + 1}.00"] for i in range(200)],
+                      note="Tweehonderd rijen passen op geen enkel blad."),
+            TextPage("Bronnen", "<p>Na de tabel.</p>")]
+
+
+def test_a_table_that_runs_on_does_not_land_on_the_next_report_page(make_layout):
+    """Een tabel van 200 rijen maakt zelf pagina's bij. Wie daarna verder telt met een eigen
+    teller, zet de volgende rapportpagina bovenop de laatste tabelpagina: tekst dwars door de
+    tabel heen. De volgende rapportpagina hoort na alles van de tabel te beginnen."""
+    from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
+
+    lay = make_layout(pages=_long_table_report())
+    collection = lay.pageCollection()
+    text_pages = []
+    for index in range(collection.pageCount()):
+        on_page = [lbl.text() for lbl in _items_of(lay, index, QgsLayoutItemLabel)]
+        if any("Na de tabel" in text for text in on_page):
+            text_pages.append(index)
+            assert not _items_of(lay, index, QgsLayoutFrame), f"de tekstpagina deelt blad {index}"
+    assert len(text_pages) == 1
+    assert text_pages[0] == collection.pageCount() - 1, "de tekstpagina hoort de laatste te zijn"
+
+
+def test_a_table_that_runs_on_keeps_a_header_and_a_footer_on_every_page(make_layout):
+    """Een vervolgblad zonder kop is een losse brok cijfers: de lezer weet niet meer waar hij is.
+    Elk vervolgblad krijgt dezelfde kop met "(vervolg)" en een eigen voettekst."""
+    from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
+
+    lay = make_layout(pages=_long_table_report())
+    collection = lay.pageCollection()
+    continued = []
+    for index in range(collection.pageCount()):
+        if not _items_of(lay, index, QgsLayoutFrame):
+            continue
+        texts = [lbl.text() for lbl in _items_of(lay, index, QgsLayoutItemLabel)]
+        assert len(_footers_on(lay, index)) == 1, f"pagina {index} mist een voettekst"
+        if any("(vervolg)" in text for text in texts):
+            continued.append(index)
+        else:
+            assert any("Lange tabel" in text for text in texts), f"pagina {index} mist een kop"
+    assert continued, "een tabel van 200 rijen hoort vervolgbladen te maken"
+
+
+# --- kaartpagina -----------------------------------------------------------------------------
+
+def test_the_map_page_carries_the_map_scale_bar_arrow_and_info_boxes_but_no_legend(make_layout):
     from qgis.core import (
         QgsLayoutItemLabel,
         QgsLayoutItemLegend,
@@ -102,7 +191,7 @@ def test_the_map_page_carries_the_map_scale_bar_arrow_and_info_boxes_but_no_lege
         QgsLayoutItemScaleBar,
     )
 
-    lay = built()
+    lay = make_layout()
     maps = _items_of(lay, 1, QgsLayoutItemMap)
     bars = _items_of(lay, 1, QgsLayoutItemScaleBar)
     assert len(maps) == 1 and len(bars) == 1
@@ -114,63 +203,39 @@ def test_the_map_page_carries_the_map_scale_bar_arrow_and_info_boxes_but_no_lege
     assert _items_of(lay, 1, QgsLayoutItemLegend) == []
 
 
-def test_the_info_boxes_are_readable_over_the_map(built):
+def test_the_info_boxes_are_readable_over_the_map(make_layout):
     """Een infovak staat bovenop de kaart. Zonder eigen achtergrond leest de tekst over gevels en
-    straatnamen heen en is ze onleesbaar, precies waar de schaal en de bronvermelding staan."""
+    straatnamen heen, en zonder marge plakt ze tegen het kader."""
     from qgis.core import QgsLayoutItemLabel
 
-    lay = built()
+    lay = make_layout()
     framed = [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]
     assert framed
     for box in framed:
         assert box.hasBackground(), f"infovak zonder achtergrond: {box.text()[:40]!r}"
         assert box.backgroundColor().alpha() == 255
+        assert box.marginX() > 0 and box.marginY() > 0
 
 
-def test_the_legend_page_is_named_linked_and_switchable(built):
-    from qgis.core import QgsLayoutItemLegend, QgsLayoutItemMap, QgsLayoutObject
+def test_the_info_boxes_stay_inside_the_right_margin(make_layout):
+    """De vakjes krimpen naar hun inhoud en groeien daarbij naar links, niet over de bladrand: een
+    bronvermelding die half buiten het papier valt, is geen bronvermelding."""
+    from qgis.core import QgsLayoutItemLabel
 
-    lay = built()
-    page_item = lay.pageCollection().page(2)
-    assert page_item.id() == f"legenda-{MAP_ID}"
-    legends = _items_of(lay, 2, QgsLayoutItemLegend)
-    assert len(legends) == 1
-    assert legends[0].linkedMap().uuid() == _items_of(lay, 1, QgsLayoutItemMap)[0].uuid()
-    # Eén layoutvariabele zet alle legendapagina's uit zonder ze te verwijderen.
-    prop = page_item.dataDefinedProperties().property(QgsLayoutObject.DataDefinedProperty.ExcludeFromExports)
-    assert prop.expressionString() == "@legendas = 0"
+    lay = make_layout()
+    for box in [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]:
+        right = box.pagePositionWithUnits().x() + box.sizeWithUnits().width()
+        assert right == pytest.approx(195.0, abs=1.0), f"{box.text()[:30]!r} loopt tot {right} mm"
 
 
-def _excluded_from_exports(lay, index):
-    """Evaluate the ExcludeFromExports expression of a page in the layout's own context."""
-    from qgis.core import QgsExpression, QgsLayoutObject
+def test_the_north_arrow_is_readable_over_the_map(make_layout):
+    """Een zwarte pijl op een donker luchtfotodak is onzichtbaar; hij krijgt een eigen wit vlak."""
+    from qgis.core import QgsLayoutItemPicture
 
-    prop = lay.pageCollection().page(index).dataDefinedProperties().property(
-        QgsLayoutObject.DataDefinedProperty.ExcludeFromExports)
-    return bool(QgsExpression(prop.expressionString()).evaluate(lay.createExpressionContext()))
-
-
-def test_one_layout_variable_switches_the_legend_pages_out_of_the_export(built):
-    """De tweede schakelaar: de legendapagina's blijven bestaan, maar vallen uit de export zodra
-    de gebruiker `legendas` op 0 zet. QGIS bewaart een layoutvariabele als tekst, dus de waarde
-    komt als '1'/'0' terug; wat telt is dat de uitsluitingsexpressie erop omslaat."""
-    from qgis.core import QgsExpressionContextUtils
-
-    lay = built()
-    assert int(QgsExpressionContextUtils.layoutScope(lay).variable("legendas")) == 1
-    assert _excluded_from_exports(lay, 2) is False
-
-    QgsExpressionContextUtils.setLayoutVariable(lay, "legendas", 0)
-    assert _excluded_from_exports(lay, 2) is True
-
-
-def test_without_legends_the_variable_is_off_too(built):
-    """`build_layout(legends=False)` zet de variabele mee om, zodat een layout zonder
-    legendapagina's niet met een schakelaar op "aan" in QGIS opent."""
-    from qgis.core import QgsExpressionContextUtils
-
-    lay = built(legends=False)
-    assert int(QgsExpressionContextUtils.layoutScope(lay).variable("legendas")) == 0
+    lay = make_layout()
+    arrow = _items_of(lay, 1, QgsLayoutItemPicture)[0]
+    assert arrow.hasBackground()
+    assert arrow.backgroundColor().alpha() == 255
 
 
 def test_the_extent_is_the_wider_of_the_target_scale_and_the_zone(project, gent_zone, tmp_path):
@@ -179,7 +244,7 @@ def test_the_extent_is_the_wider_of_the_target_scale_and_the_zone(project, gent_
     wint, want anders valt de zone buiten beeld."""
     from desktopstudie.qgis import layout
 
-    builder = layout.LayoutBuilder(project, _report("x.png"), {}, {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(layout.MAP_W / 1000.0 * 2500, abs=0.5)
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
     assert builder.map_extent(2500, 10.0).width() == pytest.approx(ZONE_WIDTH_M * 10.0, abs=0.5)
@@ -189,33 +254,199 @@ def test_the_extent_is_the_wider_of_the_target_scale_and_the_zone(project, gent_
     assert wide.height() == pytest.approx(wide.width() * layout.MAP_H / layout.MAP_W, abs=0.5)
 
 
-def test_the_table_page_has_a_frame_the_columns_and_runs_on(built):
+def test_the_extent_also_holds_what_the_page_asked_to_draw(project, gent_zone, tmp_path):
+    """Vraagt een pagina om het grondonderzoek, dan hoort de Zoekstraal er helemaal op te staan.
+    Een kaart die de zoekcirkel afsnijdt, laat de lezer denken dat er verderop niets gezocht is."""
+    from desktopstudie.qgis import layers, layout
+
+    search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
+    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    tight = builder.map_extent(2500, 3.0)
+    wide = builder.map_extent(2500, 3.0, [search_area])
+
+    assert not tight.contains(search_area.extent()), "zonder overlays past de zoekcirkel niet"
+    assert wide.contains(search_area.extent())
+
+
+# --- legendapagina's -------------------------------------------------------------------------
+
+def test_the_legend_page_shows_the_fetched_image_and_is_switchable(make_layout):
+    from qgis.core import QgsLayoutItemLegend, QgsLayoutItemPicture, QgsLayoutObject
+
+    lay = make_layout()
+    page_item = lay.pageCollection().page(2)
+    assert page_item.id() == f"legenda-{MAP_ID}"
+    # Geen QgsLayoutItemLegend: die haalt een WMS-legenda asynchroon op en blijft headless leeg.
+    assert _items_of(lay, 2, QgsLayoutItemLegend) == []
+    pictures = _items_of(lay, 2, QgsLayoutItemPicture)
+    assert len(pictures) == 1 and pictures[0].picturePath().endswith(f"{MAP_ID}.png")
+    prop = page_item.dataDefinedProperties().property(QgsLayoutObject.DataDefinedProperty.ExcludeFromExports)
+    assert prop.expressionString() == "@legendas = 0"
+
+
+def test_a_legend_taller_than_a_page_is_cut_into_page_sized_strips(make_layout, tmp_path):
+    """Een legenda van honderden klassen is een lange smalle strook. In een kader geperst wordt ze
+    onleesbaar klein; ze hoort in bladhoge stroken op opeenvolgende pagina's."""
+    from qgis.core import QgsLayoutItemPicture, QgsLayoutObject
+
+    tall = _png(tmp_path / "legendas" / f"{MAP_ID}.png", 200, 3000)
+    lay = make_layout(legend_images={MAP_ID: tall})
+    collection = lay.pageCollection()
+    legend_pages = [index for index in range(collection.pageCount())
+                    if collection.page(index).id().startswith(f"legenda-{MAP_ID}")]
+
+    assert len(legend_pages) >= 2, "een strook van 3000 px hoort niet op een blad te passen"
+    for number, index in enumerate(legend_pages, start=1):
+        assert collection.page(index).id() == f"legenda-{MAP_ID}-{number}"
+        assert len(_items_of(lay, index, QgsLayoutItemPicture)) == 1
+        prop = collection.page(index).dataDefinedProperties().property(
+            QgsLayoutObject.DataDefinedProperty.ExcludeFromExports)
+        assert prop.expressionString() == "@legendas = 0", f"blad {index} volgt de schakelaar niet"
+
+
+def test_the_legend_switch_drops_the_pages_from_a_real_export(make_layout, tmp_path):
+    """De schakelaar moet in de echte export gelden, niet alleen in de expressie: zet `legendas`
+    op 0 en er komt precies een pagina minder uit."""
+    from qgis.core import QgsExpressionContextUtils, QgsLayoutExporter
+
+    lay = make_layout()
+    settings = QgsLayoutExporter.ImageExportSettings()
+    settings.dpi = 48
+
+    out_on = tmp_path / "aan"
+    out_on.mkdir()
+    assert QgsLayoutExporter(lay).exportToImage(str(out_on / "p.png"), settings) == QgsLayoutExporter.Success
+    with_legends = len(list(out_on.glob("p*.png")))
+
+    QgsExpressionContextUtils.setLayoutVariable(lay, "legendas", 0)
+    lay.refresh()
+    out_off = tmp_path / "uit"
+    out_off.mkdir()
+    assert QgsLayoutExporter(lay).exportToImage(str(out_off / "p.png"), settings) == QgsLayoutExporter.Success
+    without_legends = len(list(out_off.glob("p*.png")))
+
+    assert with_legends == 6
+    assert without_legends == with_legends - 1
+
+
+# --- legenda-URL en ophalen ------------------------------------------------------------------
+
+def test_the_legend_url_asks_for_the_style_and_the_column_layout():
+    """Een legenda hoort bij een laag en bij een stijl: gxg zonder stijl tekent een andere legenda
+    dan de kaart. LEGEND_OPTIONS houdt de klassen in kolommen in plaats van in een strook."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    entry = catalogue.by_id("gxg_ghg")
+    url = layout.wms_legend_url(entry, entry.legend_options)
+
+    assert "REQUEST=GetLegendGraphic" in url and "VERSION=1.3.0" in url
+    assert "LAYER=gxg%3Aghg_mmv_main" in url or "LAYER=gxg:ghg_mmv_main" in url
+    assert "STYLE=gxg%3Agxg" in url or "STYLE=gxg:gxg" in url
+    assert "LEGEND_OPTIONS=" in url and "columns" in url
+    assert "LEGEND_OPTIONS" not in layout.wms_legend_url(entry, "")
+
+
+def test_a_legend_that_cannot_be_fetched_is_reported_not_swallowed(qgs_app, tmp_path):
+    """Een bron die faalt, faalt luid: geen pad terug en een WARNING."""
+    from dataclasses import replace
+
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    entry = replace(catalogue.by_id("gxg_ghg"), wms_url="http://127.0.0.1:9/wms")
+    lines = []
+    client = HttpClient(cache_dir=None, timeout=1.0, retries=0, sleep=lambda _s: None)
+
+    assert layout.fetch_legend(entry, tmp_path, client, Log("layout", lines.append, scope="qgis")) is None
+    assert any("WARNING" in line for line in lines), lines
+
+
+def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
+    """Kaarten met legend=False worden niet opgehaald - de bodemkaart alleen al zou een strook van
+    duizenden pixels binnenhalen die nergens op past."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    asked = []
+    blob = _png(tmp_path / "bron.png").read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None):
+            asked.append(params["LAYER"] if params else url)
+            return blob
+
+    entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("gxg_ghg")]
+    images = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
+
+    assert list(images) == ["gxg_ghg"]
+    assert asked == ["gxg:ghg_mmv_main"]
+
+
+@pytest.mark.live
+def test_live_the_gxg_legend_is_a_real_png(qgs_app, tmp_path):
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    path = layout.fetch_legend(catalogue.by_id("gxg_ghg"), tmp_path, HttpClient(cache_dir=None))
+
+    assert path is not None and path.exists()
+    assert path.stat().st_size > 1024
+    assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+# --- overige pagina's ------------------------------------------------------------------------
+
+def test_the_table_page_has_a_frame_the_columns_and_runs_on(make_layout):
     from qgis.core import QgsLayoutFrame, QgsLayoutMultiFrame
 
-    lay = built()
+    lay = make_layout()
     frames = _items_of(lay, 4, QgsLayoutFrame)
     assert frames, "geen tabelframe op de tabelpagina"
     table = frames[0].multiFrame()
     assert table.frameCount() >= 1
     assert [column.heading() for column in table.columns()] == TABLE_COLUMNS
-    # Een tabel die niet op één pagina past, moet doorlopen in plaats van afgekapt te worden.
+    # Een tabel die niet op een pagina past, moet doorlopen in plaats van afgekapt te worden.
     assert table.resizeMode() == QgsLayoutMultiFrame.ResizeMode.ExtendToNextPage
 
 
-def test_the_figure_page_shows_the_png_from_the_output_directory(built, tmp_path):
-    from qgis.core import QgsLayoutItemPicture
+def test_the_figure_page_shows_the_png_and_captions_it_underneath(make_layout, tmp_path):
+    """Het onderschrift hoort tegen de figuur aan te staan, niet onderaan het blad: een vierkante
+    figuur vult maar de helft van het kader en laat anders een gat van tien centimeter."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
 
-    lay = built()  # de layout moet blijven leven: met haar sterven haar items
+    lay = make_layout()
     pictures = _items_of(lay, 3, QgsLayoutItemPicture)
     assert len(pictures) == 1
-    assert pictures[0].picturePath() == str(tmp_path / "figuren/sondering.png")
+    assert pictures[0].picturePath() == str(tmp_path / FIGURE_REL)
+    bottom = pictures[0].pagePositionWithUnits().y() + pictures[0].sizeWithUnits().height()
+    caption = next(lbl for lbl in _items_of(lay, 3, QgsLayoutItemLabel)
+                   if "Sondering nabij" in lbl.text())
+    assert bottom < caption.pagePositionWithUnits().y() < bottom + 6
 
 
-def test_the_title_page_names_the_report_and_lists_the_chapters(built):
+def test_the_title_page_names_the_report_and_lists_the_chapters(make_layout):
     from qgis.core import QgsLayoutItemLabel
 
-    lay = built()
+    lay = make_layout()
     texts = [lbl.text() for lbl in _items_of(lay, 0, QgsLayoutItemLabel)]
     assert any("Desktopstudie testproject" in text for text in texts)
     assert any("1. Test" in text for text in texts)
     assert any("Testbureau" in text for text in texts)
+
+
+def test_the_footer_leaves_out_what_the_study_does_not_know(project, gent_zone, tmp_path):
+    """Een studie zonder bedrijfsnaam hoort geen voettekst te krijgen die met een streepje begint."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring,
+                              {"project": "", "company": "", "created_at": "2026-09-15T10:00:00"})
+    footer = next(lbl for lbl in _items_of(lay, 0, QgsLayoutItemLabel) if "@layout_page" in lbl.text())
+    assert footer.text().startswith("pagina ")
