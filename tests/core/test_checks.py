@@ -210,6 +210,110 @@ def test_shrink_swell_and_ovam_are_flagged_when_present(gent_ring):
     assert "krimp_zwel" in codes and "ovam" in codes
 
 
+def test_landslide_class_2_or_higher_is_flagged_class_1_is_not(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", [
+        {"gevoelighd": "lage gevoeligheid", "klasse": "1"}]))
+    assert not any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+    r.map_facts[-1].rows.append({"gevoelighd": "matige gevoeligheid", "klasse": "2"})
+    assert any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+
+
+def test_landslide_wording_matig_or_hoog_flags_even_without_a_class(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", [
+        {"gevoelighd": "hoge gevoeligheid", "klasse": None}]))
+    assert any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+
+
+def test_landslide_fact_names_the_highest_class_present(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", [
+        {"gevoelighd": "matige gevoeligheid", "klasse": "2"},
+        {"gevoelighd": "hoge gevoeligheid", "klasse": "3"},
+        {"gevoelighd": "lage gevoeligheid", "klasse": "1"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "grondverschuiving_gevoelig"]
+    assert len(sigs) == 1
+    assert "hoge gevoeligheid" in sigs[0].fact and "3" in sigs[0].fact
+    assert "hellingstabiliteit" in sigs[0].advice
+
+
+def test_no_landslide_susceptibility_rows_means_no_flag(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", []))
+    assert not any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+
+
+def test_gevoeligheid_fixture_at_the_rural_zone_is_class_1_and_does_not_flag(gent_ring):
+    data = fixture_json("wfs_grndversch_gevoeligh_intersects.json")
+    fields = catalogue.by_id("grondverschuiving_gevoeligheid").fact_fields
+    rows = [{k: f["properties"].get(k) for k in fields} for f in data["features"]]
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gevoeligheid", "Gevoeligheid", rows))
+    assert rows and rows[0]["klasse"] == "1"
+    assert not any(s.code == "grondverschuiving_gevoelig" for s in checks.run_all(r))
+
+
+def test_one_mapped_landslide_is_enough_to_flag_and_the_fact_names_it(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gekarteerd", "Gekarteerd", [
+        {"naam": "Koppenberg", "type": "Grote GV met diep schuifvlak", "gemeente": "Oudenaarde"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "grondverschuiving_gekarteerd"]
+    assert len(sigs) == 1
+    assert "Koppenberg" in sigs[0].fact and "1" in sigs[0].fact
+    assert "rapport" in sigs[0].advice.lower()
+
+
+def test_no_mapped_landslides_means_no_flag(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gekarteerd", "Gekarteerd", []))
+    assert not any(s.code == "grondverschuiving_gekarteerd" for s in checks.run_all(r))
+
+
+def test_gekarteerd_fixture_flags_the_landslides_in_the_flemish_ardennes(gent_ring):
+    data = fixture_json("wfs_grndversch_gekarteerd_intersects.json")
+    fields = catalogue.by_id("grondverschuiving_gekarteerd").fact_fields
+    rows = [{k: f["properties"].get(k) for k in fields} for f in data["features"]]
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("grondverschuiving_gekarteerd", "Gekarteerd", rows))
+    sigs = [s for s in checks.run_all(r) if s.code == "grondverschuiving_gekarteerd"]
+    assert len(sigs) == 1 and "Koppenberg" in sigs[0].fact
+
+
+def test_one_pfas_no_regret_zone_is_enough_to_flag_and_the_fact_names_dossier_and_status(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("pfas_no_regret", "PFAS", [
+        {"pfasdossiernr": "93685", "gemeente": "Zwijndrecht", "nrm_status_zone": "Locatiespecifiek vastgesteld"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "pfas_no_regret"]
+    assert len(sigs) == 1
+    assert "93685" in sigs[0].fact and "Locatiespecifiek vastgesteld" in sigs[0].fact
+    assert "no-regret" in sigs[0].advice.lower() and "OVAM" in sigs[0].advice
+
+
+def test_a_pfas_zone_without_a_dossier_number_still_flags(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("pfas_no_regret", "PFAS", [
+        {"pfasdossiernr": None, "nrm_status_zone": "Locatiespecifiek vastgesteld"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "pfas_no_regret"]
+    assert len(sigs) == 1 and "zonder dossiernummer" in sigs[0].fact
+
+
+def test_no_pfas_zones_means_no_flag(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("pfas_no_regret", "PFAS", []))
+    assert not any(s.code == "pfas_no_regret" for s in checks.run_all(r))
+
+
+def test_pfas_fixture_near_zwijndrecht_flags_five_zones(gent_ring):
+    data = fixture_json("wfs_pfas_no_regret_intersects.json")
+    fields = catalogue.by_id("pfas_no_regret").fact_fields
+    rows = [{k: f["properties"].get(k) for k in fields} for f in data["features"]]
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("pfas_no_regret", "PFAS", rows))
+    sigs = [s for s in checks.run_all(r) if s.code == "pfas_no_regret"]
+    assert len(sigs) == 1 and "5" in sigs[0].fact and "93685" in sigs[0].fact
+
+
 def test_no_cpt_within_radius_and_cpt_within_50_m(gent_ring):
     r = _result(gent_ring)
     assert any(s.code == "geen_cpt" for s in checks.run_all(r))
