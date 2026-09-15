@@ -1,4 +1,4 @@
-﻿"""QGIS shell tests: they run only in a Python that has qgis (python-qgis-ltr.bat or the
+"""QGIS shell tests: they run only in a Python that has qgis (python-qgis-ltr.bat or the
 Docker images). In the plain dev venv the importorskip below skips this whole directory,
 so `pytest tests` stays green there."""
 from __future__ import annotations
@@ -32,13 +32,14 @@ def qgs_app():
 def project(qgs_app):
     """A throwaway QgsProject, one per test.
 
-    Disposed with `deleteLater()` instead of being left to Python. A QgsProject that a pytest
-    fixture still holds is released during fixture finalisation, and on Windows (QGIS 3.40.15)
-    that destructor lands in freed memory: the process dies with an access violation *after*
-    every test already reported PASSED, so the run reads green and still exits non-zero.
-    `deleteLater()` hands the object to Qt, which frees it at a moment of its own choosing.
-    A project created inside a test body and dropped there is fine; one that a fixture outlives
-    is not.
+    This is about destruction ORDER, not about leaks. A project owns its layers, and a layout
+    keeps a raw pointer to the project it was built for, so the project has to outlive both. Left
+    to Python that order is not guaranteed: a QgsProject a fixture still holds is released during
+    fixture finalisation, and on Windows (QGIS 3.40.15) the destructor then lands in freed memory.
+    The process dies with an access violation *after* every test already reported PASSED - the run
+    reads green and still exits non-zero. `deleteLater()` hands the object to Qt, which frees it
+    once nothing is using it any more. A project created inside a test body and dropped there is
+    safe; one that a fixture outlives is not.
     """
     from qgis.core import QgsProject
 
@@ -55,5 +56,3 @@ def gent_zone():
 
     return StudyZone(ring=geometry.buffer_point(104326.0, 192506.0, 50.0), name="Gent test",
                      radius_m=500.0, address="Kortrijksesteenweg 100, 9000 Gent")
-
-
