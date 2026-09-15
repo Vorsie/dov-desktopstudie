@@ -233,3 +233,41 @@ def test_the_height_model_has_no_legend_page():
     # sheet for that is a sheet the reader turns past; what the colours mean - height in mTAW -
     # belongs in a sentence, not on a page of its own.
     assert c.by_id("dhmv_dtm").legend is False
+
+
+GUIDED_MAPS = ("bodemkaart", "quartair", "quartair_200k", "tertiair", "dhmv_dtm", "gw_kwetsbaarheid",
+               "watertoets_pluviaal", "watertoets_fluviaal", "erosie", "krimp_zwel", "pfas_no_regret",
+               "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "hcov")
+
+
+def test_the_maps_whose_codes_need_explaining_carry_a_reading_guide():
+    # "OB", "22026", "GeVl", "Dc": every one of these is unreadable without a sentence telling the
+    # reader how the code is built. The guide is short on purpose - three to five sentences - and
+    # names its own source, so a reader who wants the whole legend can go there.
+    for map_id in GUIDED_MAPS:
+        guide = c.by_id(map_id).reading_guide
+        assert guide, map_id
+        sentences = guide.count(". ") + 1  # de laatste zin sluit op een punt of op een URL
+        assert 3 <= sentences <= 5, f"{map_id}: {sentences} zinnen"
+
+
+def test_a_reading_guide_that_names_a_legend_names_a_dov_page():
+    # The three maps whose legend runs to hundreds of classes point at the official page instead of
+    # repeating it; the others explain their handful of classes in the guide itself.
+    for map_id in ("bodemkaart", "quartair", "quartair_200k", "tertiair"):
+        assert "https://www.dov.vlaanderen.be/page/" in c.by_id(map_id).reading_guide, map_id
+
+
+def test_a_map_without_a_guide_simply_has_none():
+    # Ferraris needs no reading guide: it is a picture, not a coded map.
+    assert c.by_id("ferraris").reading_guide == ""
+
+
+def test_the_legend_options_ask_for_a_readable_font_and_two_columns():
+    # Four columns of 7 pt is what fits a screen, not what a reader can follow on paper: the class
+    # names run into each other and the swatches are the size of a full stop. Two columns of 9 pt
+    # with forceLabels (GeoServer otherwise drops the label of a single-class layer) make a legend
+    # that is taller - and taller is exactly what the page-high strips are for.
+    assert c.MapEntry.legend_options == "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
+    for entry in c.CATALOGUE:
+        assert "fontSize:9" in entry.legend_options, entry.id
