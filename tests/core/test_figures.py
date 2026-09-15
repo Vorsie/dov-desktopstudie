@@ -51,6 +51,42 @@ def test_lithology_colour_recognises_dutch_keywords_and_dov_codes():
     assert common.lithology_colour("puin") == "#e6e6e6"  # unknown -> grey fallback
 
 
+def test_borehole_figure_axes_and_size():
+    bh = Borehole("k", "B938", 0, 0, 7.0, 48.0, None, None, None, None, "", 100.0, lithology=[
+        LithologyLayer(0.0, 1.2, "bruin fijn zand"), LithologyLayer(1.2, 6.0, "grijze klei"),
+        LithologyLayer(6.0, 48.0, "groen zand")])
+    fig, ax = borehole_column._build_borehole_figure(bh)
+    try:
+        assert ax.get_ylim()[0] > ax.get_ylim()[1]
+        assert len(ax.patches) == 3
+        fig.canvas.draw()
+        assert fig.get_size_inches()[0] == 5.0
+    finally:
+        plt.close(fig)
+
+
+def test_borehole_figure_with_no_lithology_draws_a_placeholder_message():
+    bh = Borehole("k", "B000", 0, 0, None, None, None, None, None, None, "", 100.0, lithology=[])
+    fig, ax = borehole_column._build_borehole_figure(bh)
+    try:
+        assert len(ax.patches) == 0
+        assert any("geen laaggegevens" in t.get_text() for t in ax.texts)
+    finally:
+        plt.close(fig)
+
+
+def test_vb_figure_axes_and_size():
+    vb = parse_doorprik(fixture_json("vb_g3dv3_F.json"), 104326.0, 192506.0, "g3dv3_F")
+    fig, ax = vb_column._build_vb_figure(vb, max_depth_m=60.0)
+    try:
+        assert ax.get_ylim()[0] > ax.get_ylim()[1]
+        assert len(ax.patches) == len(vb.layers)
+        fig.canvas.draw()
+        assert fig.get_size_inches()[0] == 5.0
+    finally:
+        plt.close(fig)
+
+
 def test_draw_depth_column_avoids_label_collisions():
     fig, ax = plt.subplots()
     try:
