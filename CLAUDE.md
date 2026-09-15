@@ -11,8 +11,9 @@ lokale projecten; alleen publiek gedocumenteerde service-eigenaardigheden mogen 
 
 `desktopstudie/core/` is **pure Python** (stdlib + numpy + matplotlib, GEEN `qgis`- of
 `PyQt`-import) en bevat catalogus, geometrie, datamodel, services (geocoder, DOV WFS, DOV XML,
-virtuele boring, WMS GetFeatureInfo/watertoets), figuren, signaleringsregels en de orchestrator
-`study.py`.
+virtuele boring, WMS GetFeatureInfo/watertoets), doorsnede (`section.py`: doorsnedelijn +
+virtuele boringen + projectie van CPT/boring/peilput binnen de corridor), figuren,
+signaleringsregels (`checks.py`) en de orchestrator `study.py`.
 `desktopstudie/qgis/` is de dunne schil: dialoog, kaarttools, lagen, DEM, layout, export,
 QgsTask, instellingen. Kaarten staan uitsluitend in `core/catalogue.py`: één entry per kaart;
 een kaart toevoegen = één entry, geen code.
