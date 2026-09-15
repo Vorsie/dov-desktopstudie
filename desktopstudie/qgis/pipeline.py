@@ -122,15 +122,19 @@ def _stop_if_cancelled(should_cancel: Optional[Callable[[], bool]]) -> None:
         raise StudyCancelled("afgebroken door de gebruiker")
 
 
-def _measure_relief(result: StudyResult, log: Log, should_cancel) -> None:
+def _measure_relief(result: StudyResult, zone_layer: QgsMapLayer, log: Log, should_cancel) -> None:
     """Sample the DTM over the zone, and record the DHMV as a source either way.
+
+    The zone layer comes from the caller rather than being built here: it is the same polygon that
+    goes on every map page and into the GeoPackage, and `relief_of_zone` samples a clone of it, so
+    a second layer would only be a second object saying the same thing.
 
     A zone that is genuinely flat and a service that is down both leave `relief` empty; only the
     provenance tells them apart, and that difference is the reader's. A cancelled measurement
     leaves it empty too, which is why the stop is checked before anything is recorded: a user who
     pressed cancel must not find "DHMV niet beschikbaar" in a later report.
     """
-    result.relief = dem.relief_of_zone(layers.zone_layer(result.zone), log.child("dem"), should_cancel)
+    result.relief = dem.relief_of_zone(zone_layer, log.child("dem"), should_cancel)
     _stop_if_cancelled(should_cancel)
     ok = result.relief is not None
     record_source(result, RELIEF_SOURCE, DHMV_WCS_URL, ok,
@@ -286,11 +290,12 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
 
     _stop_if_cancelled(should_cancel)
     report_progress(0.02, "Relief uit DHMV")
-    _measure_relief(result, log, should_cancel)
+    # The study's own layers first: the zone polygon among them is what the relief is measured on.
+    overlays = _study_overlays(result)
+    _measure_relief(result, overlays["zone"][0], log, should_cancel)
 
     _stop_if_cancelled(should_cancel)
     report_progress(0.05, "Lagen")
-    overlays = _study_overlays(result)
     layers_by_map = _map_layers_into_groups(project, result, log)
     layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"])
     layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"])
