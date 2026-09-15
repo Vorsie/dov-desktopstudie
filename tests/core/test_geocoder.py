@@ -21,6 +21,18 @@ def test_geocode_empty_result_gives_empty_list():
     assert geocoder.geocode(client, "onbestaand") == []
 
 
+def test_geocode_hit_is_precise_for_a_house_number_match():
+    client = FixtureClient([("geolocation/v4/Location", "geocoder_kortrijksesteenweg.json")])
+    hits = geocoder.geocode(client, "Kortrijksesteenweg 100 Gent")
+    assert hits[0].is_precise is True
+
+
+def test_geocode_hit_is_not_precise_for_a_municipality_level_match():
+    hit = geocoder.GeocodeHit(address="Gent", x=0.0, y=0.0, municipality="Gent", postcode="9000",
+                               location_type="basisregisters_gemeente")
+    assert hit.is_precise is False
+
+
 @pytest.mark.live
 def test_live_geocode():
     from desktopstudie.core.services.http import HttpClient
