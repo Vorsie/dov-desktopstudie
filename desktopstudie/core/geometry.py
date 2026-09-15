@@ -54,6 +54,7 @@ def bbox(ring: Sequence[Point]) -> BBox:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+# Reserved for the QGIS shell (plan 2): the map pages pad the zone bbox before setting an extent.
 def expand_bbox(b: BBox, margin: float) -> BBox:
     return (b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin)
 
@@ -65,10 +66,6 @@ def _fmt(v: float) -> str:
 def polygon_wkt(ring: Sequence[Point]) -> str:
     pts = list(ring) + [ring[0]]
     return "POLYGON((" + ",".join(f"{_fmt(x)} {_fmt(y)}" for x, y in pts) + "))"
-
-
-def line_wkt(p: Point, q: Point) -> str:
-    return f"LINESTRING({_fmt(p[0])} {_fmt(p[1])},{_fmt(q[0])} {_fmt(q[1])})"
 
 
 def longest_axis(ring: Sequence[Point]) -> Tuple[Point, Point]:
