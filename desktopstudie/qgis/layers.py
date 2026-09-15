@@ -37,8 +37,9 @@ CRS_AUTHID = "EPSG:31370"
 # GeoTIFF / HDF / NetCDF, and "image/tiff" yields an invalid layer ("Cannot get test dataset").
 WCS_FORMAT = "GeoTIFF"
 WCS_VERSION = "1.0.0"
-BUFFER_SEGMENTS = 12  # segments per quarter circle when buffering the zone: smooth enough on
-# paper, and cheap enough that a wide search radius does not turn the GeoPackage into vertices
+# Segments per quarter circle when buffering the zone into the search area: smooth enough on
+# paper, and cheap enough that a wide radius does not turn the GeoPackage into a vertex dump.
+BUFFER_SEGMENTS = 12
 Investigation = Union[Cpt, Borehole, GwFilter]
 POINT_STYLE = {  # kind -> (colour, marker)
     "sondering": ("#1f4e79", "circle"),
