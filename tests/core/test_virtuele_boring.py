@@ -115,6 +115,23 @@ def test_an_unknown_profile_code_gets_the_grey_fallback_colour():
     assert (layer.top_mtaw, layer.base_mtaw) == (3.0, -1.0)
 
 
+def test_the_profile_answer_carries_its_own_surface_datum():
+    # DOV pads every column of a profile answer down to one common floor (minValue), so that floor
+    # plus the column's own thickness sum is the modelled surface. At dist 200 m that has to be the
+    # 14.62 mTAW the doorprik reports for the very same spot.
+    surface_at = vb.profile_surface_at(fixture_json("vb_profile_g3dv3_F.json"))
+    assert surface_at is not None
+    assert surface_at(200.0) == pytest.approx(14.62)
+    assert surface_at(0.0) == pytest.approx(8.01)
+    assert surface_at(400.0) == pytest.approx(21.16)
+    assert surface_at(50.0) == pytest.approx(9.68)  # halfway between two records: interpolated
+
+
+def test_a_profile_answer_without_a_floor_has_no_surface_of_its_own():
+    assert vb.profile_surface_at({"data": [{"dist": 0.0, "x_1": 2.0}], "layers": []}) is None
+    assert vb.profile_surface_at({"data": [], "layers": [], "minValue": -10.0}) is None
+
+
 @pytest.mark.live
 def test_live_hcov_model():
     from desktopstudie.core.services.http import HttpClient
@@ -131,7 +148,10 @@ def test_live_profile():
 
     payload = vb.fetch_profile(HttpClient(), "g3dv3_F", (104126.0, 192506.0), (104526.0, 192506.0), 100.0)
     assert [record["dist"] for record in payload["data"]] == [0.0, 100.0, 200.0, 300.0, 400.0]
-    profile = vb.parse_profile(payload, "g3dv3_F", ANCHOR_ORDER, lambda along: 14.62)
+    surface_at = vb.profile_surface_at(payload)
+    profile = vb.parse_profile(payload, "g3dv3_F", ANCHOR_ORDER, surface_at)
     assert len(profile.columns) == 5
-    assert profile.columns[2].layers[0].top_mtaw == pytest.approx(14.62)
+    # the doorprik at the midpoint of the line is the same spot as the column at dist 200 m
+    doorprik = vb.fetch_virtual_borehole(HttpClient(), 104326.0, 192506.0, "g3dv3_F")
+    assert profile.columns[2].layers[0].top_mtaw == pytest.approx(doorprik.surface_mtaw, abs=0.01)
     assert all(layer.color != vb.FALLBACK_COLOR for layer in profile.columns[2].layers)
