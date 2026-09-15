@@ -73,7 +73,12 @@ class DovWfs:
                         continue
                     seen_ids.add(fid)
                 out.append(feat)
-            matched = payload.get("numberMatched")
+            if matched is None:
+                # numberMatched is taken from the first page that carries it; a later page
+                # omitting the field must never reset an already-learned value back to None.
+                page_matched = payload.get("numberMatched")
+                if isinstance(page_matched, int):
+                    matched = page_matched
             if len(feats) < count or (isinstance(matched, int) and fetched >= matched):
                 break
             start += len(feats)
@@ -88,6 +93,10 @@ class DovWfs:
             if self.log:
                 self.log.warning(f"{typename}: {len(out)} van {matched} features opgehaald "
                                   f"(max_features={max_features})")
+        elif isinstance(matched, int) and fetched >= matched and len(out) < matched:
+            if self.log:
+                self.log.warning(f"{typename}: server leverde {len(out)} unieke van {matched} "
+                                  f"features (dubbele over pagina's)")
         return out
 
     def within_distance(self, typename: str, zone_wkt: str, distance_m: float,
