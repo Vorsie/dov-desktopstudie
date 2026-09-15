@@ -106,9 +106,12 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
 
 
 def note_skipped_labels(ax, skipped: int) -> None:
-    """Say in the corner how many labels draw_depth_column had to drop for lack of room. Without
-    it a column with fewer labels than bands reads as a borehole with fewer layers."""
+    """Say how many labels draw_depth_column had to drop for lack of room. Without it a column with
+    fewer labels than bands reads as a borehole with fewer layers. Placed as a caption just under
+    the axes: inside them every spot is taken - the bands fill the column to the bottom and the
+    labels run down the right-hand side - so a note in the bottom-right corner lands on top of the
+    deepest label."""
     if skipped <= 0:
         return
-    ax.text(0.98, 0.02, f"{skipped} laaglabels weggelaten", transform=ax.transAxes,
-            ha="right", va="bottom", fontsize=6, color="grey")
+    ax.text(1.0, -0.012, f"{skipped} laaglabels weggelaten", transform=ax.transAxes,
+            ha="right", va="top", fontsize=6, color="grey")
