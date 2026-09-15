@@ -191,6 +191,103 @@ def test_groups_and_geopackage(qgs_app, gent_zone, tmp_path):
         assert reopened.featureCount() == count, name
 
 
+def _study_gpkg(gent_zone, tmp_path):
+    """Het GeoPackage zoals de pijplijn het achterlaat: zone, doorsnedelijn, de drie proefsoorten
+    en de zoekstraal."""
+    from desktopstudie.core.model import Cpt
+    from desktopstudie.qgis import layers
+
+    cpts = [Cpt("k1", "S1", 104300.0, 192500.0, 8.0, 20.0, "2020-01-01", "continu elektrisch", None, None, None,
+                "https://www.dov.vlaanderen.be/data/sondering/k1", 12.0)]
+    gent_zone.section_line = ((104226.0, 192406.0), (104426.0, 192606.0))
+    written = [layers.zone_layer(gent_zone), layers.line_layer(gent_zone),
+               layers.points_layer("sondering", cpts), layers.points_layer("boring", []),
+               layers.points_layer("peilput", []), layers.circle_layer(gent_zone)]
+    gpkg = tmp_path / "studie.gpkg"
+    layers.write_geopackage(written, gpkg)
+    return gpkg
+
+
+def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app, gent_zone, tmp_path):
+    """Het tweede product van een studie is een project dat de gebruiker later opent zonder de
+    plugin. De lagen komen dan uit het GeoPackage - het geheugen is dan leeg - en staan in
+    dezelfde groepen als tijdens de studie."""
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+
+    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"})
+
+    names = [group.name() for group in project.layerTreeRoot().findGroups()]
+    assert names == ["1 Ligging en topografie", "4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+    assert project.crs().authid() == "EPSG:31370"
+    found = {layer.name(): layer for layer in project.mapLayers().values()}
+    for name, count in (("Onderzoekszone", 1), ("Doorsnedelijn", 1), ("Sonderingen", 1),
+                        ("Boringen", 0), ("Peilputten", 0), ("Zoekstraal", 1)):
+        assert name in found, sorted(found)
+        assert found[name].isValid(), name
+        assert found[name].featureCount() == count, name
+
+
+def test_the_standalone_layers_keep_the_house_style(qgs_app, gent_zone, tmp_path):
+    """Dezelfde symbolen als op de kaartpagina's: een studie die er in QGIS anders uitziet dan in
+    het rapport, laat de lezer twee kaarten vergelijken die niet dezelfde zijn."""
+    from qgis.core import Qgis
+
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+
+    project = layers.standalone_project(gpkg, {})
+
+    found = {layer.name(): layer for layer in project.mapLayers().values()}
+    cpt_symbol = found["Sonderingen"].renderer().symbol()
+    assert cpt_symbol.symbolLayer(0).properties()["name"] == "circle"
+    assert cpt_symbol.color().name() == "#1f4e79"
+    assert cpt_symbol.sizeUnit() == Qgis.RenderUnit.Millimeters
+    assert found["Sonderingen"].labelsEnabled()
+    zone_outline = found["Onderzoekszone"].renderer().symbol().symbolLayer(0).properties()["outline_color"]
+    assert zone_outline.startswith("255,0,0")
+    assert found["Zoekstraal"].renderer().symbol().symbolLayer(0).properties()["outline_style"] == "dash"
+
+
+def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, gent_zone, tmp_path):
+    """Een half of ouder GeoPackage mist lagen. Dan hoort de rest gewoon te laden, mét een
+    WARNING per laag die er niet is - stil overslaan laat de gebruiker zoeken."""
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.qgis import layers
+
+    gpkg = tmp_path / "half.gpkg"
+    layers.write_geopackage([layers.zone_layer(gent_zone)], gpkg)
+    lines = []
+
+    project = layers.standalone_project(gpkg, {}, log=Log("layers", lines.append, scope="qgis"))
+
+    assert [layer.name() for layer in project.mapLayers().values()] == ["Onderzoekszone"]
+    warnings = [line for line in lines if "WARNING" in line]
+    assert any("Doorsnedelijn" in line for line in warnings), lines
+    assert any("Peilputten" in line for line in warnings), lines
+
+
+def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone, tmp_path):
+    """Het bestand is het product, niet het object in het geheugen: wat erin staat moet in een
+    verse QGIS weer opengaan, met de groepen en de lagen erin."""
+    from qgis.core import QgsProject
+
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+    path = tmp_path / "studie.qgz"
+    assert layers.standalone_project(gpkg, {}).write(str(path))
+
+    reread = QgsProject()
+    assert reread.read(str(path)), reread.error()
+    assert [group.name() for group in reread.layerTreeRoot().findGroups()] == \
+           ["4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+    assert sorted(layer.name() for layer in reread.mapLayers().values()) == \
+           ["Boringen", "Doorsnedelijn", "Onderzoekszone", "Peilputten", "Sonderingen", "Zoekstraal"]
+
+
 def test_write_geopackage_refuses_an_empty_list(qgs_app, tmp_path):
     """Een leeg GeoPackage is geen geldig resultaat: dan is er eerder in de pijplijn iets fout
     gegaan en dat moet hier stuklopen, niet stil een bestand van niks opleveren."""
