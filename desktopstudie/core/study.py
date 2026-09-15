@@ -58,6 +58,7 @@ class _Runner:
         self.progress = progress or (lambda f, m: None)
         self.log = log
         self.wfs = DovWfs(client, log=log.child("dov_wfs"))
+        self.xml_log = log.child("dov_xml")  # one logger for the three per-item XML parsers
         self.result = StudyResult(zone=zone, created_at=_now())
         self.zone.radius_m = settings.radius_m
 
@@ -97,7 +98,7 @@ class _Runner:
         nearest = [c for c in out if c.url][: self.s.n_cpt_figures]
 
         def load(c: Cpt) -> None:
-            c.profile = dov_xml.parse_cpt_profile(self.client.get(c.url + ".xml"), log=self.log.child("dov_xml"))
+            c.profile = dov_xml.parse_cpt_profile(self.client.get(c.url + ".xml"), log=self.xml_log)
 
         with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
             list(pool.map(load, nearest))
@@ -126,7 +127,7 @@ class _Runner:
 
         def load(b: Borehole) -> None:
             b.lithology = dov_xml.parse_lithology(self.client.get(b.interpretation_url + ".xml"),
-                                                  log=self.log.child("dov_xml"))
+                                                  log=self.xml_log)
 
         with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
             list(pool.map(load, nearest))
@@ -152,7 +153,7 @@ class _Runner:
         nearest = [g for g in out if g.levels_to and g.url][: self.s.n_gw_levels]
 
         def load(g: GwFilter) -> None:
-            levels = dov_xml.parse_groundwater_levels(self.client.get(g.url + ".xml"), log=self.log.child("dov_xml"))
+            levels = dov_xml.parse_groundwater_levels(self.client.get(g.url + ".xml"), log=self.xml_log)
             g.latest = levels[-1] if levels else None
 
         with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
