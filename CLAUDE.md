@@ -54,4 +54,6 @@ een kaart toevoegen = één entry, geen code.
 
 Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 
-- Nog geen items.
+- **StudyZone is één ring (geen gaten, geen multipart)** / eenvoud in v1; de schil vlakt een
+  geselecteerd feature af tot zijn buitenring / herbekijken zodra een gebruiker een multipolygoon
+  of een perceel met een gat aanlevert.
