@@ -32,7 +32,7 @@ BASE_OFFSET_PT = 2.0  # air between the axes top and the first lane
 TITLE_GAP_PT = 4.0
 DEFAULT_TITLE_PAD_PT = 6.0
 # Two DOV colours closer than this in RGB read as one on paper; the later formation gets a hatch.
-COLOUR_DISTANCE = 0.08
+COLOUR_DISTANCE = 0.12
 HATCH = "//"
 HATCH_EDGE = "#777777"
 
