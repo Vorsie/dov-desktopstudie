@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from desktopstudie.core import section as s
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import Cpt, StudyZone
 from desktopstudie.core.services.http import HttpError
-from tests.core.conftest import FixtureClient
+from tests.core.conftest import FixtureClient, fixture_bytes
 
 LINE = ((104126.0, 192506.0), (104526.0, 192506.0))
 ANCHOR = ("doorprik/g3dv3_F", "vb_g3dv3_F.json")
@@ -77,7 +79,7 @@ def test_zone_extent_is_clipped_to_line(gent_ring):
     assert (sec.zone_from_m, sec.zone_to_m) == (0.0, 50.0)
 
 
-def test_the_profile_is_sampled_along_the_whole_line_and_hangs_from_the_anchor_surface(gent_ring):
+def test_the_profile_is_sampled_along_the_whole_line_and_hangs_from_the_model_datum(gent_ring):
     client = _client()
     zone = StudyZone(ring=gent_ring, name="z")
     sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F")
@@ -87,9 +89,13 @@ def test_the_profile_is_sampled_along_the_whole_line_and_hangs_from_the_anchor_s
     profile_call = next(c for c in client.calls if "profielbevraging" in c)
     assert "resolution=10" in profile_call
     assert "xValues=104126.00%2C104526.00" in profile_call
-    # every column hangs from the surface interpolated between the doorprik anchors (all 14.62 here)
-    assert all(column.surface_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
-    assert all(column.layers[0].top_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
+    # every column hangs from the profile's own datum, and at the chainage where a doorprik anchor
+    # sits the two agree: column 2 is at 200 m, the midpoint the doorprik fixture was taken at
+    assert sec.profile.columns[2].surface_mtaw == pytest.approx(sec.boreholes[2].surface_mtaw)
+    assert all(column.layers[0].top_mtaw == pytest.approx(column.surface_mtaw)
+               for column in sec.profile.columns)
+    assert [round(column.surface_mtaw, 2) for column in sec.profile.columns] == [8.01, 11.35, 14.62,
+                                                                                 17.48, 21.16]
     # and stacks in the anchor borehole's own top-to-bottom order
     assert sec.profile.columns[2].layers[0].code == sec.boreholes[0].layers[0].code
     assert len(sec.boreholes) == 5  # the doorprik anchors stay alongside the profile
@@ -113,3 +119,15 @@ def test_with_profile_false_never_calls_the_profile_endpoint(gent_ring):
                           with_profile=False)
     assert sec.profile is None
     assert not any("profielbevraging" in call for call in client.calls)
+
+
+def test_a_profile_answer_without_a_datum_falls_back_to_the_doorprik_anchors(gent_ring):
+    # strip minValue: with no floor of its own the profile has to hang on the anchors' surface
+    payload = json.loads(fixture_bytes("vb_profile_g3dv3_F.json").decode("utf-8"))
+    payload.pop("minValue")
+    client = _client(("profielbevraging", json.dumps(payload).encode("utf-8")))
+    zone = StudyZone(ring=gent_ring, name="z")
+    sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F")
+    assert sec.profile is not None
+    # the anchors all come from the same fixture, so their interpolated surface is flat at 14.62
+    assert all(column.surface_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
