@@ -50,6 +50,9 @@ def test_map_pages_come_from_catalogue_and_tables_from_data(gent_ring):
     inv = report.chapters[4]
     cpt_table = next(p for p in inv.pages if isinstance(p, rc.TablePage) and p.title.startswith("Sonderingen"))
     assert cpt_table.columns[0] == "Nummer" and cpt_table.rows[0][1] == "210"
+    # Korte kop: "Afstand (m)" is drie keer zo breed als het getal eronder en duwt de laatste
+    # kolom van het blad af. De tabel heeft negen kolommen; elke millimeter telt.
+    assert cpt_table.columns[1] == "Afst. (m)"
     assert cpt_table.columns[-1] == "DOV-fiche" and cpt_table.rows[0][-1] == "1965-039716"
     assert cpt_table.links[0] == "https://www.dov.vlaanderen.be/data/sondering/1965-039716"
     figs = [p for p in inv.pages if isinstance(p, rc.FigurePage)]
