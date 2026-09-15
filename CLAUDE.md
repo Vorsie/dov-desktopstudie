@@ -22,14 +22,18 @@ een kaart toevoegen = één entry, geen code.
 - **Compatibel met QGIS 3.34 t/m 4.x.** `qgisMinimumVersion=3.34`, `supportsQt6=True`. Alleen
   API's die in 3.34 bestaan. Imports via `qgis.PyQt`. Qt-enums altijd scoped
   (`Qt.AlignmentFlag.AlignRight`, `QDialog.DialogCode.Accepted`). Python-syntaxis ≥ 3.9: geen
-  `match`, geen geneste f-strings, `from __future__ import annotations` in elk bestand.
+  `match`, geen geneste f-strings, `from __future__ import annotations` in elk bestand. QGIS
+  3.34/3.40 op Windows leveren Python 3.12; de 3.9-syntaxisregel blijft als ondergrens en CI test
+  ook op 3.9.
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
   nadat hij tegen de echte service is gecontroleerd. Fixtures in `tests/core/fixtures/` zijn echte
   opgeslagen antwoorden (met bron-URL en datum in een `README.md` ernaast).
-- **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; max 500 features → bbox splitsen en
-  op permkey ontdubbelen; CPT qc/Qt in MPa, fs/u in kPa; WCS-GetCoverage is multipart.
+- **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; paging met startIndex/count (geen
+  harde 500-limiet meer waargenomen op 2026-09-15; page_size=500 als veilige default); features
+  over pagina's ontdubbelen op id; afkapping door max_features wordt gelogd en in het rapport
+  gemeld; CPT qc/Qt in MPa, fs/u in kPa; WCS-GetCoverage is multipart.
 - **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
   beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan.
 - **Logging**: prefix `[core INFO module]` / `[qgis INFO module]`; per fase een INFO-samenvatting,
