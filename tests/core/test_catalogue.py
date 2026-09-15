@@ -216,3 +216,13 @@ def test_the_soil_map_has_no_legend_page():
     soil = c.by_id("bodemkaart")
     assert soil.legend is False
     assert soil.fact_mode == "wfs" and soil.fact_fields
+
+
+def test_the_maps_with_a_degenerate_legend_have_no_legend_page():
+    # HCOV 0100 and the composite quartair map answer GetLegendGraphic with a 20x20 stamp that
+    # names nothing: a blank page with a coloured square on it. Their fact tables carry the units
+    # in the zone, so the page is dropped rather than printed empty.
+    for map_id in ("hcov", "quartair"):
+        entry = c.by_id(map_id)
+        assert entry.legend is False, map_id
+        assert entry.fact_mode == "wfs" and entry.fact_fields, map_id
