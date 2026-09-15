@@ -34,7 +34,7 @@ een kaart toevoegen = één entry, geen code.
 - **DOV-eigenaardigheden**: `BBOX` en `CQL_FILTER` nooit samen; paging met startIndex/count (geen
   harde 500-limiet meer waargenomen op 2026-09-15; page_size=500 als veilige default); features
   over pagina's ontdubbelen op id; afkapping door max_features wordt gelogd en in het rapport
-  gemeld; CPT qc/Qt in MPa, fs/u in kPa; WCS-GetCoverage is multipart.
+  gemeld; CPT qc in MPa, fs/u in kPa, Qt (totale weerstand) in kN; WCS-GetCoverage is multipart.
 - **`xml.etree.ElementTree`-valkuil bij DOV-XML.** `Element.iter(tag)` doet exacte tag-matching en
   ondersteunt het `{*}naam`-namespace-jokerteken NIET (dat werkt alleen in de ElementPath-syntax
   van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
@@ -43,6 +43,8 @@ een kaart toevoegen = één entry, geen code.
   beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan.
 - **Logging**: prefix `[core INFO module]` / `[qgis INFO module]`; per fase een INFO-samenvatting,
   per item DEBUG; log wat NIET gevonden is.
+- **Services nemen `log: Optional[Log]` als parameter** en waarschuwen (WARNING) wanneer een
+  antwoord leeg of onbruikbaar is; nooit stil een leeg resultaat teruggeven.
 - **TDD op de kern**: eerst een falende test in de woorden van de regel, dan de implementatie, dan
   refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
