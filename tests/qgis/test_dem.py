@@ -34,12 +34,18 @@ def _ascii_dtm(tmp_path):
 
 @pytest.fixture
 def fake_dtm(monkeypatch, tmp_path):
-    """Zet het lokale raster in de plaats van het WCS; de laag blijft leven zolang de test duurt."""
+    """Zet het lokale raster in de plaats van het WCS.
+
+    Afgebroken met `deleteLater()`, net als de `project`-fixture en om dezelfde reden: een
+    QGIS-laag die een fixture nog vasthoudt, wordt tijdens de fixture-afbouw vrijgegeven en dat
+    laat het proces op Windows omvallen nadat elke test al PASSED meldde.
+    """
     from desktopstudie.qgis import dem
 
     raster = _ascii_dtm(tmp_path)
     monkeypatch.setattr(dem.layers, "wcs_layer", lambda *args, **kwargs: raster)
-    return raster
+    yield raster
+    raster.deleteLater()
 
 
 def _log():
