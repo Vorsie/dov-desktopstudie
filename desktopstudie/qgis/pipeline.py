@@ -243,6 +243,23 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
     return images
 
 
+def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: Path,
+                        client: HttpClient, log: Log, should_cancel) -> Dict[str, str]:
+    """The quartair profile-type drawings, as paths relative to `out_dir`.
+
+    That is the shape `build_report` wants and the same one `StudyResult.figures` already uses, so
+    the layout resolves both the same way. Every drawing is a source of its own: one that did not
+    come back is named in the sources chapter rather than quietly missing from the legend.
+    """
+    images = layout_mod.prepare_zone_legend_images(result, out_dir, client, log.child("legendas"),
+                                                   should_cancel)
+    for url, code in targets.items():
+        found = url in images
+        record_source(result, f"Legenda profieltype {code}", url, found,
+                      "" if found else "tekening van het profieltype niet opgehaald")
+    return {url: path.relative_to(out_dir).as_posix() for url, path in images.items()}
+
+
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
     """Hand the layout to the project's layout manager, replacing the one from an earlier run.
 
@@ -304,8 +321,20 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     legend_images: Dict[str, Path] = {}
     if legends:
         report_progress(0.20, "Legendas")
-        legend_images = _fetch_legends(result, out_dir, client or make_client(out_dir, log, cache_mode),
-                                       log, should_cancel)
+        client = client or make_client(out_dir, log, cache_mode)
+        legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
+
+    # The quartair drawings are report content, not legend sheets, so they are fetched whatever
+    # `legends` says: without them the quartair chapter has a table of numbers and nothing that
+    # says what those numbers look like. A study whose zone holds no quartair rows asks nothing,
+    # and no HTTP client (hence no cache folder) is made for it.
+    _stop_if_cancelled(should_cancel)
+    zone_legend_images: Dict[str, str] = {}
+    targets = layout_mod.zone_legend_targets(result)
+    if targets:
+        report_progress(0.28, "Tekeningen van de profieltypes")
+        client = client or make_client(out_dir, log, cache_mode)
+        zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
@@ -316,7 +345,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
     record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
     result.write_json(json_path)
-    report = build_report(result, meta)
+    report = build_report(result, meta, zone_legend_images)
 
     report_progress(0.33, "GeoPackage en projectbestand")
     gpkg = out_dir / DATA_DIR / GPKG_NAME
