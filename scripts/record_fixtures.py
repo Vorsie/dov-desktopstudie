@@ -17,6 +17,8 @@ from pathlib import Path
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "core" / "fixtures"
 WFS = "https://www.dov.vlaanderen.be/geoserver/wfs"
 VB = "https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/"
+VB_PROFILE = ("https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/"
+              "{model}/profielbevraging/lagen")
 WATERINFO = (
     "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
@@ -65,6 +67,14 @@ def gfi(kind: str, x: int, y: int) -> str:
     }
     query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
     return WATERINFO.format(kind=kind) + "?" + query
+
+
+def vb_profile(model: str, p: tuple[float, float], q: tuple[float, float], resolution: int) -> str:
+    """Profile query along p -> q; the same line the section tests use."""
+    params = {"xValues": f"{p[0]:.2f},{q[0]:.2f}", "yValues": f"{p[1]:.2f},{q[1]:.2f}",
+              "resolution": str(resolution)}
+    return VB_PROFILE.format(model=model) + "?" + urllib.parse.urlencode(params,
+                                                                        quote_via=urllib.parse.quote)
 
 
 def dwithin(m: int, extra_cql: str = "") -> str:
@@ -129,6 +139,8 @@ FIXTURES: list[tuple[str, str]] = [
     ("vb_g3dv3_L.json", VB + "g3dv3_L?x=104326&y=192506&crs=EPSG:31370"),
     ("vb_g3dv3_P.json", VB + "g3dv3_P?x=104326&y=192506&crs=EPSG:31370"),
     ("vb_hcovv2_S.json", VB + "hcovv2_S?x=104326&y=192506&crs=EPSG:31370"),
+    ("vb_profile_g3dv3_F.json",
+     vb_profile("g3dv3_F", (104126.0, 192506.0), (104526.0, 192506.0), 100)),
     ("watertoets_fluviaal_hit.json", gfi("fluviaal", 102000, 191500)),
     ("watertoets_pluviaal_empty.json", gfi("pluviaal", 104326, 192506)),
 ]
