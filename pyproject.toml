@@ -31,4 +31,4 @@ target-version = "py39"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
-ignore = ["UP006", "UP007", "UP035"]  # 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons
+ignore = ["UP006", "UP007", "UP035", "UP045"]  # 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons; Optional[] ook op runtime-plaatsen
