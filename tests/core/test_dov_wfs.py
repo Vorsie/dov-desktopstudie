@@ -16,6 +16,15 @@ def test_geometry_field_comes_from_describe_feature_type_and_is_cached():
     assert len(client.calls) == 1
 
 
+def test_geometry_field_raises_when_describe_has_no_gml_property():
+    client = FixtureClient([
+        ("request=DescribeFeatureType", b'{"featureTypes":[{"properties":[{"name":"id","type":"xsd:int"}]}]}'),
+    ])
+    wfs = DovWfs(client)
+    with pytest.raises(ValueError):
+        wfs.geometry_field("dov-pub:GeenGeometrie")
+
+
 def test_within_distance_builds_dwithin_filter_and_pages():
     client = FixtureClient([
         ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
@@ -28,6 +37,29 @@ def test_within_distance_builds_dwithin_filter_and_pages():
     assert "CQL_FILTER=DWITHIN%28geom%2CPOLYGON" in client.calls[1]
     assert "BBOX=" not in client.calls[1]  # never combine BBOX and CQL_FILTER
     assert feats[0]["properties"]["sondeernummer"]
+
+
+def test_truncation_is_recorded_when_max_features_caps_the_result():
+    client = FixtureClient([
+        ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
+        ("startIndex=0", "wfs_sonderingen_dwithin.json"),
+    ])
+    wfs = DovWfs(client, page_size=5)
+    feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=5)
+    assert len(feats) == 5
+    assert wfs.truncations == [("dov-pub:Sonderingen", 5, 167)]
+
+
+def test_duplicate_ids_across_pages_are_dropped():
+    client = FixtureClient([
+        ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
+        # both pages resolve to the same fixture, so page 2 repeats page 1's feature ids
+        ("startIndex=5", "wfs_sonderingen_dwithin.json"),
+        ("startIndex=0", "wfs_sonderingen_dwithin.json"),
+    ])
+    wfs = DovWfs(client, page_size=5)
+    feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
+    assert len(feats) == 5
 
 
 def test_intersecting_uses_layer_specific_geometry_field():
@@ -45,9 +77,18 @@ def test_feature_xy_reads_point_geometry():
     assert feature_xy(feat) == (104007.0, 192682.0)
 
 
+def test_feature_xy_raises_when_geometry_is_missing():
+    feat = {"id": "Sonderingen.1", "geometry": None, "properties": {}}
+    with pytest.raises(ValueError):
+        feature_xy(feat)
+
+
 @pytest.mark.live
 def test_live_paging_returns_all_matches():
     from desktopstudie.core.services.http import HttpClient
 
-    feats = DovWfs(HttpClient(), page_size=100).within_distance("dov-pub:Sonderingen", ZONE, 500)
+    wfs = DovWfs(HttpClient(), page_size=100)
+    feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500)
     assert len(feats) > 100
+    assert len({f["id"] for f in feats}) == len(feats)
+    assert len(feats) > wfs.page_size
