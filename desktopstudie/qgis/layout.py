@@ -109,6 +109,10 @@ TABLE_FONT_PT = 7.0
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
+# One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
+# full-minute waits on a service that is down cost the report every legend page behind it.
+LEGEND_TIMEOUT_S = 15.0
+LEGEND_RETRIES = 1
 
 
 class PageMetrics(NamedTuple):
@@ -311,7 +315,7 @@ def fetch_legend(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Opti
     """Fetch one legend to `out_dir/legendas/<map_id>.png`, or None with a WARNING."""
     url = wms_legend_url(entry, entry.legend_options)
     try:
-        data = client.get(url)
+        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
     except HttpError as exc:
         if log:
             log.warning(f"Legenda van {entry.id} niet opgehaald: {exc}")
