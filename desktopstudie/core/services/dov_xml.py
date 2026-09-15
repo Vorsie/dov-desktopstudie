@@ -65,8 +65,11 @@ def parse_cpt_profile(xml_bytes: bytes, log: Optional[Log] = None) -> CptProfile
     if rows and not depth:
         if log:
             log.warning(f"{len(rows)} meetdata-rijen zonder bruikbare diepte - leeg profiel")
-    elif depth and log:
-        log.debug(f"{len(depth)} meetpunten (diepte uit '{tag}')")
+    elif depth:
+        if log:
+            log.debug(f"{len(depth)} meetpunten (diepte uit '{tag}')")
+        if len(depth) < len(rows) and log:
+            log.warning(f"{len(rows) - len(depth)} van {len(rows)} meetdata-rijen zonder '{tag}' overgeslagen")
     return CptProfile(depth_m=depth, qc_mpa=qc, fs_kpa=fs, u_kpa=u)
 
 
