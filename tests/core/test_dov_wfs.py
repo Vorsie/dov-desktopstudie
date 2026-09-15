@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.services.dov_wfs import DovWfs, feature_xy
-from tests.core.conftest import FixtureClient
+from tests.core.conftest import FixtureClient, fixture_json
 
 ZONE = "POLYGON((104226 192406,104426 192406,104426 192606,104226 192606,104226 192406))"
 
@@ -52,9 +54,32 @@ def test_truncation_is_recorded_when_max_features_caps_the_result():
 
 
 def test_duplicate_ids_across_pages_are_dropped():
+    # numberMatched patched to equal the raw fetched total (10), so this scenario is genuinely
+    # NOT truncated: the server handed over everything it claims to have, and de-duplication
+    # alone explains the drop from 10 fetched to 5 unique.
+    payload = fixture_json("wfs_sonderingen_dwithin.json")
+    payload["numberMatched"] = 10
+    body = json.dumps(payload).encode("utf-8")
     client = FixtureClient([
         ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
-        # both pages resolve to the same fixture, so page 2 repeats page 1's feature ids
+        # both pages resolve to the same body, so page 2 repeats page 1's feature ids
+        ("startIndex=5", body),
+        ("startIndex=0", body),
+    ])
+    messages: list[str] = []
+    wfs = DovWfs(client, page_size=5, log=Log("test", sink=messages.append, level="DEBUG"))
+    feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
+    assert len(feats) == 5
+    assert wfs.truncations == []
+    assert any("dubbele features" in m for m in messages)
+
+
+def test_hybrid_truncation_and_duplicates_records_truncation():
+    # both pages resolve to the ORIGINAL fixture (numberMatched=167 untouched), so duplicates
+    # drop the unique count to 5 AND the server genuinely withheld data (only 10 of 167 fetched)
+    # -- truncation and de-duplication must both be reported, independently of each other.
+    client = FixtureClient([
+        ("request=DescribeFeatureType", "wfs_describe_sonderingen.json"),
         ("startIndex=5", "wfs_sonderingen_dwithin.json"),
         ("startIndex=0", "wfs_sonderingen_dwithin.json"),
     ])
@@ -62,8 +87,7 @@ def test_duplicate_ids_across_pages_are_dropped():
     wfs = DovWfs(client, page_size=5, log=Log("test", sink=messages.append, level="DEBUG"))
     feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
     assert len(feats) == 5
-    # de-duplication, not truncation, explains the drop from 10 fetched to 5 unique
-    assert wfs.truncations == []
+    assert wfs.truncations == [("dov-pub:Sonderingen", 5, 167)]
     assert any("dubbele features" in m for m in messages)
 
 
