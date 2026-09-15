@@ -275,3 +275,48 @@ def test_the_orchestrator_signals_survive_a_second_pass_of_the_rules(gent_ring):
     assert [s.code for s in kept] == ["wfs_afgekapt", "doorsnede_onvolledig"]
     assert study.orchestrator_signals(StudyResult(zone=StudyZone(ring=gent_ring, name="z"),
                                                  created_at="2026-09-15T10:00:00")) == []
+
+
+def test_a_fiche_gets_a_shorter_breath_than_a_whole_table(gent_ring, tmp_path):
+    """Een fiche is één item van honderd: drie keer een volle minuut wachten op een record dat
+    plat ligt, kost de studie haar tijd. De WFS-oproep die een hele tabel levert houdt de
+    geduldige standaardwaarden."""
+    client = _client()
+    study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), client, tmp_path)
+
+    fiches = [(url, timeout, retries) for url, timeout, retries in client.options if url.endswith(".xml")]
+    assert fiches, client.calls[:5]
+    assert all((timeout, retries) == (study.ITEM_TIMEOUT_S, study.ITEM_RETRIES) for _u, timeout, retries in fiches)
+    wfs = [(timeout, retries) for url, timeout, retries in client.options if "request=GetFeature" in url]
+    assert wfs and all(option == (None, None) for option in wfs)
+
+
+def test_a_failing_map_costs_that_map_and_leaves_the_sources_in_order(gent_ring, tmp_path):
+    """Eén kaart die faalt mag de rest niet meenemen, en de bronnenlijst hoort de volgorde van de
+    catalogus te volgen - anders staat het rapport bij elke run in een andere volgorde. Dit gold
+    al toen de feiten na elkaar werden opgehaald; de test houdt het overeind nu ze parallel
+    binnenkomen en de threads in willekeurige volgorde klaar zijn."""
+    from desktopstudie.core import catalogue
+
+    client = _client()
+    client.routes.insert(0, ("typeNames=erosie", HttpError("https://dov/wfs?typeNames=erosie", 500, "down")))
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+
+    assert {mf.map_id for mf in result.map_facts} >= {"bodemkaart", "tertiair", "ovam"}
+    assert "erosie" not in {mf.map_id for mf in result.map_facts}
+    failed = [p for p in result.provenance if not p.ok]
+    assert [p.source for p in failed] == ["Potentiele bodemerosiekaart per perceel (2014) (feiten)"]
+    facts_order = [p.source for p in result.provenance if p.source.endswith("(feiten)")]
+    expected = [f"{e.title} (feiten)" for e in catalogue.entries() if e.fact_mode is not None]
+    assert facts_order == expected
+
+
+def test_the_json_source_is_recorded_by_its_relative_path(gent_ring, tmp_path):
+    """Een absoluut Windows-pad in de bronnentabel zet de map van de maker in het rapport."""
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       _client(), tmp_path)
+
+    json_source = [p for p in result.provenance if p.source == "studie.json"]
+    assert json_source and json_source[0].url == "data/studie.json"
