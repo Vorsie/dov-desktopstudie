@@ -13,6 +13,7 @@ from qgis.core import QgsFeedback, QgsVectorLayer
 
 from ..core.catalogue import DHMV_WCS_COVERAGE, DHMV_WCS_URL
 from . import layers
+from .compat import enum_name
 
 DTM_NAME = "DHMV II DTM 1 m"
 PREFIX = "dhmv_"
@@ -26,18 +27,6 @@ _STAT = getattr(QgsZonalStatistics, "Statistic", QgsZonalStatistics)
 _RESULT = getattr(QgsZonalStatistics, "Result", QgsZonalStatistics)
 STATISTICS = _STAT.Min | _STAT.Max | _STAT.Mean
 SUCCESS = _RESULT.Success
-
-
-def _result_name(code) -> str:
-    """The result code by the name QGIS gives it. A bare "3" in a log line tells nobody what went
-    wrong; "LayerTypeWrong" says the zone was not a polygon layer."""
-    name = getattr(code, "name", None)
-    if name:
-        return str(name)
-    for candidate in dir(_RESULT):
-        if not candidate.startswith("_") and getattr(_RESULT, candidate, None) == code:
-            return candidate
-    return str(code)
 
 
 class _CancelFeedback(QgsFeedback):
@@ -82,7 +71,8 @@ def relief_of_zone(zone_layer: QgsVectorLayer, log=None,
     code = QgsZonalStatistics(sample, dtm, PREFIX, BAND, STATISTICS).calculateStatistics(feedback)
     if code != SUCCESS:
         if log:
-            log.warning(f"DHMV zonale statistiek gaf {_result_name(code)}; geen relief")
+            # "LayerTypeWrong" says the zone was not a polygon layer; a bare "3" says nothing.
+            log.warning(f"DHMV zonale statistiek gaf {enum_name(_RESULT, code)}; geen relief")
         return None
     feature = next(sample.getFeatures(), None)
     if feature is None:
