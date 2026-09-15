@@ -162,7 +162,7 @@ def test_a_catalogue_entry_without_label_tables_still_reads_like_a_mapping():
 def test_the_gxg_map_names_the_real_layer_and_carries_the_style():
     # gxg:gxg is a STYLE of gxg:ghg_mmv_main, not a layer of its own: a GetMap on gxg:gxg answers
     # with a ServiceException, exactly like pfas:no_regret_zones (both verified live 2026-09-15).
-    entry = c.by_id("gxg")
+    entry = c.by_id("gxg_ghg")
     assert entry.wms_layer == "gxg:ghg_mmv_main"
     assert entry.wms_style == "gxg:gxg"
 
@@ -172,7 +172,7 @@ def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
     # titled "GxG" hides which of the two the reader is looking at, so each gets its own entry and
     # its own page. Both draw with the same named style (live GetMap 2026-09-15: gxg:glg_mmv_main
     # + gxg:gxg -> HTTP 200 image/png).
-    ghg, glg = c.by_id("gxg"), c.by_id("gxg_glg")
+    ghg, glg = c.by_id("gxg_ghg"), c.by_id("gxg_glg")
     assert ghg.title == "Gemiddeld hoogste grondwaterstand (GHG)"
     assert glg.title == "Gemiddeld laagste grondwaterstand (GLG)"
     assert glg.wms_layer == "gxg:glg_mmv_main"
@@ -182,11 +182,37 @@ def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
     assert glg.legend is True and glg.scale == 25000
     # they stay neighbours, so the report shows the highest and the lowest level side by side
     ids = [e.id for e in c.entries("geologie")]
-    assert ids.index("gxg_glg") == ids.index("gxg") + 1
+    assert ids.index("gxg_glg") == ids.index("gxg_ghg") + 1
 
 
 def test_a_map_without_an_explicit_style_asks_the_service_for_its_default():
     # An empty styles parameter means "the layer default"; only maps whose wanted rendering is a
     # named style fill wms_style in.
     assert c.by_id("grb").wms_style == ""
-    assert [e.id for e in c.entries() if e.wms_style] == ["gxg", "gxg_glg"]
+    assert [e.id for e in c.entries() if e.wms_style] == ["gxg_ghg", "gxg_glg"]
+
+
+def test_a_map_id_says_which_of_the_two_gxg_levels_it_is():
+    # "gxg" alone names the pair, not a map: with GHG and GLG side by side, an id that could mean
+    # either is the one thing a reader of the report tree cannot resolve.
+    with pytest.raises(KeyError):
+        c.by_id("gxg")
+    assert {"gxg_ghg", "gxg_glg"} <= {e.id for e in c.entries("geologie")}
+
+
+def test_every_map_carries_legend_options_for_the_legend_image():
+    # The legend is fetched as a picture (GetLegendGraphic). Without LEGEND_OPTIONS GeoServer
+    # answers with one endless column of classes - a strip no page can hold - so every entry
+    # carries a column layout and a readable font size.
+    for entry in c.CATALOGUE:
+        assert "columns:" in entry.legend_options, entry.id
+        assert "fontSize:" in entry.legend_options, entry.id
+
+
+def test_the_soil_map_has_no_legend_page():
+    # The soil map legend lists every soil series in Flanders (hundreds of classes): on paper it
+    # is unreadable and pages long. The fact table names the soil types inside the zone, which is
+    # what the reader actually needs.
+    soil = c.by_id("bodemkaart")
+    assert soil.legend is False
+    assert soil.fact_mode == "wfs" and soil.fact_fields
