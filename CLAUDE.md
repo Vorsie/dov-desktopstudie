@@ -90,7 +90,16 @@ een kaart toevoegen = één entry, geen code.
 
 - Kern-tests: gewone Python ≥ 3.9 (`py -3.12 -m venv .venv && .venv\Scripts\pip install -e .[dev]`),
   `pytest tests/core`; live-tests: `pytest -m live`.
-- Schil: de Python van een lokale QGIS-installatie (`C:\Program Files\QGIS <versie>\bin\python-qgis*.bat`).
+- Schil: de Python van een lokale QGIS-installatie (`C:\Program Files\QGIS <versie>\bin\python-qgis*.bat`),
+  hier QGIS 3.40.15 LTR (Python 3.12, numpy 1.26, matplotlib 3.10). Eenmalig pytest erin zetten
+  (alleen voor ontwikkelaars, de plugin heeft het niet nodig):
+  `"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pip install --user pytest`.
+  Schil-tests: `"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`
+  (live-tests: `... -m pytest tests/qgis -q -m live`). Zet `QT_QPA_PLATFORM=offscreen` in de shell;
+  `tests/qgis/conftest.py` doet het ook zelf en start één `QgsApplication` per sessie (`qgs_app`).
+  Vanuit PowerShell: `& "C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`.
+  In de gewone venv wordt `tests/qgis` in zijn geheel overgeslagen (`pytest.importorskip("qgis.core")`
+  in de conftest), dus `.venv\Scripts\python -m pytest tests -q` blijft groen zonder QGIS.
   Headless flow: `scripts/run_headless.py`.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
   (of `--x/--y`, niet allebei); `--straal` zet de zoekstraal, `--buffer` de zonecirkel,
