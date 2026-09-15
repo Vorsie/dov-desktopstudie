@@ -40,7 +40,7 @@ from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
 from ..core.report_content import Report, ReportMeta, build_report
 from ..core.services.http import HttpClient
-from ..core.study import Settings, StudyCancelled, orchestrator_signals
+from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
 from ..core.study import run as run_study
 from . import compat, dem, export, layers
 from . import layout as layout_mod
@@ -73,9 +73,11 @@ CORE_SHARE = 0.5
 class PipelineResult:
     result: StudyResult
     report: Report
-    pdf: Optional[Path]  # None when the export failed; `failures` then says so
-    project_file: Path
-    geopackage: Path
+    # Three of the four products can be missing when their step failed; `failures` then says
+    # which and why. `result` and `report` are always there - they are in memory by then.
+    pdf: Optional[Path]
+    project_file: Optional[Path]
+    geopackage: Optional[Path]
     page_pngs: List[Path]
     failures: List[str] = field(default_factory=list)
 
@@ -124,9 +126,12 @@ def _measure_relief(result: StudyResult, log: Log, should_cancel) -> None:
     """Sample the DTM over the zone, and record the DHMV as a source either way.
 
     A zone that is genuinely flat and a service that is down both leave `relief` empty; only the
-    provenance tells them apart, and that difference is the reader's.
+    provenance tells them apart, and that difference is the reader's. A cancelled measurement
+    leaves it empty too, which is why the stop is checked before anything is recorded: a user who
+    pressed cancel must not find "DHMV niet beschikbaar" in a later report.
     """
     result.relief = dem.relief_of_zone(layers.zone_layer(result.zone), log.child("dem"), should_cancel)
+    _stop_if_cancelled(should_cancel)
     ok = result.relief is not None
     record_source(result, RELIEF_SOURCE, DHMV_WCS_URL, ok,
                   "" if ok else "geen hoogtewaarden voor de zone (dienst of dekking)")
@@ -159,10 +164,6 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
     registered in the project without a tree node: invisible in the layer panel, but part of the
     project, so a layout saved with that project still finds the layers its maps point at.
     """
-    stale = [layer.id() for layer in project.mapLayers().values()
-             if layer.customProperty(REPORT_OVERLAY_FLAG)]
-    if stale:
-        project.removeMapLayers(stale)  # the copies of an earlier run in this session
     report: Dict[str, List[QgsMapLayer]] = {}
     for key, group in overlays.items():
         copies = []
@@ -177,6 +178,24 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
             copies.append(copy)
         report[key] = copies
     return report
+
+
+def drop_previous_run(project: QgsProject) -> None:
+    """Remove what an earlier study in this session left behind: its layout and the copies its
+    maps drew with.
+
+    In that order. The copies live outside the layer tree, so nobody can remove them by hand, and
+    removing them while the old layout still points at them would leave a layout referring to
+    layers that are gone.
+    """
+    manager = project.layoutManager()
+    existing = manager.layoutByName(layout_mod.LAYOUT_NAME)
+    if existing is not None:
+        manager.removeLayout(existing)
+    stale = [layer.id() for layer in project.mapLayers().values()
+             if layer.customProperty(REPORT_OVERLAY_FLAG)]
+    if stale:
+        project.removeMapLayers(stale)
 
 
 def _map_layers_into_groups(project: QgsProject, result: StudyResult,
@@ -223,27 +242,26 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
     """Hand the layout to the project's layout manager, replacing the one from an earlier run.
 
-    Two layouts of the same name leave the user picking blind, and the manager takes ownership -
-    after this the project keeps the layout alive, not us. `addLayout` refuses instead of raising,
-    so its answer is checked: a silently missing layout is a plugin whose report button does
-    nothing.
+    The manager takes ownership, and when it refuses (a name it already holds) it DELETES the
+    layout it was handed - verified on 3.40.15: the next call on the wrapper raises "wrapped C/C++
+    object has been deleted". So a refusal ends the run here, with a sentence that says what
+    happened, rather than two lines further on in freed memory.
     """
-    manager = project.layoutManager()
-    existing = manager.layoutByName(layout_mod.LAYOUT_NAME)
-    if existing is not None:
-        manager.removeLayout(existing)
-    if not manager.addLayout(lay):
-        log.warning(f"Layout {layout_mod.LAYOUT_NAME} kon niet aan het project worden toegevoegd")
+    if not project.layoutManager().addLayout(lay):
+        raise RuntimeError(f"Layout {layout_mod.LAYOUT_NAME} kon niet aan het project worden "
+                           f"toegevoegd; staat er al een layout met die naam?")
 
 
-def _guarded_export(what: str, failures: List[str], log: Log, run: Callable[[], object]):
-    """Run one export; a failure costs that product, not the study.
+def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]):
+    """Run one step that writes a product; a failure costs that product, not the study.
 
     The data products are already on disk by the time this runs, so an export that falls over is
     reported and the run finishes - the caller hands the user what there is.
     """
     try:
         return run()
+    except StudyCancelled:
+        raise  # a cancelled run is not a broken product
     except Exception as exc:  # noqa: BLE001 - the study keeps what it has already written
         failures.append(f"{what}: {exc}")
         log.error(f"{what} mislukt: {exc}")
@@ -284,28 +302,37 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         legend_images = _fetch_legends(result, out_dir, client or make_client(out_dir, log, cache_mode),
                                        log, should_cancel)
 
-    # The durable products first: whatever happens to the rendering below, this is on disk.
+    # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
-    report_progress(0.30, "GeoPackage")
-    gpkg = out_dir / DATA_DIR / GPKG_NAME
-    gpkg.parent.mkdir(parents=True, exist_ok=True)  # OGR creates the file, never the folder
-    layers.write_geopackage(overlays["zone"] + overlays["section"] + overlays["investigations"], gpkg,
-                            project.transformContext())
-    report_progress(0.33, "Projectbestand")
-    standalone = layers.standalone_project(gpkg, CHAPTER_GROUPS, log,
-                                           {map_id: group[0] for map_id, group in layers_by_map.items()})
-    project_file = export.write_project(standalone, out_dir / PROJECT_NAME)
-
-    _stop_if_cancelled(should_cancel)
-    report_progress(0.35, "Signaleringen en rapport")
+    report_progress(0.30, "Signaleringen en rapport")
     # Every source the shell consulted is recorded by now, so the rules see the whole study.
     result.signaleringen = checks.validate(checks.run_all(result) + orchestrator_signals(result))
-    result.write_json(out_dir / DATA_DIR / JSON_NAME)
+    json_path = out_dir / DATA_DIR / JSON_NAME
+    json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
+    record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
+    result.write_json(json_path)
     report = build_report(result, meta)
+
+    report_progress(0.33, "GeoPackage en projectbestand")
+    gpkg = out_dir / DATA_DIR / GPKG_NAME
+    # A GeoPackage still open in another QGIS is the everyday failure of a second run, and it must
+    # not cost the report: the data is in studie.json above either way.
+    written = _guarded("GeoPackage schrijven", failures, log, lambda: layers.write_geopackage(
+        overlays["zone"] + overlays["section"] + overlays["investigations"], gpkg,
+        project.transformContext()) or gpkg)
+    project_file = None
+    if written is not None:
+        standalone = layers.standalone_project(
+            gpkg, CHAPTER_GROUPS, log,
+            {map_id: group[0] for map_id, group in layers_by_map.items()})
+        project_file = _guarded("Projectbestand schrijven", failures, log,
+                                lambda: export.write_project(standalone, out_dir / PROJECT_NAME))
     log.info(f"Rapport: {len(report.chapters)} hoofdstukken, "
              f"{sum(len(chapter.pages) for chapter in report.chapters)} pagina's")
 
+    _stop_if_cancelled(should_cancel)
     report_progress(0.38, "Layout")
+    drop_previous_run(project)
     lay = layout_mod.build_layout(project, report, layers_by_map, _report_overlays(project, overlays),
                                   out_dir, result.zone.ring, report.meta, legends=legends,
                                   legend_images=legend_images, log=log.child("layout"),
@@ -317,18 +344,21 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # The one step that cannot be interrupted: QgsLayoutExporter takes no feedback object, so a
     # cancel during the export is only honoured once it returns. The message says so.
     report_progress(0.50, "PDF-export (niet onderbreekbaar)")
-    pdf = _guarded_export("PDF-export", failures, log,
+    pdf = _guarded("PDF-export", failures, log,
                           lambda: export.export_pdf(lay, out_dir / PDF_NAME))
     page_pngs: List[Path] = []
     if pngs:
         report_progress(0.95, "Pagina's als PNG")
-        page_pngs = _guarded_export("PNG-export", failures, log,
+        page_pngs = _guarded("PNG-export", failures, log,
                                     lambda: export.export_pages_png(lay, out_dir / PAGES_DIR,
                                                                     PAGE_PNG_DPI)) or []
     report_progress(1.0, "Klaar")
-    log.info(f"Klaar: {gpkg.name}, {project_file.name}, "
-             f"{pdf.name if pdf else 'geen PDF'} in {out_dir}")
-    return PipelineResult(result, report, pdf, project_file, gpkg, page_pngs, failures)
+    products = [name for name in (json_path.name, written.name if written else None,
+                                  project_file.name if project_file else None,
+                                  pdf.name if pdf else None) if name]
+    log.info(f"Klaar: {', '.join(products)} in {out_dir}"
+             + (f" ({len(failures)} mislukt)" if failures else ""))
+    return PipelineResult(result, report, pdf, project_file, written, page_pngs, failures)
 
 
 def _part_of(progress: Optional[Callable[[float, str], None]], low: float, high: float):
