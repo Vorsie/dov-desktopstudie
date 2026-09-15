@@ -3,7 +3,7 @@ only facts + source + a fixed attention sentence for the ground investigation.""
 from __future__ import annotations
 
 import re
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
 from .catalogue import WATERTOETS_LABELS
 from .model import Signalering, StudyResult, VirtualBorehole
@@ -298,11 +298,18 @@ RULES: List[Rule] = [
 ]
 
 
+def validate(signals: Sequence[Signalering]) -> List[Signalering]:
+    """Guard the severity vocabulary for every signal that reaches the report, wherever it came
+    from. The rules below are not the only source: the orchestrator adds its own (WFS truncation,
+    an incomplete section), and a typo in one of those must not slip into the summary table."""
+    for sig in signals:
+        if sig.severity not in SEVERITIES:
+            raise ValueError(f"onbekende severity {sig.severity!r} voor signalering {sig.code!r}")
+    return list(signals)
+
+
 def run_all(result: StudyResult) -> List[Signalering]:
     out: List[Signalering] = []
     for rule in RULES:
-        for sig in rule(result):
-            if sig.severity not in SEVERITIES:
-                raise ValueError(f"onbekende severity {sig.severity!r} voor signalering {sig.code!r}")
-            out.append(sig)
-    return out
+        out.extend(rule(result))
+    return validate(out)
