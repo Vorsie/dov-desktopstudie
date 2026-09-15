@@ -103,6 +103,20 @@ def test_empty_cpt_logs_warning():
     assert any("zonder bruikbare diepte" in m for m in messages)
 
 
+def test_partial_cpt_warns_how_many_rows_were_skipped():
+    xml = (b"<ns4:dov-schema xmlns:ns4='http://kern.schemas.dov.vlaanderen.be'>"
+           b"<sondering><sondeonderzoek>"
+           b"<meetdata><diepte>1.0</diepte><qc>1.0</qc></meetdata>"
+           b"<meetdata><qc>2.0</qc></meetdata>"
+           b"<meetdata><diepte>3.0</diepte><qc>3.0</qc></meetdata>"
+           b"</sondeonderzoek></sondering></ns4:dov-schema>")
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="INFO")
+    p = dov_xml.parse_cpt_profile(xml, log=log)
+    assert p.depth_m == [1.0, 3.0]
+    assert any("1 van 3 meetdata-rijen zonder" in m for m in messages)
+
+
 def test_doctype_is_rejected():
     xml = b"<?xml version='1.0'?><!DOCTYPE foo [<!ENTITY x 'y'>]><foo/>"
     with pytest.raises(ValueError):
