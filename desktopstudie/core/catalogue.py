@@ -102,6 +102,11 @@ CATALOGUE: List[MapEntry] = [
              "Nationaal Geografisch Instituut", enabled=False,
              note="Geen officiele open WMS beschikbaar (alleen het Cartesius-portaal). Vul wms_url en "
                   "wms_layer in en zet enabled=True zodra een service bestaat.", scale=25000),
+    MapEntry("bommenkaart", "historisch", "Bommenkaart - conventionele en toxische explosieven", "", "",
+             "Bommenkaart.be - Bom-Be BV", licence="Geen open data", enabled=False,
+             note="Bommenkaart.be (Bom-Be BV) is geen open data en biedt geen WMS/WFS; raadpleeg de "
+                  "kaart manueel en vermeld het risico op conventionele en toxische explosieven "
+                  "(WOI/WOII) in de studie.", scale=10000),
     # --- geologie en bodem ---
     _dov("bodemkaart", "Bodemkaart van Vlaanderen", "bodemkaart:bodemtypes",
          ("Bodemtype", "Bodemserie", "Beknopte_omschrijving_bodemserie", "Textuurklasse", "Drainageklasse",
@@ -158,6 +163,26 @@ CATALOGUE: List[MapEntry] = [
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
                        "risico_inrichting": "Risico-inrichting", "onder_voorbehoud": "Onder voorbehoud"},
          scale=5000),
+    _dov("grondverschuiving_gevoeligheid", "Gevoeligheid voor grondverschuivingen",
+         "grondverschuivingen:grndversch_gevoeligh", ("gevoelighd", "klasse"),
+         wfs="grondverschuivingen:grndversch_gevoeligh",
+         field_labels={"gevoelighd": "Gevoeligheid", "klasse": "Klasse"}, scale=25000),
+    _dov("grondverschuiving_gekarteerd", "Gekarteerde grondverschuivingen",
+         "grondverschuivingen:grndversch_gekarteerd", ("type", "naam", "gemeente", "helling", "rapport"),
+         wfs="grondverschuivingen:grndversch_gekarteerd",
+         field_labels={"type": "Type", "naam": "Naam", "gemeente": "Gemeente", "helling": "Helling",
+                       "rapport": "Rapport"}, scale=10000),
+    # The WMS layer is pfas:no_regret_huidig; "no_regret_zones" is one of its named STYLES, not a
+    # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
+    MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", DOV_WMS_URL,
+             "pfas:no_regret_huidig", "OVAM / Vlaamse overheid via DOV", licence=DOV_LICENCE,
+             opacity=0.7, legend=True, fact_mode="wfs", wfs_typename="pfas:no_regret_huidig",
+             fact_fields=("pfasdossiernr", "gemeente", "straat", "nrm_status_zone", "zone_geldig_vanaf",
+                          "no_regret_maatregelen"),
+             field_labels={"pfasdossiernr": "PFAS-dossier", "gemeente": "Gemeente", "straat": "Straat",
+                           "nrm_status_zone": "Status", "zone_geldig_vanaf": "Geldig vanaf",
+                           "no_regret_maatregelen": "Maatregelen (link)"},
+             scale=10000),
 ]
 
 
