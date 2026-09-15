@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 
+from .. import geometry
 from ..catalogue import VB_DOORPRIK_URL, VB_PROFILE_URL
 from ..logging_util import Log
 from ..model import ProfileColumn, SectionProfile, VbLayer, VirtualBorehole
@@ -67,6 +68,31 @@ def fetch_profile(client, model: str, p, q, resolution_m: float, log: Optional[L
         if log:
             log.warning(f"profiel {model} langs {p[0]:.0f}/{p[1]:.0f} - {q[0]:.0f}/{q[1]:.0f} is leeg")
     return payload
+
+
+def profile_surface_at(payload: Dict[str, Any]) -> Optional[Callable[[float], float]]:
+    """A surface function straight from the profile answer, or None when it carries no datum.
+
+    DOV pads every column of a profile answer down to one common floor, reported as `minValue`, so
+    that floor plus a column's own thickness sum is exactly the modelled surface there. Verified
+    live on 2026-09-15 against the doorprik at 17 points over a 78 km line (Ronse -> Antwerpen,
+    model base -165 to -711 mTAW): the two agree to the centimetre everywhere. Preferring this over
+    a surface interpolated between far-apart anchors matters because the G3Dv3 grid is 100 m: with
+    an interpolated surface the layer boundaries inside one grid cell tilt with the interpolation
+    and jump back at the cell edge, which looks like sawtooth geology that is not in the model."""
+    floor = payload.get("minValue")
+    data = payload.get("data") or []
+    if floor is None or not data:
+        return None
+    dists = [float(record["dist"]) for record in data]
+    surfaces = [float(floor) + sum(value for code, value in record.items()
+                                   if code not in PROFILE_PSEUDO_LAYERS and isinstance(value, (int, float)))
+                for record in data]
+
+    def surface_at(along: float) -> float:
+        return geometry.interpolate(along, dists, surfaces)
+
+    return surface_at
 
 
 def _code_rank(code: str) -> int:
