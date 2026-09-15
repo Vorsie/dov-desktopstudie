@@ -67,6 +67,14 @@ een kaart toevoegen = één entry, geen code.
   `ExtendToNextPage` maakt zelf pagina's bij, dus een eigen teller loopt achter en de volgende
   rapportpagina belandt bovenop de laatste tabelpagina. Vervolgframes van zo'n tabel beslaan het
   hele blad; trek ze in de contentband terug, anders lopen ze door kop en voettekst.
+- **Een tabel krijgt expliciete kolombreedtes; brede tabellen liggen.** QGIS verdeelt de frame-
+  breedte gelijk over de kolommen en KAPT af wat niet past - zo verdween de kolom "DOV-fiche" van
+  het blad en werd elke uitvoerdersnaam gehalveerd. `layout.column_widths` meet per kolom de
+  langste cel (kop als ondergrens, de rest naar rato) en zet die met `setWidth()`; `WrapText`
+  breekt de rest binnen de kolom. Wat de kolommen samen mogen krijgen is de framebreedte min
+  2 x `cellMargin()` per kolom min `(n+1) x gridStrokeWidth()` - vergeet je die laatste twee, dan
+  steekt `totalWidth()` er 2,5 mm overheen. Een tabel van >= 7 kolommen en een figuur dat breder is
+  dan hoog krijgen een **liggend** blad; alle maten komen uit `layout._page_metrics(orientation)`.
 - **`QgsLayoutExporter` gooit niet, het geeft een code terug.** Een oproeper die de code negeert,
   overhandigt de gebruiker een rapport dat er niet is. Elke export controleert de code en noemt
   ze bij naam via `compat.enum_name` ("FileError", niet "3"). Let op: een oude unscoped C++-enum
@@ -128,6 +136,16 @@ een kaart toevoegen = één entry, geen code.
   WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
   meegenomen via `study.orchestrator_signals(result)`. Voeg je zo'n signalering toe, zet de code
   dan in `study.ORCHESTRATOR_CODES` of hij verdwijnt bij die tweede pas.
+- **GeoPackage en projectbestand gaan vóór de PDF de deur uit.** Negentig bladen renderen is de
+  langste en meest fragiele stap van een studie; valt ze om, dan moet de gebruiker de data houden
+  die al verzameld was. Een mislukte export levert daarom `PipelineResult.pdf = None` plus een
+  regel in `failures`, geen exception die de studie weggooit.
+- **Elke bron die de schil raadpleegt krijgt provenance.** Het DHMV-reliëf, elke WMS-laag en elke
+  legenda worden met `pipeline.record_source` vastgelegd (ok of niet), en daarom draaien de
+  signaleringsregels pas ná die fasen: `check_sources` maakt er een signalering van, zodat het
+  rapport de ontbrekende kaart noemt in plaats van stil een blad zonder ondergrond af te drukken.
+  `record_source` vervangt een bestaande regel met dezelfde bron, zodat een tweede `finish` op
+  hetzelfde resultaat geen tegenstrijdige regels oplevert.
 - **Het geopende project is niet het product.** De studiegroepen gaan in het project dat de
   gebruiker openheeft; het `.qgz` naast de PDF is een *vers* `QgsProject` uit het GeoPackage
   (`layers.standalone_project`), zodat het bestand weken later op een andere machine nog opengaat.
@@ -185,11 +203,13 @@ een kaart toevoegen = één entry, geen code.
   object ... has been deleted"). Hou de layout in een lokale variabele zolang je haar items leest.
   De headless flow (`scripts/run_headless.py`) bestaat nog niet; die komt met taak S6 van het
   schil-plan.
-- **Schil-tests duren minuten, niet seconden.** Een layout renderen kost ongeveer een seconde per
-  blad (PDF op 150 dpi); `tests/qgis` draait daardoor in ~4,5 minuten. De pijplijntests knippen de
-  catalogus terug tot één kaart per hoofdstuk (`offline_shell`-fixture) - met alle dertig kaarten
-  kost één offline rapport vijf minuten. De live pijplijntest (`-m live -s`) draait de echte studie
-  voor Gent en laat haar uitvoer in `uitvoer/pipeline_live/` staan, juist om de bladen te bekijken.
+- **Een rapport renderen kost seconden per blad, dus doe het in tests zo weinig mogelijk.** De
+  pijplijntests knippen de catalogus terug tot één kaart per hoofdstuk (`offline_shell`) en slaan
+  de echte PDF-export over waar die niet de vraag is (`no_pdf`); één volledige run draagt de meeste
+  beweringen. Zo blijft `tests/qgis` onder de minuut. Tests die meer dan 20 s duren, dragen
+  `@pytest.mark.slow` (geregistreerd in pyproject, standaard wél geselecteerd). De live
+  pijplijntest (`-m live -s`) draait de echte studie voor Gent en laat haar uitvoer in
+  `uitvoer/pipeline_live2/` staan, juist om de bladen te bekijken.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
   (of `--x/--y`, niet allebei); `--straal` zet de zoekstraal, `--buffer` de zonecirkel,
   `--cache use|refresh|off` de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen
