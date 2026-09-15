@@ -208,7 +208,26 @@ def _study_gpkg(gent_zone, tmp_path):
     return gpkg
 
 
-def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app, gent_zone, tmp_path):
+@pytest.fixture
+def offline_wms(monkeypatch, gent_zone):
+    """Een memory-laag in plaats van een echte WMS-laag: de offline suite mag geen
+    GetCapabilities doen, en waar de laag vandaan komt is voor deze tests niet de vraag."""
+    from desktopstudie.qgis import layers
+
+    built = []
+
+    def fake_wms(entry):
+        built.append(entry.id)
+        layer = layers.zone_layer(gent_zone)
+        layer.setName(entry.title)
+        return layer
+
+    monkeypatch.setattr(layers, "wms_layer", fake_wms)
+    return built
+
+
+def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app, gent_zone, tmp_path,
+                                                                        offline_wms):
     """Het tweede product van een studie is een project dat de gebruiker later opent zonder de
     plugin. De lagen komen dan uit het GeoPackage - het geheugen is dan leeg - en staan in
     dezelfde groepen als tijdens de studie."""
@@ -229,7 +248,7 @@ def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app
         assert found[name].featureCount() == count, name
 
 
-def test_the_standalone_layers_keep_the_house_style(qgs_app, gent_zone, tmp_path):
+def test_the_standalone_layers_keep_the_house_style(qgs_app, gent_zone, tmp_path, offline_wms):
     """Dezelfde symbolen als op de kaartpagina's: een studie die er in QGIS anders uitziet dan in
     het rapport, laat de lezer twee kaarten vergelijken die niet dezelfde zijn."""
     from qgis.core import Qgis
@@ -251,7 +270,8 @@ def test_the_standalone_layers_keep_the_house_style(qgs_app, gent_zone, tmp_path
     assert found["Zoekstraal"].renderer().symbol().symbolLayer(0).properties()["outline_style"] == "dash"
 
 
-def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, gent_zone, tmp_path):
+def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, gent_zone, tmp_path,
+                                                                    offline_wms):
     """Een half of ouder GeoPackage mist lagen. Dan hoort de rest gewoon te laden, mét een
     WARNING per laag die er niet is - stil overslaan laat de gebruiker zoeken."""
     from desktopstudie.core.logging_util import Log
@@ -269,7 +289,7 @@ def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, ge
     assert any("Peilputten" in line for line in warnings), lines
 
 
-def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone, tmp_path):
+def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone, tmp_path, offline_wms):
     """Het bestand is het product, niet het object in het geheugen: wat erin staat moet in een
     verse QGIS weer opengaan, met de groepen en de lagen erin."""
     from qgis.core import QgsProject
@@ -359,3 +379,46 @@ def test_live_wcs_layer_is_valid(qgs_app):
     assert lyr.isValid(), lyr.error().summary()
     assert lyr.providerType() == "wcs"
     assert lyr.extent().contains(QgsPointXY(*GENT)), lyr.extent().toString(0)
+
+
+def test_the_standalone_project_reuses_the_wms_layers_it_is_given(qgs_app, gent_zone, tmp_path, offline_wms):
+    """De pijplijn heeft de WMS-lagen al gebouwd (en dus al een GetCapabilities per kaart betaald).
+    Het zelfstandige project hoort die te hergebruiken in plaats van ze nog eens op te halen."""
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+    ready = layers.zone_layer(gent_zone)
+    ready.setName("GRB-basiskaart")
+
+    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
+                                        wms_layers={"grb": ready})
+
+    assert "grb" not in offline_wms, "grb stond klaar en is toch opnieuw gebouwd"
+    assert "ortho" in offline_wms, "de rest hoort wel gebouwd te worden"
+    names = [layer.name() for layer in project.mapLayers().values()]
+    assert "GRB-basiskaart" in names
+    # een kopie, geen hergebruikte pointer: het project dat wordt weggeschreven bezit zijn lagen
+    assert all(layer is not ready for layer in project.mapLayers().values())
+
+
+def test_only_the_investigations_with_a_figure_are_labelled_on_the_overlay(qgs_app):
+    """Tweehonderd nummers over elkaar maken de overzichtskaart onleesbaar. Alleen de proeven die
+    ook een figuur in het rapport hebben, krijgen een label; in QGIS blijven alle labels staan."""
+    from desktopstudie.core.model import Cpt
+    from desktopstudie.qgis import layers
+
+    cpts = [Cpt(f"k{i}", f"S{i}", 104300.0 + i, 192500.0, 8.0, 20.0, "2020-01-01", "ce", None, None, None,
+                f"https://dov/data/sondering/k{i}", 12.0) for i in range(3)]
+
+    layer = layers.points_layer("sondering", cpts, figured={"k0"})
+
+    values = sorted(feature["met_figuur"] for feature in layer.getFeatures())
+    assert values == [0, 0, 1]
+    assert layer.labeling().settings().fieldName == "nummer"
+    assert not layer.labeling().settings().isExpression
+
+    overlay = layers.style_points_layer(layer.clone(), "sondering", label_only_figured=True)
+
+    settings = overlay.labeling().settings()
+    assert settings.isExpression
+    assert "met_figuur" in settings.fieldName and "nummer" in settings.fieldName
