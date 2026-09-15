@@ -118,9 +118,12 @@ CATALOGUE: List[MapEntry] = [
     MapEntry("dhmv_hillshade", "ligging", "Digitaal Hoogtemodel Vlaanderen II - hillshade",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMV_II_HILL_25cm", "Digitaal Vlaanderen - DHMV II",
              scale=5000),
+    # legend=False: GetLegendGraphic answers with a colour ramp of 27 x 18 mm carrying two numbers
+    # (300 to -50), and a whole sheet for a strip that size is a sheet the reader turns past. What
+    # the colours mean - height in mTAW - is a sentence, and it stands in the reading guide below.
     MapEntry("dhmv_dtm", "ligging", "Digitaal Hoogtemodel Vlaanderen II - DTM 1 m",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMVII_DTM_1m", "Digitaal Vlaanderen - DHMV II", opacity=0.6,
-             legend=True, scale=5000),
+             legend=False, scale=5000),
     # --- historische kaarten ---
     _hist("ferraris", "Ferrariskaart (1777)", "https://geo.api.vlaanderen.be/HISTCART/wms", "ferraris", scale=25000),
     _hist("abw", "Atlas der Buurtwegen (ca. 1840)", "https://geo.api.vlaanderen.be/HISTCART/wms", "abw", scale=5000),
