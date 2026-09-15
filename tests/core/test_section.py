@@ -9,6 +9,13 @@ from desktopstudie.core.services.http import HttpError
 from tests.core.conftest import FixtureClient
 
 LINE = ((104126.0, 192506.0), (104526.0, 192506.0))
+ANCHOR = ("doorprik/g3dv3_F", "vb_g3dv3_F.json")
+PROFILE = ("profielbevraging/lagen", "vb_profile_g3dv3_F.json")
+
+
+def _client(*first):
+    """Routes for both calls build_section makes; `first` wins over them (route order decides)."""
+    return FixtureClient(list(first) + [PROFILE, ANCHOR])
 
 
 def _cpt(number, x, y):
@@ -28,7 +35,7 @@ def test_user_line_wins_over_default(gent_ring):
 
 
 def test_build_section_samples_virtual_boreholes_and_projects_cpts(gent_ring):
-    client = FixtureClient([("doorprik/g3dv3_F", "vb_g3dv3_F.json")])
+    client = _client()
     zone = StudyZone(ring=gent_ring, name="z")
     cpts = [_cpt("in", 104326.0, 192520.0), _cpt("far", 104326.0, 192700.0)]
     sec = s.build_section(client, LINE, zone, cpts, [], [], n_points=5, corridor_m=50.0, model="g3dv3_F")
@@ -37,7 +44,7 @@ def test_build_section_samples_virtual_boreholes_and_projects_cpts(gent_ring):
     assert [p.label for p in sec.projected] == ["in"]
     assert sec.projected[0].along_m == pytest.approx(200.0)
     assert (sec.zone_from_m, sec.zone_to_m) == pytest.approx((100.0, 300.0))
-    assert len(client.calls) == 5
+    assert len(client.calls) == 6  # five doorprik anchors plus one profile query
 
 
 def test_failed_point_is_skipped_and_counted(gent_ring):
@@ -45,10 +52,7 @@ def test_failed_point_is_skipped_and_counted(gent_ring):
     # failure while every other point still resolves via the normal fixture.
     messages: list[str] = []
     log = Log("test", sink=messages.append, level="WARNING")
-    client = FixtureClient([
-        ("x=104226.00", HttpError("url", 500, "boom")),
-        ("doorprik/g3dv3_F", "vb_g3dv3_F.json"),
-    ])
+    client = _client(("x=104226.00", HttpError("url", 500, "boom")))
     zone = StudyZone(ring=gent_ring, name="z")
     sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F", log=log)
     assert len(sec.boreholes) == 4
@@ -67,7 +71,45 @@ def test_zone_extent_is_clipped_to_line(gent_ring):
     # gent_ring is a 200 x 200 m square; this line is a 50 m stretch through its middle, so the
     # unclipped ring-vertex projections would run well outside [0, length].
     line = ((104300.0, 192506.0), (104350.0, 192506.0))
-    client = FixtureClient([("doorprik/g3dv3_F", "vb_g3dv3_F.json")])
+    client = _client()
     zone = StudyZone(ring=gent_ring, name="z")
     sec = s.build_section(client, line, zone, [], [], [], n_points=2, corridor_m=50.0, model="g3dv3_F")
     assert (sec.zone_from_m, sec.zone_to_m) == (0.0, 50.0)
+
+
+def test_the_profile_is_sampled_along_the_whole_line_and_hangs_from_the_anchor_surface(gent_ring):
+    client = _client()
+    zone = StudyZone(ring=gent_ring, name="z")
+    sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F")
+    assert sec.profile is not None
+    assert sec.profile.model == "g3dv3_F"
+    assert sec.profile.resolution_m == 10.0  # max(5, 400 m / 40)
+    profile_call = next(c for c in client.calls if "profielbevraging" in c)
+    assert "resolution=10" in profile_call
+    assert "xValues=104126.00%2C104526.00" in profile_call
+    # every column hangs from the surface interpolated between the doorprik anchors (all 14.62 here)
+    assert all(column.surface_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
+    assert all(column.layers[0].top_mtaw == pytest.approx(14.62) for column in sec.profile.columns)
+    # and stacks in the anchor borehole's own top-to-bottom order
+    assert sec.profile.columns[2].layers[0].code == sec.boreholes[0].layers[0].code
+    assert len(sec.boreholes) == 5  # the doorprik anchors stay alongside the profile
+
+
+def test_a_failing_profile_leaves_the_doorprik_section_intact(gent_ring):
+    messages: list[str] = []
+    log = Log("test", sink=messages.append, level="WARNING")
+    client = _client(("profielbevraging", HttpError("url", 500, "boom")))
+    zone = StudyZone(ring=gent_ring, name="z")
+    sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F", log=log)
+    assert sec.profile is None
+    assert len(sec.boreholes) == 5
+    assert any("profiel" in m for m in messages)
+
+
+def test_with_profile_false_never_calls_the_profile_endpoint(gent_ring):
+    client = FixtureClient([ANCHOR])
+    zone = StudyZone(ring=gent_ring, name="z")
+    sec = s.build_section(client, LINE, zone, [], [], [], n_points=3, corridor_m=50.0, model="g3dv3_F",
+                          with_profile=False)
+    assert sec.profile is None
+    assert not any("profielbevraging" in call for call in client.calls)
