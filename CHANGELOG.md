@@ -13,3 +13,5 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   manuele-controletekst (Bommenkaart.be biedt geen open WMS/WFS).
 - Doorsnede op basis van de profielbevraging: de dichte laagkolommen langs de hele lijn, gestapeld
   op het eigen maaiveld van het model, met de doorprik-punten als ankers en terugvalvlak.
+- Lege of mislukte bronnen (virtuele boring zonder lagen, profielbevraging, doorsnedepunten) worden
+  als niet-beschikbaar gerapporteerd en de headless runner eindigt dan met exitcode 3.
