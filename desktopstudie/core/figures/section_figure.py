@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Sequence
 
 from .. import geometry
 from ..model import Section, VbLayer
-from .common import plt, save
+from .common import Rectangle, new_figure, save
 
 DEFAULT_COLUMN_HALF_WIDTH_M = 25.0  # fallback when there is only one column to place
 SURFACE_LABEL = "maaiveld (G3Dv3)"
@@ -53,7 +53,7 @@ def _draw_columns(ax, xs: Sequence[float], surfaces: Sequence[Optional[float]],
             if layer.top_mtaw <= floor:
                 break
             base = max(layer.base_mtaw, floor)
-            ax.add_patch(plt.Rectangle((x - half_width, base), 2 * half_width, layer.top_mtaw - base,
+            ax.add_patch(Rectangle((x - half_width, base), 2 * half_width, layer.top_mtaw - base,
                                        facecolor=layer.color, edgecolor="#555555", lw=lw))
             seen.setdefault(layer.name, layer.color)
     return seen
@@ -78,7 +78,7 @@ def _draw_zone(ax, section: Section, top: float):
     """The study zone marked WITHOUT tinting the geology: a light band in the headroom above the
     highest surface, plus a dashed vertical at each edge. A translucent overlay across the columns
     would shift every layer colour inside the zone, which is exactly where the reader compares them."""
-    band = ax.add_patch(plt.Rectangle((section.zone_from_m, top), section.zone_to_m - section.zone_from_m,
+    band = ax.add_patch(Rectangle((section.zone_from_m, top), section.zone_to_m - section.zone_from_m,
                                       HEADROOM_M, facecolor=ZONE_COLOUR, alpha=0.15, edgecolor="none"))
     for x in (section.zone_from_m, section.zone_to_m):
         ax.axvline(x, color=ZONE_COLOUR, lw=1.0, linestyle="--", zorder=3)
@@ -101,7 +101,7 @@ def _draw_anchors(ax, section: Section, xs: Sequence[float], surfaces: Sequence[
 def _zone_proxy():
     """One legend swatch showing both halves of the zone marking: the headroom band and the dashed
     edge."""
-    return plt.Rectangle((0, 0), 1, 1, facecolor=ZONE_COLOUR, alpha=0.15, edgecolor=ZONE_COLOUR,
+    return Rectangle((0, 0), 1, 1, facecolor=ZONE_COLOUR, alpha=0.15, edgecolor=ZONE_COLOUR,
                          linestyle="--", lw=1.0)
 
 
@@ -111,7 +111,7 @@ def _draw_legend(ax, surface_line, anchor_line, seen: Dict[str, str]) -> None:
     if anchor_line is not None:
         handles.append(anchor_line)
         labels.append(ANCHOR_LABEL)
-    handles += [plt.Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#555555") for c in seen.values()]
+    handles += [Rectangle((0, 0), 1, 1, facecolor=c, edgecolor="#555555") for c in seen.values()]
     labels += [textwrap.shorten(name, LEGEND_LABEL_CHARS) for name in seen]
     ax.legend(handles, labels, fontsize=6, loc="upper left", bbox_to_anchor=(0, -0.12),
               ncol=2 if len(labels) <= 8 else 3)
@@ -135,7 +135,7 @@ def _title(section: Section, fig, left: float, right: float, bottom: float, top:
 
 
 def _build_section_figure(section: Section, max_depth_m: float = 60.0):
-    fig, ax = plt.subplots(figsize=(11, 6))
+    fig, ax = new_figure((11, 6))
     profile = section.profile
     has_profile = profile is not None and bool(profile.columns)
     if has_profile:
