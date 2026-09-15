@@ -54,9 +54,10 @@ betaalde data); Word/docx-uitvoer.
 | Watertoets | `https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/overstromingsgevoelige_gebieden_{pluviaal,fluviaal,vanuit_de_zee}/MapServer/WMSServer`, laag `0` | WMS + GetFeatureInfo; licentie "geen beperkingen" |
 
 Bekende eigenaardigheden van de DOV-services die de kern moet respecteren: `BBOX` en `CQL_FILTER`
-nooit samen in één GetFeature (bbox in de CQL opnemen); maximaal 500 features per antwoord → bbox
-recursief in kwadranten splitsen en op permkey ontdubbelen; DOV adverteert EPSG:6190 maar de
-coördinaten zijn Lambert 72; de WCS-GetCoverage komt als multipart (GML + tiff).
+nooit samen in één GetFeature (ruimtelijke predicaten in de CQL opnemen); grote resultaten via paging
+met `startIndex`/`count` (page_size 500; op 2026-09-15 geen harde serverlimiet meer waargenomen), over
+pagina's ontdubbelen op feature-id en afkapping door `max_features` loggen én in het rapport melden; DOV
+adverteert EPSG:6190 maar de coördinaten zijn Lambert 72; de WCS-GetCoverage komt als multipart (GML + tiff).
 
 ## 4. Architectuur (hybride: pure-Python kern + dunne QGIS-schil)
 
@@ -72,7 +73,7 @@ dov-desktopstudie/
 │   │   │                               Section, Signalering, StudyResult (+ provenance: url, tijdstip)
 │   │   ├── services/http.py            urllib-wrapper: timeout, retry, user-agent, schijfcache in de uitvoermap
 │   │   ├── services/geocoder.py        adres → L72-punt (+ kandidaten)
-│   │   ├── services/dov_wfs.py         GetFeature JSON; INTERSECTS/DWITHIN; bbox-split > 500; paging
+│   │   ├── services/dov_wfs.py         GetFeature JSON; INTERSECTS/DWITHIN; paging + ontdubbeling; afkapping gemeld
 │   │   ├── services/dov_xml.py         CPT-, boring-, interpretatie-, filter-XML → model (xml.etree; eenheden)
 │   │   ├── services/virtuele_boring.py doorprik per model; laagcatalogus (naam, kleur, texturen)
 │   │   ├── checks.py                   signaleringsregels: StudyResult → list[Signalering]
