@@ -422,3 +422,20 @@ def test_only_the_investigations_with_a_figure_are_labelled_on_the_overlay(qgs_a
     settings = overlay.labeling().settings()
     assert settings.isExpression
     assert "met_figuur" in settings.fieldName and "nummer" in settings.fieldName
+
+
+def test_a_peilput_keeps_its_number_on_a_report_map(qgs_app):
+    """Alleen sonderingen en boringen krijgen een figuur in het rapport. Zou "label alleen wie een
+    figuur heeft" ook voor peilputten gelden, dan verliezen die op elke kaartpagina hun nummer en
+    is er geen enkele manier meer om een driehoekje aan de peilputtentabel te koppelen - terwijl
+    het er in een zone een handvol zijn, niet tweehonderd."""
+    from desktopstudie.qgis import layers
+
+    peilput = layers.style_points_layer(layers.points_layer("peilput", []), "peilput",
+                                        label_only_figured=True)
+    sondering = layers.style_points_layer(layers.points_layer("sondering", []), "sondering",
+                                          label_only_figured=True)
+
+    assert peilput.labeling().settings().fieldName == "nummer"
+    assert not peilput.labeling().settings().isExpression
+    assert sondering.labeling().settings().isExpression
