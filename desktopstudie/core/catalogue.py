@@ -171,7 +171,12 @@ CATALOGUE: List[MapEntry] = [
                        "deklaag": "Deklaag", "dikte_onverzadigde_zone": "Onverzadigde zone", "indices": "Index"},
          scale=25000),
     # gxg:gxg is the STYLE, not the layer: the map is gxg:ghg_mmv_main drawn with it (live 2026-09-15).
-    _dov("gxg", "Grondwaterstanden GxG (GHG/GLG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
+    # GxG is a pair - the mean highest (GHG) and the mean lowest (GLG) level - and one page titled
+    # "GxG" hides which of the two the reader has in front of him, so each level is its own entry.
+    # gxg:glg_mmv_main with gxg:gxg verified live 2026-09-15 (GetMap -> HTTP 200, image/png).
+    _dov("gxg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
+         style="gxg:gxg"),
+    _dov("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", legend=True, scale=25000,
          style="gxg:gxg"),
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
