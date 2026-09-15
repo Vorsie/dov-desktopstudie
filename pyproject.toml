@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "desktopstudie"
+version = "0.1.0"
+description = "QGIS-plugin: geotechnische desktopstudie uit open data van DOV en geopunt"
+readme = "README.md"
+license = { text = "GPL-2.0-or-later" }
+requires-python = ">=3.9"
+# Alleen wat QGIS zelf meelevert. Dit bestand dient enkel om de kern buiten QGIS te testen.
+dependencies = ["numpy", "matplotlib"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+include = ["desktopstudie*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "live: raakt de echte DOV/geopunt-services (standaard overgeslagen)",
+]
+addopts = "-m 'not live'"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["UP006", "UP007", "UP035"]  # 3.9-syntaxis blijft geldig voor oudere QGIS-Pythons
