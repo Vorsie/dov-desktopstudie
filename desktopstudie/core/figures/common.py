@@ -28,6 +28,9 @@ LABEL_STEP_FRACTION = 0.028
 
 FALLBACK_LITHOLOGY_COLOUR = "#e6e6e6"
 
+# What a column figure says when the fiche carried no layers at all.
+NO_DATA_MESSAGE = "geen laaggegevens beschikbaar"
+
 # Free-text Dutch keyword -> colour, checked in this order (first match in the lowercased text
 # wins); a keyword need not be a whole word.
 _KEYWORD_COLOURS = [
@@ -67,6 +70,22 @@ def new_figure_grid(ncols: int, figsize: Tuple[float, float], sharey: bool = Fal
     FigureCanvasAgg(fig)
     axes = fig.subplots(1, ncols, sharey=sharey)
     return fig, [axes] if ncols == 1 else list(axes)
+
+
+def column_figure_height(drawn_depth: float) -> float:
+    """Figure height in inches for a depth column: it grows with the drawn depth, but a 2 m
+    borehole is not a stamp and a 60 m one still fits on a page. One formula for every column
+    figure, so two columns of the same depth print at the same size side by side."""
+    return max(4.0, min(11.0, 0.18 * drawn_depth + 2.0))
+
+
+def draw_no_data(ax, message: str = NO_DATA_MESSAGE) -> None:
+    """The placeholder for a figure with nothing to draw: the reason, centred, on bare axes. The
+    ticks have to go - an empty frame carrying a depth scale reads as a measurement of zero
+    rather than as data that was never there."""
+    ax.text(0.5, 0.5, message, ha="center", va="center", transform=ax.transAxes)
+    ax.set_xticks([])
+    ax.set_yticks([])
 
 
 def save(fig, path: Path) -> Path:
