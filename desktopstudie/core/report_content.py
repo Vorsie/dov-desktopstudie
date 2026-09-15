@@ -152,7 +152,10 @@ def _chapter_geologie(result: StudyResult) -> Chapter:
 
 def _chapter_virtuele_boring(result: StudyResult) -> Chapter:
     vb = Chapter(4, "Virtuele boring")
-    if not result.virtual_boreholes:
+    # A model that answered with zero layers is not a virtual borehole: the point lies outside it.
+    # Only a borehole WITH layers counts, otherwise the chapter shows empty tables where the reader
+    # expects geology and reads them as "no geology here".
+    if not any(borehole.layers for borehole in result.virtual_boreholes.values()):
         vb.pages.append(TextPage("Virtuele boring", "<p>Virtuele boring niet beschikbaar (zie bronnen).</p>"))
         return vb
     for model, borehole in result.virtual_boreholes.items():
@@ -160,7 +163,8 @@ def _chapter_virtuele_boring(result: StudyResult) -> Chapter:
                 for layer in borehole.layers]
         vb.pages.append(TablePage(
             f"Virtuele boring op het representatieve punt in de zone - {MODEL_TITLES.get(model, model)}",
-            ["Eenheid", "Top (mTAW)", "Basis (mTAW)", "Dikte (m)", "Textuur (DOV)"], rows))
+            ["Eenheid", "Top (mTAW)", "Basis (mTAW)", "Dikte (m)", "Textuur (DOV)"], rows,
+            note="" if rows else "Geen modellagen op dit punt."))
         if f"vb_{model}" in result.figures:
             vb.pages.append(FigurePage(f"Kolom {MODEL_TITLES.get(model, model)}", result.figures[f"vb_{model}"]))
     return vb
