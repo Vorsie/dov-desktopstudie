@@ -9,22 +9,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import write_png as _png
+
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
 ZONE_WIDTH_M = 100.0  # de Gent-zone is een cirkel van 50 m straal
 MARGIN = 15.0
 TABLE_COLUMNS = ["Eenheid", "Top (mTAW)", "Basis (mTAW)"]
 FIGURE_REL = "figuren/sondering.png"
-
-
-def _png(path, width=100, height=100):
-    """Een echte PNG: QgsLayoutItemPicture weigert een pad dat geen afbeelding is."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(width, height, QImage.Format.Format_RGB32)
-    image.fill(QColor(30, 80, 160))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
 
 
 def _report(pages):
