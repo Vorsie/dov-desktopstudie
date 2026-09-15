@@ -46,6 +46,17 @@ een kaart toevoegen = één entry, geen code.
 - **`QgsLayoutItemScaleBar.applyDefaultSize()` overschrijft label en segmentlengte.** Roep het
   eerst aan en zet daarna pas `setUnitLabel`/`setNumberOfSegments`/`setUnitsPerSegment`; omgekeerd
   verdwijnen die instellingen stilzwijgend.
+- **WMS-legenda's worden als afbeelding opgehaald** (GetLegendGraphic met `STYLE` en de
+  GeoServer-`LEGEND_OPTIONS` uit `MapEntry.legend_options`) en als `QgsLayoutItemPicture`
+  geplaatst; `QgsLayoutItemLegend` haalt WMS-legenda's asynchroon op en blijft headless leeg.
+  Een legenda die hoger is dan een blad wordt met `QImage.copy()` in bladhoge stroken gesneden,
+  nooit tot een onleesbaar postzegeltje geschaald.
+- **Na het bouwen van een layout altijd `layout.refresh()` vóór export**, anders zijn de
+  data-gedefinieerde eigenschappen (de legendaschakelaar voorop) nog niet geëvalueerd.
+  **Paginaindex nooit zelf tellen, altijd `pageCollection().pageCount()`**: een tabel met
+  `ExtendToNextPage` maakt zelf pagina's bij, dus een eigen teller loopt achter en de volgende
+  rapportpagina belandt bovenop de laatste tabelpagina. Vervolgframes van zo'n tabel beslaan het
+  hele blad; trek ze in de contentband terug, anders lopen ze door kop en voettekst.
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
