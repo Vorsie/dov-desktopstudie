@@ -178,6 +178,28 @@ def test_erosie_fixture_with_a_hoog_parcel_flags_erosion(gent_ring):
     assert len(sigs) == 1 and "hoog" in sigs[0].fact
 
 
+def test_flood_unknown_numeric_gridcode_flags_as_klasse_n(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("watertoets_pluviaal", "Watertoets pluviaal", [{"gridcode": "4"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "overstroming"]
+    assert len(sigs) == 1 and "klasse 4" in sigs[0].fact
+
+
+def test_flood_non_numeric_gridcode_flags_without_raising(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("watertoets_pluviaal", "Watertoets pluviaal", [{"gridcode": "D"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "overstroming"]
+    assert len(sigs) == 1
+
+
+def test_erosion_summary_mentions_every_distinct_class_not_just_the_first_row(gent_ring):
+    r = _result(gent_ring)
+    r.map_facts.append(MapFact("erosie", "Erosie", [
+        {"Totale_erosie": "hoog"}, {"Totale_erosie": "zeer hoog"}]))
+    sigs = [s for s in checks.run_all(r) if s.code == "erosie"]
+    assert len(sigs) == 1 and "hoog" in sigs[0].fact and "zeer hoog" in sigs[0].fact
+
+
 def test_shrink_swell_and_ovam_are_flagged_when_present(gent_ring):
     r = _result(gent_ring)
     r.map_facts += [
