@@ -235,3 +235,33 @@ def test_cache_mode_off_does_not_create_the_cache_directory(tmp_path):
     client = http.HttpClient(cache_dir=cache, fetch=fetch, cache_mode="off")
     client.get_json("https://x.be/a")
     assert not cache.exists()  # caching off means no trace on disk at all
+
+
+def test_a_single_call_may_shorten_the_timeout_and_the_retries():
+    """Een fiche is één item van honderd: daar hoort een korte adem bij, terwijl de WFS-oproep die
+    de hele tabel levert de volle tijd krijgt. Beide uit dezelfde client, dus per oproep."""
+    seen = []
+
+    def fetch(url, timeout, user_agent):
+        seen.append(timeout)
+        raise http.HttpError(url, 503, "busy")
+
+    client = http.HttpClient(fetch=fetch, timeout=60.0, retries=2, sleep=lambda s: None)
+
+    with pytest.raises(http.HttpError):
+        client.get("https://x.be/fiche.xml", timeout=15.0, retries=1)
+
+    assert seen == [15.0, 15.0]  # één poging plus één herkansing, allebei met de korte timeout
+
+
+def test_without_overrides_a_call_keeps_the_clients_own_settings():
+    seen = []
+
+    def fetch(url, timeout, user_agent):
+        seen.append(timeout)
+        return b"ok"
+
+    client = http.HttpClient(fetch=fetch, timeout=42.0, retries=2, sleep=lambda s: None)
+
+    assert client.get("https://x.be/a") == b"ok"
+    assert seen == [42.0]
