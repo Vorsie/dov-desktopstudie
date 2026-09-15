@@ -69,7 +69,13 @@ een kaart toevoegen = één entry, geen code.
   van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
   `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
 - **Elke bron faalt geïsoleerd.** Een falende service geeft een `Signalering("bron niet
-  beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan.
+  beschikbaar")` en een logregel; het rapport gaat door. Nooit stil overslaan. Dat geldt ook
+  bínnen een fase: `study._Runner._load_each` haalt elk item in een eigen future op, zodat één
+  onbereikbare fiche alleen dat item kost (`pool.map` gooit de eerste fout en verliest de rest).
+- **Figuren zonder pyplot.** `figures/common.py` levert `new_figure`/`new_figure_grid`: een
+  `Figure` met een eigen `FigureCanvasAgg`. `pyplot` parkeert elke figuur in een globale registry
+  tot iemand `close()` roept - een lek in een lange QGIS-sessie en een race vanuit een QgsTask.
+  Nooit `plt.subplots` in `core/`; `tests/core/test_figures.py` bewaakt het.
 - **Logging**: prefix `[core INFO module]` / `[qgis INFO module]`; per fase een INFO-samenvatting,
   per item DEBUG; log wat NIET gevonden is.
 - **Services nemen `log: Optional[Log]` als parameter** en waarschuwen (WARNING) wanneer een
@@ -87,8 +93,10 @@ een kaart toevoegen = één entry, geen code.
 - Schil: de Python van een lokale QGIS-installatie (`C:\Program Files\QGIS <versie>\bin\python-qgis*.bat`).
   Headless flow: `scripts/run_headless.py`.
 - Kern end-to-end zonder QGIS: `python scripts/run_core.py --adres "..." --out uitvoer/<naam>`
-  (of `--x/--y`); `--straal` zet de zoekstraal, `--buffer` de zonecirkel, `--cache use|refresh|off`
-  de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen kaarten en geen PDF.
+  (of `--x/--y`, niet allebei); `--straal` zet de zoekstraal, `--buffer` de zonecirkel,
+  `--cache use|refresh|off` de schijfcache. Levert `data/studie.json` en `figuren/*.png`, geen
+  kaarten en geen PDF. Afsluitcodes: 0 = volledig, 2 = adres niet gevonden, 3 = klaar maar met
+  mislukte bronnen.
 - Fixtures verversen: `python scripts/record_fixtures.py` (schrijft `tests/core/fixtures/` opnieuw,
   inclusief de bron-URL en datum in de README ernaast).
 - Plugin laden in QGIS: junction van `desktopstudie/` naar
