@@ -15,6 +15,8 @@ class Log:
         scope: str = "core",
         level: str = "INFO",
     ):
+        if level not in _RANK:
+            raise ValueError(f"unknown log level {level!r}; use one of {sorted(_RANK)}")
         self.module = module
         self.sink = sink or print
         self.scope = scope
