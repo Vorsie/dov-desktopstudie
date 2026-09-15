@@ -77,3 +77,24 @@ def test_meta_has_no_none_values(gent_ring):
     report = rc.build_report(r, rc.ReportMeta(project="P1", author="A", company="C"))
     assert all(v is not None for v in report.meta.values())
     assert "representative_point" in report.meta and "disclaimer" in report.meta
+
+
+def test_the_bomb_map_slot_and_the_manual_check_name_the_explosives_risk(gent_ring):
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+    hist = report.chapters[1]
+    texts = [p for p in hist.pages if isinstance(p, rc.TextPage)]
+    slot = next(p for p in texts if p.title.startswith("Bommenkaart"))
+    assert "geen open data" in slot.html and "explosieven" in slot.html
+    assert not any(isinstance(p, rc.MapPage) and p.map_id == "bommenkaart" for p in hist.pages)
+    manual = next(p for p in texts if p.title.startswith("Manuele controle"))
+    assert "conventionele en toxische explosieven" in manual.html
+    assert "bommenkaart.be" in manual.html and "DOVO" in manual.html
+
+
+def test_the_new_geology_maps_get_a_map_page_and_a_fact_table(gent_ring):
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+    geo = report.chapters[2]
+    map_ids = [p.map_id for p in geo.pages if isinstance(p, rc.MapPage)]
+    assert {"grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "pfas_no_regret"} <= set(map_ids)
+    pfas = next(p for p in geo.pages if isinstance(p, rc.TablePage) and p.title.startswith("PFAS"))
+    assert pfas.columns == ["PFAS-dossier", "Gemeente", "Straat", "Status", "Geldig vanaf", "Maatregelen (link)"]
