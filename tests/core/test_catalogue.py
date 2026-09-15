@@ -79,3 +79,9 @@ def test_entries_filter_by_chapter_and_enabled():
 def test_by_id_unknown_raises_key_error():
     with pytest.raises(KeyError):
         c.by_id("does_not_exist")
+
+
+def test_every_map_has_a_positive_scale_and_low_resolution_maps_zoom_out():
+    assert all(e.scale > 0 for e in c.CATALOGUE)
+    assert c.by_id("ferraris").scale > c.by_id("grb").scale
+    assert c.by_id("quartair_200k").scale > c.by_id("bodemkaart").scale
