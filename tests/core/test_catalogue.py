@@ -59,6 +59,12 @@ def test_fact_entries_declare_fields():
             assert e.fact_fields, e.id
 
 
+def test_bodemkaart_fact_fields_include_texture_and_drainage_codes():
+    fields = c.by_id("bodemkaart").fact_fields
+    assert "Textuurklasse_code" in fields
+    assert "Drainageklasse_code" in fields
+
+
 def test_watertoets_labels_translate_gridcode():
     e = c.by_id("watertoets_fluviaal")
     assert e.value_labels["gridcode"]["3"].startswith("D - ")
