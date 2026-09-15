@@ -4,12 +4,11 @@ stage every item is guarded too, so one unreachable fiche costs that fiche and n
 from __future__ import annotations
 
 import datetime as dt
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from . import catalogue, checks, geometry
+from . import catalogue, checks, geometry, parallel
 from .figures import borehole_column, cpt_figure, section_figure, vb_column
 from .logging_util import Log
 from .model import (
@@ -35,14 +34,19 @@ GFI_RING_SAMPLES = 8  # ring vertices asked about per GetFeatureInfo map, on top
 # The two signals that come from the run itself rather than from `checks`: nothing in the result
 # still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
 # (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
+# One fiche out of a hundred: a short breath. Three full-minute waits on a record that is down
+# cost the whole study its time, while the WFS query that fills a table keeps the patient default.
+ITEM_TIMEOUT_S = 15.0
+ITEM_RETRIES = 1
+JSON_RELATIVE = "data/studie.json"
 TRUNCATION_CODE = "wfs_afgekapt"
 SECTION_CODE = "doorsnede_onvolledig"
 ORCHESTRATOR_CODES = (TRUNCATION_CODE, SECTION_CODE)
 
 
-class StudyCancelled(Exception):
-    """The caller's should_cancel() asked the run to stop. Not a source failure: it is never
-    recorded as one and never swallowed by `guarded`."""
+# The same class under the name the rest of the code knows: `parallel.load_each` raises it from
+# inside a batch, and `except StudyCancelled` has to catch exactly that.
+StudyCancelled = parallel.Cancelled
 
 
 class EmptySource(Exception):
@@ -128,27 +132,15 @@ class _Runner:
             self.result.provenance.append(
                 Provenance(source, url, _now(), False, f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}"))
 
-    def _load_each(self, items: Sequence[Any], load_one: Callable[[Any], None], label: str) -> int:
-        """Fetch `items` in parallel, each isolated: one fiche that is down costs that item, not the
-        stage. `pool.map` cannot do this - it re-raises the first failure at iteration time and the
-        rest of the results are lost - so every item gets its own future. Returns how many failed;
-        the count and the surviving items do not depend on the order in which the threads finish."""
-        failed = 0
-        with ThreadPoolExecutor(max_workers=self.s.max_workers) as pool:
-            futures = []
-            for item in items:
-                self._raise_if_cancelled()
-                futures.append(pool.submit(load_one, item))
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except StudyCancelled:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - isolate every item
-                    failed += 1
-                    self.log.warning(f"{label} niet opgehaald: {type(exc).__name__}: {exc}")
-                self._raise_if_cancelled()
-        return failed
+    def _load_each(self, items: Sequence[Any], load_one: Callable[[Any], None], label: str,
+                   max_workers: Optional[int] = None) -> int:
+        """`parallel.load_each` with this run's workers, log and cancellation."""
+        return parallel.load_each(items, load_one, label, max_workers or self.s.max_workers,
+                                  self.log, self.should_cancel)
+
+    def _item(self, url: str) -> bytes:
+        """One per-item fetch (a fiche, an interpretation record): short timeout, one retry."""
+        return self.client.get(url, timeout=ITEM_TIMEOUT_S, retries=ITEM_RETRIES)
 
     def dist(self, x: float, y: float) -> float:
         return geometry.distance_to_ring((x, y), self.zone.ring)
@@ -190,7 +182,7 @@ class _Runner:
         nearest = [c for c in out if c.url][: self.s.n_cpt_figures]
 
         def load(c: Cpt) -> None:
-            c.profile = dov_xml.parse_cpt_profile(self.client.get(c.url + ".xml"), log=self.xml_log)
+            c.profile = dov_xml.parse_cpt_profile(self._item(c.url + ".xml"), log=self.xml_log)
 
         failed = self._load_each(nearest, load, "sondering")
         self.log.info(f"{len(out)} sonderingen binnen {self.s.radius_m:.0f} m, "
@@ -219,7 +211,7 @@ class _Runner:
         nearest = [b for b in out if b.interpretation_url][: self.s.n_borehole_figures]
 
         def load(b: Borehole) -> None:
-            b.lithology = dov_xml.parse_lithology(self.client.get(b.interpretation_url + ".xml"),
+            b.lithology = dov_xml.parse_lithology(self._item(b.interpretation_url + ".xml"),
                                                   log=self.xml_log)
 
         failed = self._load_each(nearest, load, "lithologie")
@@ -246,7 +238,7 @@ class _Runner:
         nearest = [g for g in out if g.levels_to and g.url][: self.s.n_gw_levels]
 
         def load(g: GwFilter) -> None:
-            levels = dov_xml.parse_groundwater_levels(self.client.get(g.url + ".xml"), log=self.xml_log)
+            levels = dov_xml.parse_groundwater_levels(self._item(g.url + ".xml"), log=self.xml_log)
             g.latest = levels[-1] if levels else None
 
         failed = self._load_each(nearest, load, "peilmeting")
@@ -293,32 +285,73 @@ class _Runner:
         step = max(1, len(ring) // GFI_RING_SAMPLES)
         return [self.zone.representative_point] + list(ring[::step][:GFI_RING_SAMPLES])
 
+    def _gfi_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+        """The GetFeatureInfo rows of one map, asked at every sample point at once.
+
+        The points are independent queries against the same service, so they go out in parallel;
+        the answers are merged back IN POINT ORDER, because a report whose table rows change place
+        between two runs of the same study reads as a different answer.
+        """
+        gfi_log = self.log.child("wms_gfi")
+        points = self._gfi_points()
+        per_point: Dict[int, List[dict]] = {}
+
+        def ask(numbered) -> None:
+            index, (x, y) = numbered
+            per_point[index] = wms_gfi.feature_info_at_point(self.client, entry.wms_url, entry.wms_layer,
+                                                             x, y, log=gfi_log)
+
+        self._load_each(list(enumerate(points)), ask, f"{entry.id} (GetFeatureInfo)")
+        rows: List[dict] = []
+        seen = set()
+        for index in range(len(points)):
+            for row in per_point.get(index, []):
+                key = tuple(str(row.get(k)) for k in entry.fact_fields)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append({k: row.get(k) for k in entry.fact_fields})
+        return rows
+
+    def _fact_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+        if entry.fact_mode == "wfs":
+            feats = self.wfs.intersecting(entry.wfs_typename, self.zone.wkt, self.s.max_features)
+            return [{k: f["properties"].get(k) for k in entry.fact_fields} for f in feats]
+        return self._gfi_rows(entry)
+
     def map_facts(self) -> None:
+        """The facts of every map in the zone: fetched in parallel, recorded in catalogue order.
+
+        Two things have to survive the thread pool. Each map keeps failing on its own - one WFS
+        that is down costs that map's table, not the chapter - and the provenance keeps the order
+        of the catalogue, so the sources chapter does not shuffle itself between two runs of the
+        same study. Hence the split: the threads only fetch, the main thread records.
+        """
         wanted = [e for e in catalogue.entries() if e.fact_mode is not None]
         if self.s.map_ids is not None:
             wanted = [e for e in wanted if e.id in self.s.map_ids]
-        for entry in wanted:
+        fetched: Dict[str, Any] = {}  # entry id -> rows, or the exception that explains their absence
 
-            def fetch(e=entry) -> None:
-                if e.fact_mode == "wfs":
-                    feats = self.wfs.intersecting(e.wfs_typename, self.zone.wkt, self.s.max_features)
-                    rows = [{k: f["properties"].get(k) for k in e.fact_fields} for f in feats]
-                else:
-                    rows = []
-                    seen = set()
-                    gfi_log = self.log.child("wms_gfi")
-                    for x, y in self._gfi_points():
-                        for row in wms_gfi.feature_info_at_point(self.client, e.wms_url, e.wms_layer, x, y,
-                                                                 log=gfi_log):
-                            key = tuple(str(row.get(k)) for k in e.fact_fields)
-                            if key not in seen:
-                                seen.add(key)
-                                rows.append({k: row.get(k) for k in e.fact_fields})
-                self.result.map_facts.append(MapFact(e.id, e.title, rows))
-                self.log.debug(f"{e.id}: {len(rows)} eenheden in de zone")
+        def fetch(entry: catalogue.MapEntry) -> None:
+            try:
+                fetched[entry.id] = self._fact_rows(entry)
+            except StudyCancelled:
+                raise
+            except Exception as exc:  # noqa: BLE001 - kept for `guarded` to record below
+                fetched[entry.id] = exc
+                raise
+
+        self._load_each(wanted, fetch, "kaartfeiten")
+        for entry in wanted:
+            outcome = fetched.get(entry.id, EmptySource("geen antwoord van de bron"))
+
+            def record(e=entry, o=outcome) -> None:
+                if isinstance(o, BaseException):
+                    raise o
+                self.result.map_facts.append(MapFact(e.id, e.title, o))
+                self.log.debug(f"{e.id}: {len(o)} eenheden in de zone")
 
             url = entry.wms_url if entry.fact_mode == "gfi" else catalogue.DOV_WFS_URL
-            self.guarded(f"{entry.title} (feiten)", url, fetch)
+            self.guarded(f"{entry.title} (feiten)", url, record)
 
     def _truncation_signals(self) -> List[Signalering]:
         """WFS results cut off by max_features are reported, never silently dropped."""
@@ -385,7 +418,7 @@ class _Runner:
         self._step(0.92, "Signaleringen")
         all_signals = checks.run_all(self.result) + self._truncation_signals() + self._section_signals()
         self.result.signaleringen = checks.validate(all_signals)
-        self.guarded("studie.json", str(self.out / "data" / "studie.json"), self.write_json)
+        self.guarded("studie.json", JSON_RELATIVE, self.write_json)
         self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
         return self.result
