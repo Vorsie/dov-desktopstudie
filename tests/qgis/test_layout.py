@@ -56,14 +56,15 @@ def make_layout(project, gent_zone, tmp_path):
     zone = layers.zone_layer(gent_zone)
     project.addMapLayer(zone, False)
 
-    def build(pages=None, legends=True, legend_images=None, overlays=None):
+    def build(pages=None, legends=True, legend_images=None, overlays=None, no_coverage=None):
         if legend_images is None:
             legend_images = {MAP_ID: _png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)}
         merged = {"zone": [zone]}
         merged.update(overlays or {})
         return layout.build_layout(project, _report(_standard_pages() if pages is None else pages),
                                    {MAP_ID: [wms_stand_in]}, merged, tmp_path, gent_zone.ring,
-                                   _meta(), legends=legends, legend_images=legend_images)
+                                   _meta(), legends=legends, legend_images=legend_images,
+                                   no_coverage=no_coverage)
 
     return build
 
@@ -1091,3 +1092,138 @@ def test_the_title_page_keeps_a_zone_line_that_says_something_else(project, gent
 
     texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
     assert "Getekende polygoon" in texts
+
+
+# --- dekking: levert de dienst hier wel een kaartbeeld? ---------------------------------------
+
+def _solid_png(path, width=64, height=64, rgba=(255, 255, 255, 0)):
+    """Een tegel zonder tekening: één kleur, of volledig doorzichtig."""
+    from qgis.PyQt.QtGui import QColor, QImage
+
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(QColor(*rgba))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
+def _drawn_png(path, width=64, height=64):
+    """Een tegel met iets erop: twee kleuren, zoals elke kaart die hier wel dekking heeft."""
+    from qgis.PyQt.QtGui import QColor, QImage, QPainter
+
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(QColor(240, 240, 230))
+    painter = QPainter(image)
+    painter.fillRect(4, 4, width // 2, height // 2, QColor(120, 40, 40))
+    painter.end()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
+def test_an_empty_tile_means_no_coverage_and_a_drawn_tile_means_coverage(qgs_app, tmp_path,
+                                                                        gent_zone):
+    """De Popp-kaart is in Gent spierwit: het mozaiek heeft daar geen blad. De dienst antwoordt wel
+    - HTTP 200 met een volledig doorzichtige tegel - dus "ok" in de bronnenlijst klopt, maar de
+    lezer hoort te weten dat er geen kaartbeeld is. Een tegel met tekening erop is dekking."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    leeg = _solid_png(tmp_path / "leeg.png").read_bytes()
+    getekend = _drawn_png(tmp_path / "getekend.png").read_bytes()
+    asked = []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            asked.append(url)
+            return leeg if "popp" in url else getekend
+
+    entry = catalogue.by_id("popp")
+    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
+
+    assert layout.probe_coverage(entry, extent, _Client(cache_dir=None)) is False
+    assert layout.probe_coverage(catalogue.by_id("grb"), extent, _Client(cache_dir=None)) is True
+    url = asked[0]
+    assert "REQUEST=GetMap" in url and "VERSION=1.1.1" in url  # 1.1.1: BBOX altijd x,y
+    assert "WIDTH=64" in url and "HEIGHT=64" in url
+    assert "LAYERS=popp" in url and "SRS=EPSG%3A31370" in url
+
+
+def test_a_probe_that_fails_says_nothing_about_coverage(qgs_app, tmp_path, gent_zone):
+    """Een mislukte proef mag een werkende kaart niet tot "geen dekking" verklaren: dan staat er
+    een onwaarheid op het blad. Onbekend is onbekend, en dat is een WARNING waard."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.services.http import HttpClient, HttpError
+    from desktopstudie.qgis import layout
+
+    class _Down(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            raise HttpError(url, 500, "dienst plat")
+
+    class _Rubbish(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return b"<html>geen tegel</html>"
+
+    entry = catalogue.by_id("popp")
+    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
+    lines = []
+    log = Log("layout", lines.append, scope="qgis")
+
+    assert layout.probe_coverage(entry, extent, _Down(cache_dir=None), log) is None
+    assert layout.probe_coverage(entry, extent, _Rubbish(cache_dir=None), log) is None
+    assert sum("WARNING" in line for line in lines) == 2, lines
+
+
+def test_only_maps_without_facts_are_probed(qgs_app, tmp_path, gent_zone):
+    """Een lege tegel betekent alleen "geen dekking" als er geen ander bewijs is. De watertoets
+    antwoordt in Gent met een volledig doorzichtige tegel omdat er geen overstromingsgevoelig
+    gebied ligt - dat is data, geen gat in het mozaiek - en haar feitentabel zegt dat al. Alleen
+    kaarten zonder feiten worden dus bevraagd (live gemeten 2026-09-16)."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    leeg = _solid_png(tmp_path / "leeg.png").read_bytes()
+    asked = []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            asked.append(url)
+            return leeg
+
+    entries = [catalogue.by_id(map_id) for map_id in ("popp", "watertoets_pluviaal", "bodemkaart")]
+
+    missing = layout.prepare_coverage(entries, gent_zone.ring, _Client(cache_dir=None))
+
+    assert missing == {"popp"}
+    assert len(asked) == 1 and "popp" in asked[0]
+
+
+def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout):
+    """De kaart blijft staan - de zonecirkel hoort zichtbaar te zijn - maar het blad zegt dat de
+    bron hier geen beeld levert, en een legenda bij een leeg beeld is een belofte te veel."""
+    from qgis.core import QgsLayoutItemLabel
+
+    lay = make_layout(no_coverage={MAP_ID})
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert layout_module().NO_COVERAGE_NOTE in texts
+    assert lay.pageCollection().pageCount() == 1 + 4, "geen legendapagina bij een leeg beeld"
+
+
+def test_a_map_with_coverage_is_unchanged(make_layout):
+    from qgis.core import QgsLayoutItemLabel
+
+    lay = make_layout()
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert layout_module().NO_COVERAGE_NOTE not in texts
+    assert lay.pageCollection().pageCount() == 1 + 4 + 1
+
+
+def layout_module():
+    from desktopstudie.qgis import layout
+
+    return layout
