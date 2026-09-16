@@ -22,6 +22,29 @@ def write_png(path, width=100, height=100):
     return path
 
 
+def report_meta():
+    """De `report.meta` die een layout verwacht: alles wat op het titelblad en in de voettekst
+    terechtkomt. Hier en niet in twee testbestanden, want twee kopieën van dezelfde dict drijven
+    uit elkaar zodra er een sleutel bijkomt."""
+    return {"project": "Testproject", "project_number": "T-001", "author": "A. Tester",
+            "company": "Testbureau", "address": "Kortrijksesteenweg 100", "municipality": "Gent",
+            "zone_name": "Gent test", "created_at": "2026-09-15T10:00:00",
+            "disclaimer": "<p>Geen interpretatie.</p>", "logo_path": ""}
+
+
+class Click:
+    """Wat een DrawTool van een canvas-event leest: de knop en de pixel."""
+
+    def __init__(self, button, pos):
+        self._button, self._pos = button, pos
+
+    def button(self):
+        return self._button
+
+    def pos(self):
+        return self._pos
+
+
 class FakeIface:
     """What the runner and the dialog use of `iface`: a real message bar and a real canvas,
     offscreen. `pushed` records (level, text, item) for every message the bar received."""
