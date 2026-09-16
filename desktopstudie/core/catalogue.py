@@ -365,7 +365,9 @@ CATALOGUE: List[MapEntry] = [
                           "no_regret_maatregelen"),
              field_labels={"pfasdossiernr": "PFAS-dossier", "gemeente": "Gemeente", "straat": "Straat",
                            "nrm_status_zone": "Status", "zone_geldig_vanaf": "Geldig vanaf",
-                           "no_regret_maatregelen": "Maatregelen (link)"},
+                           # "(bron)", not "(link)": the report prints the URL folded, and the
+                           # fragment that points at the measure itself does not survive that.
+                           "no_regret_maatregelen": "Maatregelen (bron)"},
              reading_guide=GUIDE_PFAS, scale=10000),
 ]
 
