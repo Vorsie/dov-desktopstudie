@@ -33,6 +33,8 @@ class DesktopstudiePlugin:
         self.iface.addPluginToMenu(MENU_NAME, self.action)
 
     def unload(self) -> None:
+        if self.runner is not None and self.runner.running:
+            self.runner.cancel()  # a study must not keep running into an unloaded plugin
         if self.action is not None:
             self.iface.removePluginMenu(MENU_NAME, self.action)
             self.iface.removeToolBarIcon(self.action)
