@@ -255,15 +255,14 @@ def test_the_project_is_written_and_can_be_read_back(project, gent_zone, tmp_pat
 
     from desktopstudie.qgis import export, layers
 
-    layers.add_group(project, "4 Onderzoekszone en doorsnede", [layers.zone_layer(gent_zone)])
+    layers.add_group(project, layers.ZONE_GROUP, [layers.zone_layer(gent_zone)])
 
     path = export.write_project(project, tmp_path / "studie.qgz")
 
     assert path.exists() and path.stat().st_size > 1024
     reread = QgsProject()
     assert reread.read(str(path)), reread.error()
-    assert [group.name() for group in reread.layerTreeRoot().findGroups()] == \
-           ["4 Onderzoekszone en doorsnede"]
+    assert [group.name() for group in reread.layerTreeRoot().findGroups()] == [layers.ZONE_GROUP]
     assert [layer.name() for layer in reread.mapLayers().values()] == ["Onderzoekszone"]
 
 
