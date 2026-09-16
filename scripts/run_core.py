@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktopstudie.core import study  # noqa: E402
 from desktopstudie.core.logging_util import Log  # noqa: E402
 from desktopstudie.core.report_content import ReportMeta, build_report  # noqa: E402
-from desktopstudie.core.services.http import HttpClient  # noqa: E402
+from desktopstudie.core.services.http import study_client  # noqa: E402
 from scripts import _cli  # noqa: E402
 
 
@@ -27,7 +27,7 @@ def main() -> int:
     _cli.check_location(ap, args)
     out = Path(args.out)
     log = Log("run_core", sink=print)
-    client = HttpClient(cache_dir=out / "data" / "cache", cache_mode=args.cache, log=log.child("http"))
+    client = study_client(out, log, args.cache)
     located = _cli.locate(args, client, log)
     if located is None:
         return 2
