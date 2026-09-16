@@ -60,6 +60,33 @@ def test_init_gui_adds_the_action_and_unload_removes_it(qgs_app):
     assert iface.toolbar == [] and iface.menu == []
 
 
+def test_unload_lets_go_of_the_message_bar_and_the_runner(qgs_app):
+    """Een uitgeladen plugin hoort niets meer te horen.
+
+    De runner hangt aan `messageBar().widgetRemoved` - een signaal van QGIS zelf, niet van de
+    plugin - dus na `unload` (Plugin Reloader, of de gebruiker die de plugin afvinkt) roept die
+    balk nog een slot aan van een object dat er niet meer hoort te zijn. Losmaken is het werk van
+    `unload`, net als de knop uit de werkbalk halen.
+    """
+    import pytest
+
+    import desktopstudie
+    from desktopstudie.qgis.task import StudyRunner
+    from tests.qgis.conftest import FakeIface
+
+    iface = FakeIface()
+    plugin = desktopstudie.classFactory(iface)
+    plugin.initGui()
+    runner = StudyRunner(iface)
+    plugin.runner = runner
+
+    plugin.unload()
+
+    assert plugin.runner is None
+    with pytest.raises(TypeError):  # al losgemaakt; een tweede keer kan niet
+        iface.messageBar().widgetRemoved.disconnect(runner._progress_item_removed)
+
+
 def test_metadata_names_the_versions_the_plugin_claims():
     """qgisMinimumVersion 3.34 en supportsQt6: de twee regels waarop de huisregel "3.34 t/m 4.x"
     staat. Het icoon dat metadata.txt noemt moet bestaan, anders toont QGIS een leeg vakje."""
