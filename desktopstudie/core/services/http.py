@@ -26,11 +26,25 @@ RETRYABLE_STATUSES = (408, 429)
 # characters fit that column on the rendered page; a path longer than this is folded rather than
 # given a wider column at the cost of the three next to it.
 MAX_PATH_CHARS = 70
-# How much of a single over-long segment survives the fold. The DOV download links are one segment
-# of a hundred characters whose tail is the file name (DOV_Quartair_50000_22010_png), so the tail
-# is what is kept - and the tail is what tells two of those links apart.
-MAX_SEGMENT_CHARS = 32
+# Where a folded segment may start: the tail is cut back to one of these, so a name never begins
+# halfway through a word ("OV_Quartair_..." reads like a typo, "Quartair_..." reads like a name).
+SEGMENT_BOUNDARIES = "._-"
 ELIDED = "..."
+
+
+def _tail_of(segment: str, budget: int) -> str:
+    """The last `budget` characters of `segment`, moved forward to the next word boundary.
+
+    Cutting a name at an arbitrary character produces a word that no longer looks like anything;
+    cutting at a "." or "_" produces the file name a reader recognises.
+    """
+    if len(segment) <= budget:
+        return segment
+    tail = segment[-budget:]
+    for index, char in enumerate(tail):
+        if char in SEGMENT_BOUNDARIES and index + 1 < len(tail):
+            return tail[index + 1:]
+    return tail
 
 
 def _short_path(base: str) -> str:
@@ -38,22 +52,30 @@ def _short_path(base: str) -> str:
 
     Which segment to keep is the question, and for every long path in this project the last one is
     the answer: `.../doorprik/g3dv3_F` names the model, `.../MapServer/WMSServer` names the kind of
-    service, `...DOV_Quartair_50000_22010_png` names the drawing. What the fold costs - pluviaal
+    service, `...Quartair_50000_22010_png` names the drawing. What the fold costs - pluviaal
     against fluviaal in the watertoets URL - stands in the source column beside it, and the whole
     URL stays in `Provenance.url` and `HttpError.url`.
+
+    The result fits MAX_PATH_CHARS. Folding to something that STILL does not fit is no fold at all:
+    the sources table has no spaces to break on and clips whatever is too wide, which is the very
+    thing this function exists to prevent.
     """
     if len(base) <= MAX_PATH_CHARS:
         return base
     parts = urllib.parse.urlsplit(base)
     segments = [segment for segment in parts.path.split("/") if segment]
     if not segments:
-        return base
-    if len(segments[-1]) > MAX_SEGMENT_CHARS:
-        # Dropping folders does not help here: the length is inside one segment.
-        return f"{parts.scheme}://{parts.netloc}/{ELIDED}{segments[-1][-MAX_SEGMENT_CHARS:]}"
-    if len(segments) < 2:
+        return base[:MAX_PATH_CHARS]  # nothing but a host: there is no path to fold away
+    host = f"{parts.scheme}://{parts.netloc}"
+    budget = MAX_PATH_CHARS - len(host) - len(ELIDED) - 1  # the "/" or the "" in front of the tail
+    if budget <= 0:
+        return base[:MAX_PATH_CHARS]  # a host this long leaves no room for anything else
+    last = segments[-1]
+    if len(segments) < 2 and len(last) <= budget:
         return base  # host plus one short segment is already the whole address
-    return f"{parts.scheme}://{parts.netloc}/{ELIDED}/{segments[-1]}"
+    tail = _tail_of(last, budget)
+    joiner = "/" if tail == last else ""  # a cut tail carries the ellipsis straight in front of it
+    return f"{host}/{ELIDED}{joiner}{tail}"
 
 
 def short_url(url: str) -> str:
@@ -163,6 +185,10 @@ class HttpClient:
         cache_mode = self.cache_mode if cache_mode is None else cache_mode
         if cache_mode not in CACHE_MODES:
             raise ValueError(f"unknown cache_mode {cache_mode!r}; use one of {CACHE_MODES}")
+        if self.cache_mode == "off":
+            # "off" is the decision of whoever built the client - a run that must leave no trace on
+            # disk. A single call may step PAST the cache, never switch it on.
+            cache_mode = "off"
         cached = self._cache_path(full)
         if cached and cache_mode == "use" and cached.exists():
             return cached.read_bytes()
