@@ -7,7 +7,7 @@ from __future__ import annotations
 import threading
 import time
 
-import pytest
+from tests.qgis.conftest import FakeIface
 
 TIMEOUT_S = 30.0
 
@@ -168,13 +168,18 @@ def test_the_log_sink_sorts_lines_into_the_qgis_message_log_by_level(qgs_app):
     from desktopstudie.qgis.task import LOG_TAB, plugin_log
 
     received = []
-    QgsApplication.messageLog().messageReceived.connect(
-        lambda message, tag, level: received.append((message, tag, level)))
-    log = plugin_log("proef")
 
-    log.info("alles goed")
-    log.warning("let op")
-    log.error("mis")
+    def record(message, tag, level):
+        received.append((message, tag, level))
+
+    QgsApplication.messageLog().messageReceived.connect(record)
+    try:
+        log = plugin_log("proef")
+        log.info("alles goed")
+        log.warning("let op")
+        log.error("mis")
+    finally:
+        QgsApplication.messageLog().messageReceived.disconnect(record)
 
     assert [(tag, level) for _m, tag, level in received[-3:]] == [
         (LOG_TAB, Qgis.MessageLevel.Info), (LOG_TAB, Qgis.MessageLevel.Warning),
@@ -182,49 +187,27 @@ def test_the_log_sink_sorts_lines_into_the_qgis_message_log_by_level(qgs_app):
     assert received[-1][0] == "[qgis ERROR proef] mis"
 
 
-@pytest.mark.parametrize("level", ["DEBUG"])
-def test_debug_lines_stay_out_of_the_message_log_by_default(qgs_app, level):
+def test_debug_lines_stay_out_of_the_message_log_by_default(qgs_app):
     """Per item DEBUG is voor wie het aanzet; het logpaneel krijgt standaard de fasesamenvattingen."""
     from qgis.core import QgsApplication
 
     from desktopstudie.qgis.task import plugin_log
 
     received = []
-    QgsApplication.messageLog().messageReceived.connect(lambda message, tag, lvl: received.append(message))
 
-    plugin_log("proef").debug("per item")
+    def record(message, tag, level):
+        received.append(message)
+
+    QgsApplication.messageLog().messageReceived.connect(record)
+    try:
+        plugin_log("proef").debug("per item")
+    finally:
+        QgsApplication.messageLog().messageReceived.disconnect(record)
 
     assert not any("per item" in message for message in received)
 
 
 # --- de runner: van Start tot de melding waar het rapport staat -------------------------------------
-
-class _FakeIface:
-    """Wat de runner van iface gebruikt: een echte berichtenbalk en een echt canvas, offscreen."""
-
-    def __init__(self):
-        from qgis.gui import QgsMapCanvas, QgsMessageBar
-
-        self.bar = QgsMessageBar()
-        self.canvas = QgsMapCanvas()
-        self.pushed = []
-        self.bar.widgetAdded.connect(self._record)
-
-    def _record(self, widget):
-        # An item the bar made itself (pushMessage) arrives as a bare QWidget; cast it back. An
-        # exception in a slot would abort the process under pytest (PyQt calls qFatal).
-        from qgis.gui import QgsMessageBarItem
-        from qgis.PyQt import sip
-
-        item = sip.cast(widget, QgsMessageBarItem)
-        self.pushed.append((item.level(), item.text(), item))
-
-    def messageBar(self):
-        return self.bar
-
-    def mapCanvas(self):
-        return self.canvas
-
 
 def _pipeline_result(result, pdf, failures=()):
     from desktopstudie.qgis.pipeline import PipelineResult
@@ -259,7 +242,7 @@ def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs
     monkeypatch.setattr(pipeline, "run_core", lambda *args, **kwargs: result)
     monkeypatch.setattr(pipeline, "prepare", lambda *args, **kwargs: prepared)
     monkeypatch.setattr(pipeline, "finish", fake_finish)
-    iface = _FakeIface()
+    iface = FakeIface()
     runner = StudyRunner(iface, _log([]))
     done = []
     runner.finished.connect(done.append)
@@ -300,7 +283,7 @@ def test_cancel_on_the_main_thread_stops_at_the_next_poll_with_a_message(qgs_app
         raise AssertionError("should_cancel hoort de knop te zien")
 
     monkeypatch.setattr(pipeline, "finish", finish_that_gets_cancelled)
-    iface = _FakeIface()
+    iface = FakeIface()
     lines = []
     runner = StudyRunner(iface, _log(lines))
     done = []
@@ -332,7 +315,7 @@ def test_a_failure_in_the_worker_and_failed_sources_are_named_to_the_user(qgs_ap
     monkeypatch.setattr(pipeline, "prepare", lambda *args, **kwargs: _fake_prepared())
     monkeypatch.setattr(pipeline, "finish",
                         lambda *args, **kwargs: _pipeline_result(result, None, ["PDF-export: FileError"]))
-    iface = _FakeIface()
+    iface = FakeIface()
     runner = StudyRunner(iface, _log([]))
     done = []
     runner.finished.connect(done.append)
