@@ -79,6 +79,12 @@ from .export import PDF_DPI, refresh_data_defined
 
 CRS_AUTHID = "EPSG:31370"
 LAYOUT_NAME = "DOV Desktopstudie"
+
+
+def layout_name(project: str) -> str:
+    """The layout's name in the layout manager: the plugin's name with the study's behind it,
+    so two studies in one project keep two layouts and only a same-named study replaces one."""
+    return f"{LAYOUT_NAME} - {project}" if project else LAYOUT_NAME
 PAGE_SIZE = "A4"
 MARGIN = 15.0
 CONTENT_W = 180.0
@@ -914,9 +920,11 @@ class LayoutBuilder:
                  log=None, should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
-                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None):
+                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
+                 name: Optional[str] = None):
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
-        to draw on top of its map image;
+        to draw on top of its map image; name: what the layout is called in the layout manager
+        (`layout_name`), the bare plugin name when left empty;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
         map ids whose service draws nothing here; map_images: the key of `map_image_key` -> the
         raster layer of the image fetched for it, which a map page draws instead of the live
@@ -935,7 +943,7 @@ class LayoutBuilder:
         self.should_cancel = should_cancel or (lambda: False)
         self.layout = QgsPrintLayout(project)
         self.layout.initializeDefaults()  # this already gives page 0, in A4 landscape
-        self.layout.setName(LAYOUT_NAME)
+        self.layout.setName(name or LAYOUT_NAME)
         QgsExpressionContextUtils.setLayoutVariable(self.layout, LEGEND_VARIABLE, 1 if legends else 0)
         self._first_page_used = False
 
@@ -1387,8 +1395,9 @@ def build_layout(project: QgsProject, report: Report,
                  should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
-                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None) -> QgsPrintLayout:
+                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
+                 name: Optional[str] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
-                         map_images, overlay_boxes).build()
+                         map_images, overlay_boxes, name).build()
