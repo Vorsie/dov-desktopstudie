@@ -4,73 +4,76 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-16
+
+Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packages.
+
 ### Toegevoegd
 - Ontwerp van de plugin (`docs/superpowers/specs/2026-09-15-dov-desktopstudie-design.md`).
-- Pure-Python kern: catalogus, geometrie, DOV WFS/XML, virtuele boring, watertoets, signaleringen,
-  figuren, rapportinhoud, orchestrator; `scripts/run_core.py` voor een studie zonder QGIS.
-- Extra kaarten en signaleringen: gevoeligheid voor grondverschuivingen, gekarteerde
-  grondverschuivingen en PFAS-no-regretzones, plus een uitgeschakeld bommenkaart-slot met
-  manuele-controletekst (Bommenkaart.be biedt geen open WMS/WFS).
-- Doorsnede op basis van de profielbevraging: de dichte laagkolommen langs de hele lijn, gestapeld
-  op het eigen maaiveld van het model, met de doorprik-punten als ankers en terugvalvlak.
-- Lege of mislukte bronnen (virtuele boring zonder lagen, profielbevraging, doorsnedepunten) worden
-  als niet-beschikbaar gerapporteerd en de headless runner eindigt dan met exitcode 3.
-- QGIS-schil: lagen en groepen uit de catalogus en het datamodel, reliëf uit het DHMV (WCS),
-  een meerbladige layout uit de rapportboom met opgehaalde WMS-legenda's, export naar PDF,
-  bladen als PNG en een zelfstandig QGIS-project, en de pijplijn die dat aan elkaar knoopt
-  (`pipeline.run_pipeline`). Brede tabellen en brede figuren krijgen een liggend blad met
-  kolombreedtes uit hun eigen inhoud; kaartpagina's labelen alleen de proeven met een figuur.
-- GeoPackage en projectbestand worden vóór de PDF geschreven, en elke bron die de schil zelf
-  raadpleegt (DHMV, WMS-lagen, legenda's) komt in de bronnenlijst - een mislukte export kost
-  daardoor het rapport, niet de studie.
-- Leesbare legenda's: elke kaart met een code krijgt een "Leeswijzer" van drie tot vijf zinnen
-  (`MapEntry.reading_guide`, met de DOV-pagina die de volledige legende draagt) en een "Legenda
-  voor de zone" met alleen de klassen die in de zone liggen - die tabel vervangt de feitentabel,
-  zodat er één tabel per kaart op papier staat. De legenda van de Quartairkaart is de tekening van
-  DOV zelf: de kopstrook per profieltype (kleurvlak, lettercode, omschrijving) op de legendapagina
-  en de eenhedentabel van het kaartblad ernaast, één keer per blad.
-- De opgehaalde WMS-legenda's staan in twee kolommen van 9 pt met `forceLabels`, leesbaar op
-  papier; het hoogtemodel verloor zijn legendablad (een kleurbalk van 27 x 18 mm) en zegt zijn
-  kleurschaal nu in de leeswijzer.
-- Kaarten worden bevraagd op dekking: een dienst die op deze locatie niets tekent (de Popp-kaart
-  heeft geen blad voor Gent) zegt dat op het kaartblad en in de bronnenlijst - "ok", want de
-  dienst antwoordde, met de reden erbij - en krijgt geen legendapagina.
-- URL's in tabellen worden ingekort tot ze in hun kolom passen (host + laatste stuk), zodat er
-  niets meer middenin een woord wordt afgekapt; de rauwe waarden blijven in `studie.json`.
-- `scripts/run_headless.py`: een volledige studie zonder QGIS-GUI (project, GeoPackage, PDF,
-  optioneel elk blad als PNG), met de duur van kern en schil apart en afsluitcodes 0/2/3.
-  `scripts/_cli.py` deelt de locatie-opties met `run_core.py`.
-- CI draait de schiltests in `qgis/qgis:release-3_34` en `qgis/qgis:latest`, plus een losse
-  live-studie voor Gent waarvan de bladen als artefact bewaard worden.
-- Sneller: elk kaartbeeld wordt vooraf in één GetMap per blad opgehaald (acht tegelijk) en als
-  lokale raster getekend, in plaats van tegel na tegel tijdens het renderen; een headless run
-  bouwt de WMS-lagen nog één keer in plaats van twee. Voor Gent ging de schil daarmee van 607 s
-  naar 374 s inclusief PNG-export, met de PDF-export van 312 s naar 111 s (gemeten 2026-09-16 op
-  dezelfde warme cache). Elke run drukt nu een tabel met de duur per fase af.
-- Nog sneller: de PDF gaat in runs van tien bladen naar de exporter (één oproep voor het hele
-  rapport kost per blad meer naarmate er meer bladen al geëxporteerd zijn), de tekst erin is echte
-  tekst - selecteerbaar en doorzoekbaar, 13,5 in plaats van 34 MB - en de voettekst draagt haar
-  bladnummer als tekst; de DOV-kaarten vragen hun WMS aan de dienst van hun eigen workspace
-  (enkele kB capabilities in plaats van 1,1 MB per kaart). Voor Gent ging de schil van 183-206 s
-  naar 46-48 s: PDF-export 102-120 -> 28 s, GeoPackage en projectbestand 44-84 -> 5 s, layout
-  13-15 -> 9 s (gemeten 2026-09-16, dezelfde warme cache, runs kort na elkaar).
-- De plugin zelf: een knop in de werkbalk en het pluginmenu, een niet-modale dialoog met drie
-  tabbladen - Locatie (adres via de geocoder, X/Y in Lambert 72, polygoon tekenen op de kaart,
-  eerste geselecteerde vlak uit een laag; buffer rond een punt), Instellingen (zoekstraal, aantal
-  figuren, doorsnedelijn automatisch/tekenen/uit laag met verlenging, kaarten aan- of uitvinken,
-  cache, legendapagina's) en Rapport (project, projectnummer, auteur, bedrijf, logo, uitvoermap).
-  Bedrijf, auteur, logo, straal, uitvoermap, cache en legendakeuze worden onthouden (`QgsSettings`,
-  `desktopstudie/...`). De kern en alle HTTP-werk van de schil (legenda's, tekeningen, kaartbeelden)
-  draaien op een `QgsTask`; de rest op de hoofdthread met een voortgangsbalk en een knop Annuleren
-  in de berichtenbalk, die binnen seconden stopt - ook tussen twee runs van de PDF-export. Na afloop
-  zoomt het canvas naar de zone en meldt de berichtenbalk het rapport met "Open PDF"; mislukte
-  producten en bronnen worden bij naam gemeld, de fasetabel staat in het logpaneel. De plugin werkt
-  in het geopende project, onder één groep "DOV Desktopstudie - <project>" met alleen de
-  GRB-basiskaart aan en de hoofdstukken ingeklapt; een tweede run met dezelfde studienaam vervangt
-  die groep, de layout en de rapportkopieën van die naam (een andere studie in hetzelfde project
-  blijft staan) en schrijft in een nieuwe map `<uitvoermap>/<project>_<datum>_<tijd>`, met de
-  schijfcache gedeeld in `<uitvoermap>/cache`. Het voortgangsbericht mag weggeklikt worden en
-  Annuleren wordt ook in de lagenfase per laag gehoord. `metadata.txt`
-  (QGIS 3.34+, Qt6, 0.1.0, experimenteel), `scripts/dev_link.cmd` (junction), `scripts/build_zip.py`
-  (`dist/desktopstudie-0.1.0.zip`, met LICENSE en README.md) en `scripts/smoke_plugin.py` (de
-  plugin onbeheerd doorlopen in een echte QGIS, in een eigen profiel).
+- **Kern** (pure Python, geen `qgis`-import): catalogus met één entry per kaart, geometrie in
+  Lambert 72, geocoder (geopunt), DOV WFS en XML (sonderingen, boringen, peilputten), virtuele
+  boring (doorprik en profielbevraging), WMS GetFeatureInfo en watertoets, signaleringsregels,
+  figuren (qc-diagram, lithologiekolom, virtuele boring, doorsnede), rapportboom en orchestrator.
+  Elke bron faalt geïsoleerd en wordt als niet-beschikbaar gerapporteerd; parallel ophalen via
+  `core/parallel.py`. `scripts/run_core.py` levert data, figuren en JSON zonder QGIS.
+- **Kaarten**: ligging (GRB, orthofoto, NGI CartoWeb, DHMV II hillshade en DTM met reliëfstatistiek),
+  historisch (Ferraris, Atlas der Buurtwegen, Vandermaelen, Popp, orthofoto's 1971, 1979-1990 en
+  2000-2003), geologie en bodem (bodemkaart, Quartair 1/50 000 en 1/200 000, dikte van het Quartair,
+  Tertiair, HCOV, grondwaterkwetsbaarheid, GHG en GLG, watertoets pluviaal en fluviaal, erosie,
+  krimp-zwel, OVAM, gevoeligheid voor en gekarteerde grondverschuivingen, PFAS-no-regretzones).
+  Uitgeschakelde slots voor de historische NGI-reeks en de bommenkaart, die laatste met een vaste
+  tekst voor de manuele controle.
+- **Doorsnede** uit de profielbevraging: dichte laagkolommen langs de hele lijn, gestapeld op het
+  eigen maaiveld van het model, met de doorprik-punten als ankers; sonderingen, boringen en
+  peilputten binnen de corridor geprojecteerd.
+- **QGIS-schil**: lagen en groepen uit catalogus en datamodel, reliëf uit het DHMV (WCS en zonale
+  statistiek), een meerbladige layout uit de rapportboom (staand A4; brede tabellen en figuren
+  liggend, kolombreedtes uit de inhoud), WMS-legenda's als afbeelding in bladhoge stroken die nooit
+  door een item snijden, per kaart met een code een leeswijzer en een "Legenda voor de zone", de
+  profieltypetekeningen van het Quartair van DOV zelf, een dekkingsproef ("geen dekking op deze
+  locatie"), export naar PDF (tekst als tekst), bladen als PNG en een zelfstandig `studie.qgz`.
+  Pijplijn `run_core` / `prepare` / `finish` met een fasetabel, provenance voor elke bron die de
+  schil raadpleegt, GeoPackage en projectbestand vóór de PDF, en afbreken tussen fasen, bladen en
+  exportruns zonder halve producten.
+- **Plugin**: knop in werkbalk en menu; een niet-modale dialoog met de tabbladen Locatie (adres met
+  kandidaten van de geocoder, X/Y in Lambert 72 met buffer, polygoon tekenen op de kaart, eerste
+  geselecteerde vlak uit een laag), Instellingen (zoekstraal, aantal figuren, doorsnedelijn
+  automatisch/tekenen/uit laag met verlenging, kaartenchecklist, cache, legendapagina's) en Rapport
+  (project, projectnummer, auteur, bedrijf, logo, uitvoermap; onthouden in `QgsSettings` onder
+  `desktopstudie/`). Kern en HTTP-werk op een `QgsTask`, de rest op de hoofdthread met een
+  voortgangsbalk en Annuleren in de berichtenbalk; na afloop zoomt het canvas naar de zone en meldt
+  de berichtenbalk het rapport met "Open PDF", mislukte producten en bronnen bij naam, de fasetabel
+  in het logpaneel. Per studienaam één groep en één layout "DOV Desktopstudie - <project>" in het
+  geopende project, vervangen bij een tweede run met dezelfde naam; uitvoer per run in
+  `<uitvoermap>/<project>_<datum>_<tijd>`, de schijfcache gedeeld in `<uitvoermap>/cache`.
+- **Scripts**: `run_headless.py` (volledige studie zonder GUI, duur per fase, afsluitcodes 0/2/3),
+  `dev_link.cmd` (junction naar een QGIS-profiel), `smoke_plugin.py` (de plugin onbeheerd in een
+  echte QGIS, eigen profiel), `build_zip.py` (zip met LICENSE en README.md), `zip_check.py`
+  (installatie uit de zip in een schoon profiel), `record_fixtures.py`, `render_figures.py`.
+- **CI**: de kern op Python 3.9 en 3.12; de schil in `qgis/qgis:release-3_34` en `qgis/qgis:latest`,
+  plus één live studie voor Gent waarvan de bladen als artefact bewaard worden.
+
+### Gewijzigd
+- Ten opzichte van het ontwerp: de plugin werkt in het geopende project (geen nieuw project, geen
+  vraag); de legendakeuze staat op het tabblad Instellingen; waar een "Legenda voor de zone"
+  bestaat, vervangt ze de feitentabel (één tabel per kaart); het hoogtemodel heeft geen legendablad
+  maar zegt zijn kleurschaal in de leeswijzer; de profieltypetekeningen zijn rapportinhoud en worden
+  ook zonder legendapagina's opgehaald.
+- Snelheid: de DOV-kaarten vragen hun WMS aan de dienst van hun eigen workspace (enkele kB
+  capabilities in plaats van 1,1 MB per kaart), kaartbeelden worden vooraf in één GetMap per blad
+  opgehaald en als lokale raster getekend, en de PDF gaat in runs van tien bladen naar de exporter
+  met de bladnummers als tekst in de voettekst. Voor Gent (115 bladen, warme cache) ging de schil
+  daarmee van 607 s naar 46-48 s (gemeten 2026-09-16); in de plugin 149 s met koude cache.
+
+### Bekende beperkingen
+- Geen open WMS voor de historische NGI-reeks (1873-1989); bommenkaart.be is geen open data.
+- Geen berekeningen en geen interpretatie: de plugin verzamelt, tekent en signaleert.
+- Het DOV-documentportaal antwoordt voor de profieltypetekeningen van het Quartair soms met zijn
+  webpagina in plaats van de PNG; de tekening wordt dan als mislukte bron gemeld.
+- Geen `log.txt` in de uitvoermap: de plugin logt naar het logpaneel, het script naar de terminal.
+- Een studiezone is één ring: van een multipolygoon telt het grootste deel, gaten vervallen.
+- Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
+- De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
+
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Vorsie/dov-desktopstudie/releases/tag/v0.1.0
