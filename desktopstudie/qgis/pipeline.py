@@ -62,8 +62,10 @@ from ..core.study import run as run_study
 from . import compat, dem, export, layers
 from . import layout as layout_mod
 
-# chapter in the catalogue -> the group title in the project, numbered as the report numbers its
-# chapters so the layer panel reads in the same order as the PDF.
+# chapter in the catalogue -> the group title in the project. These three ARE chapters of the
+# report and carry its numbers, so the layer panel reads in the same order as the PDF. The study's
+# own two groups (`layers.ZONE_GROUP`, `layers.INVESTIGATION_GROUP`) are not chapters and carry no
+# number; they are added after these, so they still land at the bottom of the panel.
 CHAPTER_GROUPS = {"ligging": "1 Ligging en topografie", "historisch": "2 Historische kaarten",
                   "geologie": "3 Geologie en bodem"}
 STUDY_GROUP = "DOV Desktopstudie"
