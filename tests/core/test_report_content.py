@@ -325,5 +325,5 @@ def test_a_fact_table_prints_a_link_in_its_short_form_too(gent_ring):
                  and p.title.startswith("Quartairgeologische kaart 1/50"))
     links = [row[1] for row in facts.rows]
     assert all(link.startswith("https://datasets.omgeving.vlaanderen.be/...") for link in links), links
-    assert all(len(link) < 80 for link in links), links
-    assert links[0].endswith("DOV_Quartair_50000_22026_png")
+    assert all(len(link) <= 70 for link in links), links
+    assert links[0].endswith("Quartair_50000_22026_png")
