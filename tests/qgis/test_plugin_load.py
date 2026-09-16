@@ -6,6 +6,8 @@ from __future__ import annotations
 import configparser
 from pathlib import Path
 
+from tests.versions import pyproject_version
+
 
 class _FakeIface:
     def __init__(self):
@@ -71,6 +73,6 @@ def test_metadata_names_the_versions_the_plugin_claims():
     assert general["name"] == "DOV Desktopstudie"
     assert general["qgisMinimumVersion"] == "3.34"
     assert general.getboolean("supportsQt6") is True
-    assert general["version"] == "0.1.0"
+    assert general["version"] == pyproject_version(), "één versie: metadata.txt volgt pyproject.toml"
     assert general.getboolean("experimental") is True
     assert (package / general["icon"]).is_file()
