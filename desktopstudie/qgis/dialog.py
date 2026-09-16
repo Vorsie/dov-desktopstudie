@@ -60,6 +60,9 @@ DRAW_RING_HINT = "Klik de hoekpunten op de kaart; rechtsklik sluit af."
 DRAW_LINE_HINT = "Klik begin- en eindpunt op de kaart; rechtsklik sluit af."
 LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter het kaartblad. In de "
                "layout zelf schakelt de variabele 'legendas' die pagina's bij het exporteren.")
+CACHE_DIR_NAME = "cache"  # under the output folder, shared by every run written there
+# A user is waiting at the address box: one try, and not the client's minute.
+GEOCODE_TIMEOUT_S = 15.0
 
 
 def _spin(low: float, high: float, value: float, decimals: int = 0, suffix: str = " m") -> QDoubleSpinBox:
@@ -91,6 +94,8 @@ class StudyDialog(QDialog):
         self._tool = None
         self._previous_tool = None
         self._geocode_task = None  # kept: a QgsTask without a Python reference is collected mid-run
+        self._geocode_token = None  # set while a search runs; only an answer carrying it counts
+        self._geocode_query = ""
         self.setWindowTitle(PLUGIN_NAME)
         self.setMinimumWidth(560)
         tabs = QTabWidget()
@@ -110,6 +115,10 @@ class StudyDialog(QDialog):
         layout.addLayout(buttons)
         self.runner.finished.connect(self._run_finished)
         self.start_button.setEnabled(not self.runner.running)
+        # The layer lists follow the project: a layer added while the dialog is open is offered
+        # without reopening it, a removed one disappears.
+        QgsProject.instance().layersAdded.connect(self._refresh_layers)
+        QgsProject.instance().layersRemoved.connect(self._refresh_layers)
 
     # --- the three tabs ---------------------------------------------------------------------------
 
@@ -262,7 +271,7 @@ class StudyDialog(QDialog):
         super().showEvent(event)
         self._refresh_layers()
 
-    def _refresh_layers(self) -> None:
+    def _refresh_layers(self, *_layers) -> None:
         self._fill_layer_combo(self.layer_combo, Qgis.GeometryType.Polygon)
         self._fill_layer_combo(self.section_layer_combo, Qgis.GeometryType.Line)
 
@@ -279,6 +288,8 @@ class StudyDialog(QDialog):
     def _section_mode_changed(self, index: int) -> None:
         self.section_button.setEnabled(index == SECTION_DRAW)
         self.section_layer_combo.setEnabled(index == SECTION_LAYER)
+        # The extension belongs to the line the core lays itself; a drawn or chosen line is what it is.
+        self.extension_spin.setEnabled(index == SECTION_AUTO)
 
     def zone(self) -> StudyZone:
         """The zone the form describes, or a ValueError that says what is still missing."""
@@ -299,7 +310,8 @@ class StudyDialog(QDialog):
             return zone_input.zone_from_ring(self._ring, CRS_AUTHID, radius)
         layer = self._chosen_layer(self.layer_combo)
         feature = self._first_selected(layer)
-        return zone_input.zone_from_feature(feature, layer.crs(), radius, name=f"{layer.name()} #{feature.id()}")
+        return zone_input.zone_from_feature(feature, layer.crs(), radius, name=f"{layer.name()} #{feature.id()}",
+                                            context=self._transform_context())
 
     def section_line(self) -> Optional[Tuple[Point, Point]]:
         choice = self.section_combo.currentIndex()
@@ -310,7 +322,13 @@ class StudyDialog(QDialog):
                 raise ValueError("Teken eerst een doorsnedelijn op de kaart.")
             return self._section
         layer = self._chosen_layer(self.section_layer_combo)
-        return zone_input.section_from_feature(self._first_selected(layer), layer.crs())
+        return zone_input.section_from_feature(self._first_selected(layer), layer.crs(),
+                                               context=self._transform_context())
+
+    @staticmethod
+    def _transform_context():
+        """The project's own datum transforms, so a drawn ring lands where the project would put it."""
+        return QgsProject.instance().transformContext()
 
     @staticmethod
     def _chosen_layer(combo: QComboBox) -> QgsVectorLayer:
@@ -349,7 +367,8 @@ class StudyDialog(QDialog):
         if not base:
             raise ValueError("Geef een uitvoermap op.")
         return StudyRequest(zone, settings, meta, zone_input.run_folder(Path(base), meta.project),
-                            self.cache_combo.currentData(), self.legends_check.isChecked())
+                            self.cache_combo.currentData(), self.legends_check.isChecked(),
+                            cache_dir=Path(base) / CACHE_DIR_NAME)
 
     def save_settings(self) -> None:
         settings = self.settings
@@ -366,28 +385,46 @@ class StudyDialog(QDialog):
 
     def search_address(self) -> None:
         """Geocode on a task of its own: a geopunt call takes a second, and a second of frozen
-        dialog is one too many."""
+        dialog is one too many. One search at a time: a second Enter while one runs is ignored,
+        and an answer to an older search is dropped - otherwise the row the user clicks maps to a
+        different address than the one it shows."""
         query = self.address_edit.text().strip()
         if not query:
             self._warn("Geef een adres op.")
             return
+        if self._geocode_token is not None:
+            self.log.info(f"adres zoeken loopt al ({self._geocode_query!r}); nieuwe zoekopdracht genegeerd")
+            return
         self.hits_list.clear()
         self._hits = []
         self.search_button.setEnabled(False)
-        client = HttpClient(cache_dir=None, log=self.log.child("http"))
-        log = self.log.child("geocoder")
-        self._geocode_task = QgsTask.fromFunction("Adres zoeken", lambda task: geocode(client, query, log=log),
-                                                  on_finished=self._address_found)
-        QgsApplication.taskManager().addTask(self._geocode_task)
+        token = object()
+        self._geocode_token, self._geocode_query = token, query
+        self.log.info(f"adres zoeken: {query!r}")
+        self._geocode_task = self._start_geocode(query, token)
 
-    def _address_found(self, exception, hits=None) -> None:
+    def _start_geocode(self, query: str, token: object):
+        """The geocoder on a QgsTask; the answer comes back through `_address_found` with `token`."""
+        client = HttpClient(cache_dir=None, timeout=GEOCODE_TIMEOUT_S, retries=0, log=self.log.child("http"))
+        log = self.log.child("geocoder")
+        task = QgsTask.fromFunction(
+            "Adres zoeken", lambda task: geocode(client, query, log=log),
+            on_finished=lambda exception, hits=None: self._address_found(token, exception, hits))
+        QgsApplication.taskManager().addTask(task)
+        return task
+
+    def _address_found(self, token, exception, hits=None) -> None:
         """`QgsTask.fromFunction` hands the result only when it is truthy, hence the default."""
+        if token is not self._geocode_token:
+            self.log.debug("verouderd antwoord van de geocoder genegeerd")
+            return
+        self._geocode_token, self._geocode_task = None, None
         self.search_button.setEnabled(True)
-        self._geocode_task = None
         if exception is not None:
             self._warn(f"Adres zoeken mislukt: {exception}")
             return
         self._hits = list(hits or [])
+        self.log.info(f"adres {self._geocode_query!r}: {len(self._hits)} kandidaten")
         for hit in self._hits:
             self.hits_list.addItem(hit.address if hit.is_precise else f"{hit.address} (niet op huisnummer)")
         if self._hits:
@@ -419,6 +456,7 @@ class StudyDialog(QDialog):
         canvas.unsetMapTool(self._tool)
         if self._previous_tool is not None:
             canvas.setMapTool(self._previous_tool)
+        self._tool.deleteLater()  # the canvas does not own it; Python would drop it whenever
         self._tool, self._previous_tool = None, None
 
     def _canvas_crs(self):
@@ -427,7 +465,8 @@ class StudyDialog(QDialog):
     def _ring_drawn(self, points: List[Point]) -> None:
         self._stop_tool()
         try:
-            zone = zone_input.zone_from_ring(points, self._canvas_crs(), self.radius_spin.value())
+            zone = zone_input.zone_from_ring(points, self._canvas_crs(), self.radius_spin.value(),
+                                             context=self._transform_context())
         except ValueError as exc:
             self._ring = None
             self.ring_label.setText(str(exc))
@@ -439,7 +478,8 @@ class StudyDialog(QDialog):
     def _section_drawn(self, points: List[Point]) -> None:
         self._stop_tool()
         try:
-            self._section = zone_input.section_from_points(points, self._canvas_crs())
+            self._section = zone_input.section_from_points(points, self._canvas_crs(),
+                                                           context=self._transform_context())
         except ValueError as exc:
             self._section = None
             self.section_label.setText(str(exc))
@@ -468,7 +508,7 @@ class StudyDialog(QDialog):
             return
         try:
             request = self.build_request()
-        except ValueError as exc:
+        except (ValueError, RuntimeError) as exc:  # RuntimeError: a layer deleted under the combo
             self._warn(str(exc))
             return
         self.save_settings()
