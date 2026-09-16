@@ -282,10 +282,30 @@ def points_layer(kind: str, items: Iterable[Investigation],
 
 # --- project tree and GeoPackage -----------------------------------------------------------------
 
+def drop_group(project: QgsProject, title: str) -> int:
+    """Remove the group called `title` and its layers from the project; returns how many layers
+    went. Nothing happens when there is no such group."""
+    root = project.layerTreeRoot()
+    group = root.findGroup(title)
+    if group is None:
+        return 0
+    ids = group.findLayerIds()
+    root.removeChildNode(group)
+    if ids:
+        project.removeMapLayers(ids)
+    return len(ids)
+
+
 def add_group(project: QgsProject, title: str, group_layers: Sequence[QgsMapLayer],
               visible: bool = True) -> QgsLayerTreeGroup:
     """Add the layers to the project under one group, in the given order. They are registered
-    without a tree node (`addMapLayer(layer, False)`) so they appear inside the group only."""
+    without a tree node (`addMapLayer(layer, False)`) so they appear inside the group only.
+
+    A group of the same name from an earlier run is replaced, its layers removed from the
+    project first: a study run three times in one session must not leave three copies of
+    "5 Grondonderzoek DOV" in the layer panel, two of them stale.
+    """
+    drop_group(project, title)
     group = project.layerTreeRoot().addGroup(title)
     for layer in group_layers:
         project.addMapLayer(layer, False)
