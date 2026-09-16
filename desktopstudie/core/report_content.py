@@ -34,6 +34,10 @@ class ReportMeta:
     logo_path: str = ""
 
 
+# How a figure is sized on its sheet; see FigurePage.fit.
+ZOOM, NATURAL = "zoom", "natural"
+
+
 @dataclass
 class MapPage:
     """A rendered catalogue map. `scale` is the target scale (1:scale); the shell actually draws
@@ -52,9 +56,17 @@ class MapPage:
 
 @dataclass
 class FigurePage:
+    """A picture on a sheet of its own.
+
+    `fit` says how big to draw it: "zoom" fills the content band (what a CPT diagram or a section
+    wants), "natural" draws it at its own pixel size, capped at the band. A strip of a few
+    centimetres - the header of a quartair drawing - blown up to a whole sheet is a blurred banner,
+    and no reader thanks you for it.
+    """
     title: str
     image_path: str
     caption: str = ""
+    fit: str = ZOOM
 
 
 @dataclass
@@ -189,6 +201,34 @@ ZONE_LEGEND_COLUMNS: Dict[str, Tuple[Tuple[str, str], ...]] = {
 }
 QUARTAIR_ID = "quartair"
 QUARTAIR_CODE, QUARTAIR_IMAGE = "profieltype", "legende"
+# A DOV profile-type drawing has a fixed build: a header (colour swatch, letter code and one line
+# of description) and, under it, the units table of the whole map sheet - the same table for every
+# profile type of that sheet. The report therefore prints one header per profile type and the
+# units table once, and the zone legend names the sheet instead of repeating a 145-character URL
+# no reader can use.
+QUARTAIR_SHEET_CHARS = 2
+QUARTAIR_LEGEND_COLUMNS = ["Profieltype", "Kaartblad", "Omschrijving"]
+QUARTAIR_DRAWING_NOTE = "zie profieltekening hierna"
+PROFILE_KEY, SHEET_KEY = "profieltype", "kaartblad"
+
+
+def quartair_sheet(code: str) -> str:
+    """The map sheet of a profile type: the first two digits of its code (22010 -> 22).
+
+    A code shorter than that is its own sheet - the 1/200 000 map numbers its types 1, 3, 3a - so
+    nothing is ever cut in half.
+    """
+    return code[:QUARTAIR_SHEET_CHARS] if len(code) > QUARTAIR_SHEET_CHARS else code
+
+
+def profile_image_key(code: str) -> str:
+    """How `zone_legend_images` names the header strip of one profile type."""
+    return f"{PROFILE_KEY}:{code}"
+
+
+def sheet_image_key(sheet: str) -> str:
+    """How `zone_legend_images` names the units table of one map sheet."""
+    return f"{SHEET_KEY}:{sheet}"
 
 
 def _zone_legend_columns(entry: catalogue.MapEntry) -> Tuple[List[str], List[str]]:
@@ -200,6 +240,24 @@ def _zone_legend_columns(entry: catalogue.MapEntry) -> Tuple[List[str], List[str
     return [f for f, _h in chosen], [h for _f, h in chosen]
 
 
+def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult) -> TablePage:
+    """Profile type, map sheet, and a pointer to the drawing that follows.
+
+    Not the legend URL the row carries: it is 145 characters of download link, it cannot be
+    wrapped, and a reader with a printed report cannot do anything with it. The drawing itself is
+    the next page; the raw URL stays in `MapFact.rows` and in studie.json.
+    """
+    rows_src = _fact_rows(entry, result)
+    rows: List[List[str]] = []
+    for row in rows_src or []:
+        code = _s(row.get(QUARTAIR_CODE))
+        cells = [code, quartair_sheet(code), QUARTAIR_DRAWING_NOTE]
+        if cells not in rows:
+            rows.append(cells)
+    return TablePage(f"Legenda voor de zone - {entry.title}", list(QUARTAIR_LEGEND_COLUMNS), rows,
+                     _rows_note(rows_src))
+
+
 def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePage:
     """The classes that lie inside the zone, once each.
 
@@ -207,6 +265,8 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
     soil type comes back as often as the zone crosses it, and a legend that repeats itself is a
     legend the reader stops reading.
     """
+    if entry.id == QUARTAIR_ID:
+        return _quartair_zone_legend(entry, result)
     rows_src = _fact_rows(entry, result)
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
@@ -224,22 +284,34 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
 
 def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
                          images: Dict[str, str]) -> List[Page]:
-    """The drawing of every quartair profile type the shell managed to fetch, once each.
+    """The quartair drawings the shell managed to fetch: a header per profile type, then the units
+    table of every map sheet involved, once.
 
-    The core cannot download anything, so a profile type without an image simply gets no page -
-    never an empty frame promising a drawing that is not there.
+    The header is a strip of a few centimetres and is drawn at its own size; the units table is a
+    whole drawing and may fill the sheet. The core fetches nothing, so a profile type without an
+    image simply gets no page - never an empty frame promising a drawing that is not there.
     """
     if entry.id != QUARTAIR_ID or not images:
         return []
-    pages: List[Page] = []
-    seen = set()
+    headers: List[Page] = []
+    sheets: List[Page] = []
+    seen_codes, seen_sheets = set(), set()
     for row in _fact_rows(entry, result) or []:
-        url, code = str(row.get(QUARTAIR_IMAGE) or ""), _s(row.get(QUARTAIR_CODE))
-        if url in images and url not in seen:
-            seen.add(url)
-            pages.append(FigurePage(f"Profieltype {code}", images[url],
-                                    f"Legende van profieltype {code} - DOV"))
-    return pages
+        code = _s(row.get(QUARTAIR_CODE))
+        header = images.get(profile_image_key(code))
+        if header is None or code in seen_codes:
+            continue
+        seen_codes.add(code)
+        headers.append(FigurePage(f"Profieltype {code}", header,
+                                  f"Profieltype {code} - DOV", fit=NATURAL))
+        sheet = quartair_sheet(code)
+        units = images.get(sheet_image_key(sheet))
+        if units is not None and sheet not in seen_sheets:
+            seen_sheets.add(sheet)
+            sheets.append(FigurePage(f"Eenheden op kaartblad {sheet}", units,
+                                     f"Eenheden van kaartblad {sheet}, geldig voor elk profieltype "
+                                     f"van dat blad - DOV"))
+    return headers + sheets
 
 
 def _chapter_ligging(result: StudyResult) -> Chapter:
