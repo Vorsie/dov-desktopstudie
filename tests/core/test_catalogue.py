@@ -114,6 +114,23 @@ def test_service_urls_carry_their_template_placeholders():
                 c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
 
 
+def test_every_dov_map_asks_the_service_of_its_own_workspace_by_the_layers_own_name():
+    """A WMS layer costs a GetCapabilities, and the global DOV service answers with the whole
+    of DOV - 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. GeoServer serves
+    every workspace at its own address (`/geoserver/<workspace>/wms`) with a capabilities of a
+    few kB, on which the layer goes by its own name, without the workspace prefix (live
+    2026-09-16: 0,03 s per map, identical GetMap and GetLegendGraphic bytes). The WFS typename
+    keeps its prefix: that is the global WFS."""
+    dov = [e for e in c.CATALOGUE if "dov.vlaanderen.be/geoserver" in e.wms_url]
+    assert len(dov) == 15
+    for entry in dov:
+        workspace = entry.wms_url.rsplit("/geoserver/", 1)[1].split("/")[0]
+        assert entry.wms_url == c.DOV_WORKSPACE_WMS_URL.format(workspace=workspace), entry.id
+        assert ":" not in entry.wms_layer, entry.id
+        if entry.wfs_typename:
+            assert entry.wfs_typename.startswith(f"{workspace}:"), entry.id
+
+
 def test_bommenkaart_is_a_documented_empty_slot_naming_the_explosives_risk():
     slot = c.by_id("bommenkaart")
     assert slot.chapter == "historisch"
@@ -126,8 +143,10 @@ def test_the_pfas_map_names_ovam_as_its_source():
     entry = c.by_id("pfas_no_regret")
     assert entry.chapter == "geologie"
     assert entry.attribution == "OVAM / Vlaamse overheid via DOV"
-    # no_regret_zones is a STYLE of pfas:no_regret_huidig, not a WMS layer of its own
-    assert entry.wms_layer == "pfas:no_regret_huidig"
+    # no_regret_zones is a STYLE of pfas:no_regret_huidig, not a WMS layer of its own; on the
+    # workspace service the layer goes by its own name
+    assert entry.wms_url == "https://www.dov.vlaanderen.be/geoserver/pfas/wms"
+    assert entry.wms_layer == "no_regret_huidig"
     assert entry.wfs_typename == "pfas:no_regret_huidig"
 
 
@@ -163,7 +182,8 @@ def test_the_gxg_map_names_the_real_layer_and_carries_the_style():
     # gxg:gxg is a STYLE of gxg:ghg_mmv_main, not a layer of its own: a GetMap on gxg:gxg answers
     # with a ServiceException, exactly like pfas:no_regret_zones (both verified live 2026-09-15).
     entry = c.by_id("gxg_ghg")
-    assert entry.wms_layer == "gxg:ghg_mmv_main"
+    assert entry.wms_url == "https://www.dov.vlaanderen.be/geoserver/gxg/wms"
+    assert entry.wms_layer == "ghg_mmv_main"
     assert entry.wms_style == "gxg:gxg"
 
 
@@ -175,7 +195,7 @@ def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
     ghg, glg = c.by_id("gxg_ghg"), c.by_id("gxg_glg")
     assert ghg.title == "Gemiddeld hoogste grondwaterstand (GHG)"
     assert glg.title == "Gemiddeld laagste grondwaterstand (GLG)"
-    assert glg.wms_layer == "gxg:glg_mmv_main"
+    assert glg.wms_layer == "glg_mmv_main"
     assert glg.wms_style == "gxg:gxg"
     assert glg.chapter == ghg.chapter == "geologie"
     assert glg.attribution == ghg.attribution and glg.licence == ghg.licence
