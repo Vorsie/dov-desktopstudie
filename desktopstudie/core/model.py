@@ -258,6 +258,11 @@ class StudyResult:
     provenance: List[Provenance] = field(default_factory=list)
     figures: Dict[str, str] = field(default_factory=dict)
     relief: Optional[Tuple[float, float, float]] = None  # (min, max, mean) mTAW, filled by the shell
+    # Which catalogue maps this study covers, straight from the dialog's checklist; None means
+    # every enabled entry. It travels with the result rather than staying in the Settings because
+    # the shell reads it for its layers, legends and map images - and because a reader of
+    # studie.json has to be able to see which maps the study did NOT look at.
+    map_ids: Optional[List[str]] = None
 
     def summary(self) -> Dict[str, Any]:
         return {
