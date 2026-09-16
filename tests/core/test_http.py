@@ -120,6 +120,25 @@ def test_cache_mode_off_never_writes_a_file(tmp_path):
     assert list(tmp_path.glob("*.bin")) == []
 
 
+def test_a_cache_write_that_fails_is_logged_not_swallowed(tmp_path, monkeypatch):
+    """Log wat NIET gelukt is. Een volle schijf of een uitvoermap zonder schrijfrecht maakt van
+    elke volgende run weer een volledige download; zonder een regel is "het is ineens weer traag"
+    niet te verklaren. Het antwoord zelf komt gewoon terug - een cache is geen voorwaarde."""
+    from desktopstudie.core.logging_util import Log
+
+    def full_disk(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(http.os, "replace", full_disk)
+    lines = []
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda url, timeout, agent: b"payload",
+                             log=Log("http", lines.append))
+
+    assert client.get("https://x.be/a") == b"payload"
+
+    assert any("WARNING" in line and "cache" in line for line in lines), lines
+
+
 def test_unknown_cache_mode_raises_value_error():
     with pytest.raises(ValueError):
         http.HttpClient(cache_mode="bogus")
