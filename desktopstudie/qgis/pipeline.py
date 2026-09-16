@@ -38,7 +38,7 @@ from ..core import catalogue, checks
 from ..core.catalogue import DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
-from ..core.report_content import Report, ReportMeta, build_report
+from ..core.report_content import Report, ReportMeta, build_report, profile_image_key
 from ..core.services.http import HttpClient
 from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
 from ..core.study import run as run_study
@@ -254,7 +254,7 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     images = layout_mod.prepare_zone_legend_images(result, out_dir, client, log.child("legendas"),
                                                    should_cancel)
     for url, code in targets.items():
-        found = url in images
+        found = profile_image_key(code) in images
         record_source(result, f"Legenda profieltype {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald")
     return {url: path.relative_to(out_dir).as_posix() for url, path in images.items()}
