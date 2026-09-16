@@ -110,7 +110,7 @@ def no_pdf(monkeypatch):
     """Voor tests waar de export zelf niet de vraag is: schrijven kost seconden per rapport."""
     from desktopstudie.qgis import export
 
-    monkeypatch.setattr(export, "export_pdf", lambda lay, path, dpi=150: Path(path))
+    monkeypatch.setattr(export, "export_pdf", lambda lay, path, **kwargs: Path(path))
 
 
 # --- offline: één volledige run draagt de meeste beweringen ------------------------------------
@@ -122,6 +122,7 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     reliëf met zijn bronvermelding, de opnieuw gedraaide regels, de groepen en de layout in het
     project, en een voortgangsbalk die tot het einde loopt."""
     import json
+    import re
 
     from desktopstudie.qgis import layout, pipeline
 
@@ -140,6 +141,9 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     assert out.project_file == tmp_path / "studie.qgz" and out.project_file.exists()
     assert out.geopackage == tmp_path / "data" / "studie.gpkg" and out.geopackage.exists()
     assert steps and steps[-1][0] == 1.0
+    # De langste fase zegt hoe ver ze is: na elke run van de exporter het aantal bladen.
+    assert any(re.fullmatch(r"PDF-export: \d+/\d+ bladen", message) for _f, message in steps), steps
+    assert "PDF-export" in [name for name, _seconds in out.timings]
 
     # het reliëf en de tweede pas van de regels
     assert core_result.relief == offline_shell
@@ -179,6 +183,48 @@ def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core
     snapshots = [name for name in names if name.endswith("(kaartbeeld)")]
     assert snapshots and len(snapshots) == len(set(id(layer) for layer in report_copies
                                                    if layer.name().endswith("(kaartbeeld)")))
+
+
+def test_the_network_half_runs_without_a_project_and_finish_takes_what_it_fetched(
+        project, core_result, offline_shell, tmp_path, monkeypatch, no_pdf):
+    """Alles wat alleen HTTP is - legenda's, profieltypetekeningen, kaartbeelden - hoort in de
+    werkthread van de plugin te kunnen draaien, dus zonder project en zonder een enkele laag.
+    `prepare` levert dat op; `finish` neemt het over en haalt niets een tweede keer op. De fasetabel
+    van het geheel noemt beide helften, en elke kaartpagina vindt het beeld dat voor haar gepland
+    is (dezelfde dozen aan beide kanten)."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout, pipeline
+
+    fetched = []
+    stand_in = layout.prepare_map_images  # the offline stand-in; counted, not replaced
+
+    def counted(requests, out_dir, client, log=None, should_cancel=None):
+        fetched.append(len(requests))
+        return stand_in(requests, out_dir, client, log, should_cancel)
+
+    monkeypatch.setattr(layout, "prepare_map_images", counted)
+    steps = []
+
+    prepared = pipeline.prepare(core_result, _meta(), tmp_path, _log(),
+                                progress=lambda f, m: steps.append(m), legends=False)
+
+    assert prepared.map_images and fetched == [len(prepared.requests)]
+    assert [name for name, _seconds in prepared.timings] == ["Kaartbeelden"] == steps
+    assert any(p.source.startswith(pipeline.MAP_IMAGE_SOURCE) and p.ok for p in core_result.provenance)
+    assert not project.mapLayers(), "de netwerkhelft raakt het project niet aan"
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                          prepared=prepared)
+
+    assert fetched == [len(prepared.requests)], "finish hoort niets opnieuw op te halen"
+    names = [name for name, _seconds in out.timings]
+    assert names[0] == "Kaartbeelden" and "Relief uit DHMV" in names and names[-1] == "PDF-export"
+    assert out.pdf is not None and out.failures == []
+    lay = project.layoutManager().layoutByName(layout.LAYOUT_NAME)
+    texts = [item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel)]
+    assert not any(layout.MISSING_MAP_NOTE in text for text in texts)
+    assert any(layer.name().endswith("(kaartbeeld)") for layer in project.mapLayers().values())
 
 
 def test_the_report_maps_label_only_the_investigations_with_a_figure(project, core_result, offline_shell,
@@ -318,7 +364,7 @@ def test_a_failed_pdf_still_leaves_the_project_and_the_geopackage(project, core_
     het GeoPackage en het projectbestand - en de melding zegt wat er mis ging."""
     from desktopstudie.qgis import export, pipeline
 
-    def boom(lay, path, dpi=150):
+    def boom(lay, path, **kwargs):
         raise RuntimeError("PDF-export mislukt (FileError)")
 
     monkeypatch.setattr(export, "export_pdf", boom)
@@ -457,7 +503,7 @@ def test_a_cancelled_export_is_not_swallowed_as_a_failure(project, core_result, 
     from desktopstudie.core.study import StudyCancelled
     from desktopstudie.qgis import export, pipeline
 
-    def cancelled(lay, path, dpi=150):
+    def cancelled(lay, path, **kwargs):
         raise StudyCancelled("afgebroken door de gebruiker")
 
     monkeypatch.setattr(export, "export_pdf", cancelled)
@@ -499,9 +545,10 @@ def test_finish_reports_how_long_every_phase_took(project, core_result, offline_
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
     names = [name for name, _seconds in out.timings]
-    assert names == ["Relief uit DHMV", "Lagen", "Kaartbeelden", "Signaleringen en rapport",
-                     "GeoPackage en projectbestand", "Layout",
-                     "PDF-export (niet onderbreekbaar)"], names
+    # De netwerkhelft (hier alleen de kaartbeelden: geen legenda's, geen quartair) staat vooraan,
+    # want die draait in de plugin op de werkthread, vóór de schil het project aanraakt.
+    assert names == ["Kaartbeelden", "Relief uit DHMV", "Lagen", "Signaleringen en rapport",
+                     "GeoPackage en projectbestand", "Layout", "PDF-export"], names
     assert all(seconds >= 0.0 for _name, seconds in out.timings)
     assert sum(seconds for _name, seconds in out.timings) > 0.0
 
