@@ -3,7 +3,8 @@
 Split in two on purpose. `run_core` is everything that only needs Python and the network, so it
 can run on a worker thread (the plugin's QgsTask); `finish` is everything that touches QGIS map
 layers, a layout and a project, which has to happen on the main thread. `run_pipeline` is the two
-of them for a caller that has no threads to worry about - the headless script.
+of them for a caller that wants the whole study in one call; the headless script drives the
+two halves itself, because it reports how long each took.
 
 Four things are easy to get wrong here and are therefore done in one place.
 
