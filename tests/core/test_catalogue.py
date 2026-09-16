@@ -114,6 +114,23 @@ def test_service_urls_carry_their_template_placeholders():
                 c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
 
 
+def test_every_dov_map_asks_the_service_of_its_own_workspace_by_the_layers_own_name():
+    """A WMS layer costs a GetCapabilities, and the global DOV service answers with the whole
+    of DOV - 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. GeoServer serves
+    every workspace at its own address (`/geoserver/<workspace>/wms`) with a capabilities of a
+    few kB, on which the layer goes by its own name, without the workspace prefix (live
+    2026-09-16: 0,03 s per map, identical GetMap and GetLegendGraphic bytes). The WFS typename
+    keeps its prefix: that is the global WFS."""
+    dov = [e for e in c.CATALOGUE if "dov.vlaanderen.be/geoserver" in e.wms_url]
+    assert len(dov) == 15
+    for entry in dov:
+        workspace = entry.wms_url.rsplit("/geoserver/", 1)[1].split("/")[0]
+        assert entry.wms_url == c.DOV_WORKSPACE_WMS_URL.format(workspace=workspace), entry.id
+        assert ":" not in entry.wms_layer, entry.id
+        if entry.wfs_typename:
+            assert entry.wfs_typename.startswith(f"{workspace}:"), entry.id
+
+
 def test_bommenkaart_is_a_documented_empty_slot_naming_the_explosives_risk():
     slot = c.by_id("bommenkaart")
     assert slot.chapter == "historisch"
@@ -126,8 +143,10 @@ def test_the_pfas_map_names_ovam_as_its_source():
     entry = c.by_id("pfas_no_regret")
     assert entry.chapter == "geologie"
     assert entry.attribution == "OVAM / Vlaamse overheid via DOV"
-    # no_regret_zones is a STYLE of pfas:no_regret_huidig, not a WMS layer of its own
-    assert entry.wms_layer == "pfas:no_regret_huidig"
+    # no_regret_zones is a STYLE of pfas:no_regret_huidig, not a WMS layer of its own; on the
+    # workspace service the layer goes by its own name
+    assert entry.wms_url == "https://www.dov.vlaanderen.be/geoserver/pfas/wms"
+    assert entry.wms_layer == "no_regret_huidig"
     assert entry.wfs_typename == "pfas:no_regret_huidig"
 
 
@@ -157,3 +176,118 @@ def test_a_catalogue_entry_without_label_tables_still_reads_like_a_mapping():
     entry = c.by_id("grb")
     assert entry.value_labels == {} and entry.field_labels == {}
     assert entry.value_labels.get("x", {}).get("y") is None
+
+
+def test_the_gxg_map_names_the_real_layer_and_carries_the_style():
+    # gxg:gxg is a STYLE of gxg:ghg_mmv_main, not a layer of its own: a GetMap on gxg:gxg answers
+    # with a ServiceException, exactly like pfas:no_regret_zones (both verified live 2026-09-15).
+    entry = c.by_id("gxg_ghg")
+    assert entry.wms_url == "https://www.dov.vlaanderen.be/geoserver/gxg/wms"
+    assert entry.wms_layer == "ghg_mmv_main"
+    assert entry.wms_style == "gxg:gxg"
+
+
+def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
+    # GxG is a pair: the mean highest (GHG) and the mean lowest (GLG) groundwater level. One map
+    # titled "GxG" hides which of the two the reader is looking at, so each gets its own entry and
+    # its own page. Both draw with the same named style (live GetMap 2026-09-15: gxg:glg_mmv_main
+    # + gxg:gxg -> HTTP 200 image/png).
+    ghg, glg = c.by_id("gxg_ghg"), c.by_id("gxg_glg")
+    assert ghg.title == "Gemiddeld hoogste grondwaterstand (GHG)"
+    assert glg.title == "Gemiddeld laagste grondwaterstand (GLG)"
+    assert glg.wms_layer == "glg_mmv_main"
+    assert glg.wms_style == "gxg:gxg"
+    assert glg.chapter == ghg.chapter == "geologie"
+    assert glg.attribution == ghg.attribution and glg.licence == ghg.licence
+    assert glg.legend is True and glg.scale == 25000
+    # they stay neighbours, so the report shows the highest and the lowest level side by side
+    ids = [e.id for e in c.entries("geologie")]
+    assert ids.index("gxg_glg") == ids.index("gxg_ghg") + 1
+
+
+def test_a_map_without_an_explicit_style_asks_the_service_for_its_default():
+    # An empty styles parameter means "the layer default"; only maps whose wanted rendering is a
+    # named style fill wms_style in.
+    assert c.by_id("grb").wms_style == ""
+    assert [e.id for e in c.entries() if e.wms_style] == ["gxg_ghg", "gxg_glg"]
+
+
+def test_a_map_id_says_which_of_the_two_gxg_levels_it_is():
+    # "gxg" alone names the pair, not a map: with GHG and GLG side by side, an id that could mean
+    # either is the one thing a reader of the report tree cannot resolve.
+    with pytest.raises(KeyError):
+        c.by_id("gxg")
+    assert {"gxg_ghg", "gxg_glg"} <= {e.id for e in c.entries("geologie")}
+
+
+def test_every_map_carries_legend_options_for_the_legend_image():
+    # The legend is fetched as a picture (GetLegendGraphic). Without LEGEND_OPTIONS GeoServer
+    # answers with one endless column of classes - a strip no page can hold - so every entry
+    # carries a column layout and a readable font size.
+    for entry in c.CATALOGUE:
+        assert "columns:" in entry.legend_options, entry.id
+        assert "fontSize:" in entry.legend_options, entry.id
+
+
+def test_the_soil_map_has_no_legend_page():
+    # The soil map legend lists every soil series in Flanders (hundreds of classes): on paper it
+    # is unreadable and pages long. The fact table names the soil types inside the zone, which is
+    # what the reader actually needs.
+    soil = c.by_id("bodemkaart")
+    assert soil.legend is False
+    assert soil.fact_mode == "wfs" and soil.fact_fields
+
+
+def test_the_maps_with_a_degenerate_legend_have_no_legend_page():
+    # HCOV 0100 and the composite quartair map answer GetLegendGraphic with a 20x20 stamp that
+    # names nothing: a blank page with a coloured square on it. Their fact tables carry the units
+    # in the zone, so the page is dropped rather than printed empty.
+    for map_id in ("hcov", "quartair"):
+        entry = c.by_id(map_id)
+        assert entry.legend is False, map_id
+        assert entry.fact_mode == "wfs" and entry.fact_fields, map_id
+
+
+def test_the_height_model_has_no_legend_page():
+    # The DHMV legend is a colour ramp of 27 x 18 mm with two numbers on it (300 to -50). A whole
+    # sheet for that is a sheet the reader turns past; what the colours mean - height in mTAW -
+    # belongs in a sentence, not on a page of its own.
+    assert c.by_id("dhmv_dtm").legend is False
+
+
+GUIDED_MAPS = ("bodemkaart", "quartair", "quartair_200k", "tertiair", "dhmv_dtm", "gw_kwetsbaarheid",
+               "watertoets_pluviaal", "watertoets_fluviaal", "erosie", "krimp_zwel", "pfas_no_regret",
+               "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "hcov")
+
+
+def test_the_maps_whose_codes_need_explaining_carry_a_reading_guide():
+    # "OB", "22026", "GeVl", "Dc": every one of these is unreadable without a sentence telling the
+    # reader how the code is built. The guide is short on purpose - three to five sentences - and
+    # names its own source, so a reader who wants the whole legend can go there.
+    for map_id in GUIDED_MAPS:
+        guide = c.by_id(map_id).reading_guide
+        assert guide, map_id
+        sentences = guide.count(". ") + 1  # de laatste zin sluit op een punt of op een URL
+        assert 3 <= sentences <= 5, f"{map_id}: {sentences} zinnen"
+
+
+def test_a_reading_guide_that_names_a_legend_names_a_dov_page():
+    # The three maps whose legend runs to hundreds of classes point at the official page instead of
+    # repeating it; the others explain their handful of classes in the guide itself.
+    for map_id in ("bodemkaart", "quartair", "quartair_200k", "tertiair"):
+        assert "https://www.dov.vlaanderen.be/page/" in c.by_id(map_id).reading_guide, map_id
+
+
+def test_a_map_without_a_guide_simply_has_none():
+    # Ferraris needs no reading guide: it is a picture, not a coded map.
+    assert c.by_id("ferraris").reading_guide == ""
+
+
+def test_the_legend_options_ask_for_a_readable_font_and_two_columns():
+    # Four columns of 7 pt is what fits a screen, not what a reader can follow on paper: the class
+    # names run into each other and the swatches are the size of a full stop. Two columns of 9 pt
+    # with forceLabels (GeoServer otherwise drops the label of a single-class layer) make a legend
+    # that is taller - and taller is exactly what the page-high strips are for.
+    assert c.MapEntry.legend_options == "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
+    for entry in c.CATALOGUE:
+        assert "fontSize:9" in entry.legend_options, entry.id

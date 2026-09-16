@@ -17,4 +17,7 @@ jobs:
           cache: pip  # keyed on pyproject.toml, which is where the dev extra lives
       - run: pip install -e '.[dev]'  # quoted: zsh and some shells glob the brackets
       - run: ruff check .
-      - run: pytest tests/core -q  # live tests stay deselected by the addopts in pyproject.toml
+      # Heel `tests`, niet alleen `tests/core`: `tests/scripts` pint de versiegelijkheid en de
+      # inhoud van de plugin-zip, en die liep hier nooit. `tests/qgis` slaat zichzelf over in een
+      # gewone venv (importorskip in de conftest) en draait in ci-qgis.yml.
+      - run: pytest tests -q  # live tests stay deselected by the addopts in pyproject.toml

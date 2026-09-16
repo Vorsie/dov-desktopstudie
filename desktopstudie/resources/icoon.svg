@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Icoon van de plugin: een rapportblad met daarop een boorkolom van drie lagen en een
+     zoekcirkel. Zonder tekstelement, want een <text> hangt af van een lettertype dat op de
+     machine van de gebruiker kan ontbreken. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- het blad -->
+  <path d="M 14 4 H 40 L 52 16 V 60 H 14 Z" fill="#ffffff" stroke="#1f3a5f" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M 40 4 V 16 H 52" fill="none" stroke="#1f3a5f" stroke-width="3" stroke-linejoin="round"/>
+  <!-- de boorkolom: aanvulling, zand, klei -->
+  <rect x="22" y="24" width="10" height="8" fill="#c9a86a" stroke="#1f3a5f" stroke-width="2"/>
+  <rect x="22" y="32" width="10" height="10" fill="#f2d16b" stroke="#1f3a5f" stroke-width="2"/>
+  <rect x="22" y="42" width="10" height="10" fill="#8aa9c9" stroke="#1f3a5f" stroke-width="2"/>
+  <!-- de zoekcirkel rond het punt -->
+  <circle cx="42" cy="40" r="8" fill="none" stroke="#c0392b" stroke-width="2.5" stroke-dasharray="3 2"/>
+  <circle cx="42" cy="40" r="2.5" fill="#c0392b"/>
+</svg>

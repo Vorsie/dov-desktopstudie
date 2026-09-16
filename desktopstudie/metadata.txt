@@ -1,0 +1,17 @@
+[general]
+name=DOV Desktopstudie
+qgisMinimumVersion=3.34
+supportsQt6=True
+description=Geotechnische desktopstudie uit open data van DOV en geopunt (Vlaanderen): QGIS-project met lagen en PDF-rapport.
+version=0.1.0
+author=Robin Vorsselmans
+email=robinvorsselmans1@hotmail.com
+about=Adres, coordinaat of polygoon in; ligging, historische kaarten, geologie, virtuele boring, DOV-grondonderzoek, doorsnede en aandachtspunten uit.
+tracker=https://github.com/Vorsie/dov-desktopstudie/issues
+repository=https://github.com/Vorsie/dov-desktopstudie
+homepage=https://github.com/Vorsie/dov-desktopstudie
+icon=resources/icoon.svg
+experimental=True
+hasProcessingProvider=no
+tags=dov,geopunt,geotechniek,desktopstudie,vlaanderen
+category=Plugins

@@ -19,15 +19,98 @@ from ..logging_util import Log
 USER_AGENT = "dov-desktopstudie/0.1 (+https://github.com/Vorsie/dov-desktopstudie)"
 
 CACHE_MODES = ("use", "refresh", "off")
+# Where a study keeps its machine-readable products, and the disk cache inside it. Both names live
+# here because the cache path is part of what a study's client promises, and three callers - the
+# pipeline, the legend fetcher and `run_core.py` - each used to spell the same two folders out.
+DATA_DIR = "data"
+CACHE_DIR = "cache"
 RETRYABLE_STATUSES = (408, 429)
+# The longest path the sources table can print whole. A URL carries no spaces, so the table has
+# nothing to wrap on and cuts it off mid-word instead: the watertoets service (125 characters)
+# ends on the sheet as "...overstromingsgev", which is the address of nothing.
+# Sixty, measured rather than guessed: the URL column of the sources table gets 80,4 mm
+# (`layout.column_widths` over the real provenance of the Gent study, 2026-09-16), and a folded
+# URL of 67 characters asks 83,5 mm - which is how "...22010_png" came out as "...22010_pn". Sixty
+# leaves room for the day a source name grows and squeezes the column further.
+MAX_PATH_CHARS = 60
+# Where a folded segment may start: the tail is cut back to one of these, so a name never begins
+# halfway through a word ("OV_Quartair_..." reads like a typo, "Quartair_..." reads like a name).
+SEGMENT_BOUNDARIES = "._-"
+ELIDED = "..."
+
+
+def cache_dir_for(out_dir) -> Path:
+    """The disk cache of one study: `<out>/data/cache`, next to the other data it writes."""
+    return Path(out_dir) / DATA_DIR / CACHE_DIR
+
+
+def study_client(out_dir, log: Optional[Log] = None, cache_mode: str = "use",
+                 cache_dir=None) -> HttpClient:
+    """The HTTP client for one study: one disk cache, so a second phase re-uses what the first
+    already fetched and a re-run costs nothing.
+
+    The cache sits in `cache_dir` when given - the plugin puts it next to its run folders, shared
+    by every run under the same output folder, because a run folder is fresh every time - and
+    inside the output directory otherwise (the headless script keeps one folder per study).
+    """
+    return HttpClient(cache_dir=Path(cache_dir) if cache_dir else cache_dir_for(out_dir),
+                      log=log.child("http") if log else None, cache_mode=cache_mode)
+
+
+def _tail_of(segment: str, budget: int) -> str:
+    """The last `budget` characters of `segment`, moved forward to the next word boundary.
+
+    Cutting a name at an arbitrary character produces a word that no longer looks like anything;
+    cutting at a "." or "_" produces the file name a reader recognises.
+    """
+    if len(segment) <= budget:
+        return segment
+    tail = segment[-budget:]
+    for index, char in enumerate(tail):
+        if char in SEGMENT_BOUNDARIES and index + 1 < len(tail):
+            return tail[index + 1:]
+    return tail
+
+
+def _short_path(base: str) -> str:
+    """The service plus the last path segment, when the whole path is too long to print.
+
+    Which segment to keep is the question, and for every long path in this project the last one is
+    the answer: `.../doorprik/g3dv3_F` names the model, `.../MapServer/WMSServer` names the kind of
+    service, `...Quartair_50000_22010_png` names the drawing. What the fold costs - pluviaal
+    against fluviaal in the watertoets URL - stands in the source column beside it, and the whole
+    URL stays in `Provenance.url` and `HttpError.url`.
+
+    The result fits MAX_PATH_CHARS. Folding to something that STILL does not fit is no fold at all:
+    the sources table has no spaces to break on and clips whatever is too wide, which is the very
+    thing this function exists to prevent.
+    """
+    if len(base) <= MAX_PATH_CHARS:
+        return base
+    parts = urllib.parse.urlsplit(base)
+    segments = [segment for segment in parts.path.split("/") if segment]
+    if not segments:
+        return base[:MAX_PATH_CHARS]  # nothing but a host: there is no path to fold away
+    host = f"{parts.scheme}://{parts.netloc}"
+    budget = MAX_PATH_CHARS - len(host) - len(ELIDED) - 1  # the "/" or the "" in front of the tail
+    if budget <= 0:
+        return base[:MAX_PATH_CHARS]  # a host this long leaves no room for anything else
+    last = segments[-1]
+    if len(segments) < 2 and len(last) <= budget:
+        return base  # host plus one short segment is already the whole address
+    tail = _tail_of(last, budget)
+    joiner = "/" if tail == last else ""  # a cut tail carries the ellipsis straight in front of it
+    return f"{host}/{ELIDED}{joiner}{tail}"
 
 
 def short_url(url: str) -> str:
     """The URL without its query string, plus the WFS request and typeNames when it carries them.
     A DOV GetFeature URL holds the whole CQL polygon: repeating that in every log line and in every
     provenance message buries the failure itself, while the bare path alone would no longer say
-    WHICH layer failed. `HttpError.url` keeps the full URL for whoever has to retry it."""
+    WHICH layer failed. A path too long for a table column is folded to host + last segment by
+    `_short_path`. `HttpError.url` keeps the full URL for whoever has to retry it."""
     base, _, query = url.partition("?")
+    base = _short_path(base)
     values = urllib.parse.parse_qs(query)
     lowered = {key.lower(): vals[0] for key, vals in values.items() if vals}
     named = [lowered[key] for key in ("request", "typenames") if lowered.get(key)]
@@ -95,31 +178,72 @@ class HttpClient:
             return None
         return self.cache_dir / (hashlib.sha1(full_url.encode("utf-8")).hexdigest() + ".bin")
 
-    @staticmethod
-    def _atomic_write(path: Path, data: bytes) -> None:
+    def _atomic_write(self, path: Path, data: bytes) -> None:
         """Write via a pid+thread-scoped temp file and os.replace so concurrent writers never see
-        a half-written cache entry; a failed cache write must never fail the request itself."""
+        a half-written cache entry; a failed cache write must never fail the request itself.
+
+        It is logged, though. A full disk or a read-only output folder turns every later run into
+        a full download without a word about why, and "it is suddenly slow again" is not a thing
+        anyone can debug from silence.
+        """
         tmp = path.with_name(path.name + f".{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             tmp.write_bytes(data)
             os.replace(tmp, path)
-        except OSError:
-            pass
+        except OSError as exc:
+            if self.log:
+                self.log.warning(f"antwoord niet bewaard in de cache ({path.name}): {exc}")
 
     def _retryable(self, exc: HttpError) -> bool:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
-    def get(self, url: str, params: Optional[Dict[str, Any]] = None) -> bytes:
+    def forget(self, url: str, params: Optional[Dict[str, Any]] = None) -> bool:
+        """Gooi het bewaarde antwoord voor deze URL weg; `True` als er iets weg was.
+
+        De cache kan niet zien dat een antwoord verkeerd is - HTTP 200 is HTTP 200 - maar de beller
+        soms wel: een webpagina waar een PNG hoorde te staan bijvoorbeeld. Zonder dit zou die pagina
+        er bij elke volgende run zonder netwerk weer uitkomen en dezelfde fout opleveren.
+        """
+        path = self._cache_path(build_url(url, params))
+        if not path or not path.exists():
+            return False
+        try:
+            path.unlink()
+        except OSError:  # een cache die niet wil wijken mag de studie niet breken
+            return False
+        return True
+
+    def get(self, url: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
+            retries: Optional[int] = None, cache_mode: Optional[str] = None) -> bytes:
+        """Fetch one URL, through the disk cache when there is one.
+
+        `timeout`, `retries` and `cache_mode` override the client's own settings for this call
+        alone. One fiche out of a hundred deserves a short breath - waiting a full minute three
+        times over for a record that is down costs the whole study its time - while the WFS call
+        that fills a whole table keeps the patient defaults. `cache_mode="refresh"` is for the
+        caller who can SEE that the answer is wrong: a service that returns its own web page with
+        HTTP 200 instead of the file puts that page in the cache, and without a way past it every
+        later run would serve the same rubbish from disk.
+        """
         full = build_url(url, params)
+        timeout = self.timeout if timeout is None else timeout
+        retries = self.retries if retries is None else max(0, retries)
+        cache_mode = self.cache_mode if cache_mode is None else cache_mode
+        if cache_mode not in CACHE_MODES:
+            raise ValueError(f"unknown cache_mode {cache_mode!r}; use one of {CACHE_MODES}")
+        if self.cache_mode == "off":
+            # "off" is the decision of whoever built the client - a run that must leave no trace on
+            # disk. A single call may step PAST the cache, never switch it on.
+            cache_mode = "off"
         cached = self._cache_path(full)
-        if cached and self.cache_mode == "use" and cached.exists():
+        if cached and cache_mode == "use" and cached.exists():
             return cached.read_bytes()
         last: Optional[HttpError] = None
         attempt = 0
-        for attempt in range(self.retries + 1):
+        for attempt in range(retries + 1):
             try:
-                data = self._fetch(full, self.timeout, self.user_agent)
-                if cached and self.cache_mode != "off":
+                data = self._fetch(full, timeout, self.user_agent)
+                if cached and cache_mode != "off":
                     self._atomic_write(cached, data)
                     self._atomic_write(cached.with_suffix(".url"), full.encode("utf-8"))
                 return data
@@ -127,9 +251,9 @@ class HttpClient:
                 last = exc
                 if not self._retryable(exc):
                     raise
-                if attempt < self.retries:
+                if attempt < retries:
                     if self.log:
-                        self.log.debug(f"retry {attempt + 1}/{self.retries} na {exc.status or 'netwerkfout'} "
+                        self.log.debug(f"retry {attempt + 1}/{retries} na {exc.status or 'netwerkfout'} "
                                         f"voor {full}")
                     self._sleep(self.backoff_s * (attempt + 1))
         if last is not None:

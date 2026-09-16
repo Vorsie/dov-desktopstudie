@@ -13,43 +13,25 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from desktopstudie.core import geometry, study  # noqa: E402
+from desktopstudie.core import study  # noqa: E402
 from desktopstudie.core.logging_util import Log  # noqa: E402
-from desktopstudie.core.model import StudyZone  # noqa: E402
 from desktopstudie.core.report_content import ReportMeta, build_report  # noqa: E402
-from desktopstudie.core.services.geocoder import geocode  # noqa: E402
-from desktopstudie.core.services.http import CACHE_MODES, HttpClient  # noqa: E402
+from desktopstudie.core.services.http import study_client  # noqa: E402
+from scripts import _cli  # noqa: E402
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Desktopstudie-kern zonder QGIS: data, figuren en JSON.")
-    ap.add_argument("--adres", help="adres om te geocoderen; anders --x/--y")
-    ap.add_argument("--x", type=float, help="X in Lambert 72 (EPSG:31370)")
-    ap.add_argument("--y", type=float, help="Y in Lambert 72 (EPSG:31370)")
-    ap.add_argument("--buffer", type=float, default=50.0, help="straal van de zonecirkel rond het punt (m)")
-    ap.add_argument("--straal", type=float, default=500.0, help="zoekstraal voor sonderingen/boringen/peilputten (m)")
-    ap.add_argument("--cache", choices=CACHE_MODES, default="use",
-                    help="use: schijfcache gebruiken; refresh: opnieuw ophalen en cache bijwerken; off: geen cache")
-    ap.add_argument("--out", required=True, help="uitvoermap (krijgt data/ en figuren/)")
+    ap = _cli.add_location_args(
+        argparse.ArgumentParser(description="Desktopstudie-kern zonder QGIS: data, figuren en JSON."))
     args = ap.parse_args()
-    if args.adres and (args.x is not None or args.y is not None):
-        ap.error("geef --adres OF --x/--y, niet allebei")
-    if not args.adres and (args.x is None or args.y is None):
-        ap.error("geef --adres of zowel --x als --y")
+    _cli.check_location(ap, args)
     out = Path(args.out)
     log = Log("run_core", sink=print)
-    client = HttpClient(cache_dir=out / "data" / "cache", cache_mode=args.cache, log=log.child("http"))
-    address = None
-    if args.adres:
-        hits = geocode(client, args.adres, log=log.child("geocoder"))
-        if not hits:
-            log.error(f"adres niet gevonden: {args.adres}")
-            return 2
-        x, y, address = hits[0].x, hits[0].y, hits[0].address
-    else:
-        x, y = args.x, args.y
-    zone = StudyZone(ring=geometry.buffer_point(x, y, args.buffer), name=address or f"{x:.0f}/{y:.0f}",
-                     radius_m=args.straal, address=address)
+    client = study_client(out, log, args.cache)
+    located = _cli.locate(args, client, log)
+    if located is None:
+        return 2
+    zone = _cli.zone_of(args, *located)
     result = study.run(zone, study.Settings(radius_m=args.straal), client, out,
                        progress=lambda f, m: print(f"{f:5.0%} {m}"), log=log.child("study"))
     report = build_report(result, ReportMeta(project=zone.name, author="run_core", company="-"))

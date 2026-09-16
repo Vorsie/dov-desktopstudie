@@ -120,6 +120,25 @@ def test_cache_mode_off_never_writes_a_file(tmp_path):
     assert list(tmp_path.glob("*.bin")) == []
 
 
+def test_a_cache_write_that_fails_is_logged_not_swallowed(tmp_path, monkeypatch):
+    """Log wat NIET gelukt is. Een volle schijf of een uitvoermap zonder schrijfrecht maakt van
+    elke volgende run weer een volledige download; zonder een regel is "het is ineens weer traag"
+    niet te verklaren. Het antwoord zelf komt gewoon terug - een cache is geen voorwaarde."""
+    from desktopstudie.core.logging_util import Log
+
+    def full_disk(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(http.os, "replace", full_disk)
+    lines = []
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda url, timeout, agent: b"payload",
+                             log=Log("http", lines.append))
+
+    assert client.get("https://x.be/a") == b"payload"
+
+    assert any("WARNING" in line and "cache" in line for line in lines), lines
+
+
 def test_unknown_cache_mode_raises_value_error():
     with pytest.raises(ValueError):
         http.HttpClient(cache_mode="bogus")
@@ -235,3 +254,173 @@ def test_cache_mode_off_does_not_create_the_cache_directory(tmp_path):
     client = http.HttpClient(cache_dir=cache, fetch=fetch, cache_mode="off")
     client.get_json("https://x.be/a")
     assert not cache.exists()  # caching off means no trace on disk at all
+
+
+def test_a_single_call_may_shorten_the_timeout_and_the_retries():
+    """Een fiche is één item van honderd: daar hoort een korte adem bij, terwijl de WFS-oproep die
+    de hele tabel levert de volle tijd krijgt. Beide uit dezelfde client, dus per oproep."""
+    seen = []
+
+    def fetch(url, timeout, user_agent):
+        seen.append(timeout)
+        raise http.HttpError(url, 503, "busy")
+
+    client = http.HttpClient(fetch=fetch, timeout=60.0, retries=2, sleep=lambda s: None)
+
+    with pytest.raises(http.HttpError):
+        client.get("https://x.be/fiche.xml", timeout=15.0, retries=1)
+
+    assert seen == [15.0, 15.0]  # één poging plus één herkansing, allebei met de korte timeout
+
+
+def test_without_overrides_a_call_keeps_the_clients_own_settings():
+    seen = []
+
+    def fetch(url, timeout, user_agent):
+        seen.append(timeout)
+        return b"ok"
+
+    client = http.HttpClient(fetch=fetch, timeout=42.0, retries=2, sleep=lambda s: None)
+
+    assert client.get("https://x.be/a") == b"ok"
+    assert seen == [42.0]
+
+
+DOORPRIK_URL = ("https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/"
+                "doorprik/g3dv3_F")
+WATERINFO_URL = ("https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
+                 "overstromingsgevoelige_gebieden_pluviaal/MapServer/WMSServer")
+
+
+def test_a_path_too_long_for_a_table_column_keeps_its_host_and_its_last_segment():
+    """De bronnentabel kapt af wat niet in haar kolom past, en een URL heeft geen spaties om op te
+    breken: de watertoets-URL van 125 tekens eindigt op het blad als "...overstromingsgev" - midden
+    in een woord, en dus onbruikbaar. Een WFS-URL past wel en blijft zoals ze is; een pad dat niet
+    past, wordt teruggebracht tot de dienst en het laatste stuk, want dat is wat de lezer nog kan
+    thuisbrengen."""
+    assert http.short_url(DOORPRIK_URL) == "https://services.dov.vlaanderen.be/.../g3dv3_F"
+    assert http.short_url(WATERINFO_URL) == "https://inspirepub.waterinfo.be/.../WMSServer"
+    assert http.short_url("https://www.dov.vlaanderen.be/geoserver/wfs") == \
+        "https://www.dov.vlaanderen.be/geoserver/wfs"
+
+
+def test_a_shortened_path_still_names_the_request_it_carried():
+    """Het inkorten van het pad mag de dienstnaam niet opeten: de legenda-URL van de watertoets is
+    lang EN draagt een REQUEST, en zonder dat achtervoegsel staan er twee identieke regels in de
+    bronnentabel."""
+    assert http.short_url(WATERINFO_URL + "?SERVICE=WMS&REQUEST=GetLegendGraphic") == \
+        "https://inspirepub.waterinfo.be/.../WMSServer (GetLegendGraphic)"
+
+
+QUARTAIR_DRAWING = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
+                    "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_22010_png")
+
+
+def test_one_endless_path_segment_keeps_its_tail():
+    """De legenda-URL van een quartairprofieltype is één segment van honderd tekens: er valt geen
+    map weg te laten. Wat de lezer eraan heeft staat achteraan - de bestandsnaam met het
+    profieltype erin - dus dat stuk blijft staan."""
+    short = http.short_url(QUARTAIR_DRAWING)
+
+    assert short.startswith("https://datasets.omgeving.vlaanderen.be/...")
+    assert short.endswith("_22010_png")
+    assert len(short) < len(QUARTAIR_DRAWING) - 30
+
+
+def test_a_single_call_may_step_past_the_cache(tmp_path):
+    """Een dienst die met HTTP 200 haar eigen webpagina teruggeeft in plaats van het bestand, zet
+    die pagina in de schijfcache - en dan levert elke volgende run diezelfde pagina. De oproeper
+    die dat merkt, moet één keer langs de cache heen kunnen vragen zonder de hele client om te
+    zetten."""
+    answers = [b"<html>geen bestand</html>", b"\x89PNG\r\n\x1a\nhet echte bestand"]
+
+    def fetch(url, timeout, user_agent):
+        return answers.pop(0)
+
+    client = http.HttpClient(cache_dir=tmp_path, fetch=fetch, cache_mode="use")
+
+    assert client.get("https://x.be/tekening.png") == b"<html>geen bestand</html>"
+    assert client.get("https://x.be/tekening.png") == b"<html>geen bestand</html>", "uit de cache"
+    fresh = client.get("https://x.be/tekening.png", cache_mode="refresh")
+
+    assert fresh.startswith(b"\x89PNG")
+    assert client.get("https://x.be/tekening.png").startswith(b"\x89PNG"), "de cache is bijgewerkt"
+
+
+def test_an_unknown_cache_mode_on_a_call_raises_value_error(tmp_path):
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda u, t, a: b"x")
+
+    with pytest.raises(ValueError):
+        client.get("https://x.be/a", cache_mode="sometimes")
+
+
+def test_no_word_in_a_short_url_is_wider_than_a_table_column():
+    """Inkorten is pas inkorten als het resultaat ook past. De gevouwen downloadlink was nog 75
+    tekens en werd op het bronnenblad alsnog midden in een woord afgekapt; hij hoort op een
+    scheiding ("." of "_") te breken tot hij binnen MAX_PATH_CHARS valt. De haakjes achter een
+    WFS-URL tellen niet mee: daar zitten spaties in, dus die breekt de tabel zelf."""
+    short = http.short_url(QUARTAIR_DRAWING)
+
+    # 80,4 mm is wat de URL-kolom van de bronnentabel krijgt, en die 67 tekens vroegen er 83,5 -
+    # vandaar dat het blad "..._22010_pn" toonde. Gemeten met `layout.column_widths` op de echte
+    # bronnenlijst van de voorbeeldstudie (2026-09-16).
+    assert len(short) <= http.MAX_PATH_CHARS, short
+    assert http.MAX_PATH_CHARS <= 64, "meer dan dit past niet in de kolom"
+    assert short.endswith("_22010_png") and "22010" in short, short
+    assert "..." in short
+    # en voor elke andere lange URL geldt hetzelfde: geen woord breder dan de kolom
+    for url in (DOORPRIK_URL, WATERINFO_URL, QUARTAIR_DRAWING,
+                "https://x.be/" + "a" * 300, "https://y.be/een/twee/" + "b" * 200):
+        assert max(len(word) for word in http.short_url(url).split()) <= http.MAX_PATH_CHARS, url
+
+
+def test_a_short_url_keeps_the_request_it_carried_even_when_it_folds():
+    """De haakjes zeggen WELKE bevraging het was; die mogen niet sneuvelen bij het inkorten."""
+    folded = http.short_url(WATERINFO_URL + "?SERVICE=WMS&REQUEST=GetLegendGraphic")
+
+    assert folded.endswith("(GetLegendGraphic)")
+    assert folded.startswith("https://inspirepub.waterinfo.be/...")
+
+
+def test_a_url_without_a_path_is_left_alone():
+    """Er valt niets te vouwen aan een host zonder pad."""
+    assert http.short_url("https://www.dov.vlaanderen.be") == "https://www.dov.vlaanderen.be"
+
+
+def test_off_is_off_also_for_a_call_that_asks_to_refresh(tmp_path):
+    """Een client die met cache_mode "off" is gebouwd, schrijft niet naar schijf - ook niet als een
+    oproep om een verse ophaling vraagt. "off" is de keuze van wie de client maakte; een oproep mag
+    de cache overslaan, niet aanzetten."""
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda u, t, a: b"\x89PNGdata", cache_mode="off")
+
+    assert client.get("https://x.be/tekening.png", cache_mode="refresh") == b"\x89PNGdata"
+
+    assert list(tmp_path.glob("*.bin")) == [], "off is off"
+
+PNG = bytes.fromhex("89504e470d0a1a0a")  # de magie van een PNG, voor de proef hierna
+
+
+def test_an_answer_the_caller_rejects_does_not_stay_in_the_cache(tmp_path):
+    """Wie ziet dat een antwoord verkeerd is, mag het uit de cache halen.
+
+    Een webpagina die op een bestands-URL binnenkomt hoort niet op schijf te blijven staan: elke
+    volgende run zou ze dan zonder netwerk terugkrijgen en dezelfde fout maken.
+    """
+    answers = [b"<!DOCTYPE html>een webpagina", PNG + b"het echte bestand"]
+
+    def fetch(url, timeout, user_agent):
+        return answers.pop(0)
+
+    client = http.HttpClient(cache_dir=tmp_path, fetch=fetch)
+    assert client.get("https://x.be/tekening_png").startswith(b"<!DOCTYPE")
+    assert list(tmp_path.glob("*.bin"))
+
+    assert client.forget("https://x.be/tekening_png") is True
+    assert not list(tmp_path.glob("*.bin"))
+    assert client.get("https://x.be/tekening_png").startswith(PNG)
+
+
+def test_forgetting_something_that_was_never_cached_is_no_error(tmp_path):
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda url, timeout, user_agent: b"x")
+
+    assert client.forget("https://x.be/nooit-opgehaald") is False

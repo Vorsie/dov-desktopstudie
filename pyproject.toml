@@ -22,6 +22,7 @@ include = ["desktopstudie*"]
 testpaths = ["tests"]
 markers = [
     "live: raakt de echte DOV/geopunt-services (standaard overgeslagen)",
+    "slow: duurt meer dan 20 seconden (een heel rapport renderen); wel standaard geselecteerd",
 ]
 addopts = "-m 'not live'"
 

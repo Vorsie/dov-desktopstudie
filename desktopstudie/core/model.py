@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import json
 import pathlib
 from dataclasses import dataclass, field
@@ -40,6 +41,30 @@ class StudyZone:
     @property
     def representative_point(self) -> Point:
         return geometry.representative_point(self.ring)
+
+    @classmethod
+    def around_point(cls, x: float, y: float, buffer_m: float, radius_m: float,
+                     address: Optional[str] = None) -> StudyZone:
+        """The circular zone of `buffer_m` around a point, named after the address when there is
+        one and after the coordinate otherwise. The one constructor behind the plugin's address and
+        X/Y modes and the scripts' --adres and --x/--y."""
+        return cls(ring=geometry.buffer_point(x, y, buffer_m), name=address or point_name(x, y),
+                   radius_m=radius_m, address=address)
+
+
+def point_name(x: float, y: float) -> str:
+    """A coordinate as a name, to the metre: "104326/192506"."""
+    return f"{x:.0f}/{y:.0f}"
+
+
+def now_iso() -> str:
+    """The moment a source was consulted, to the second, with the local offset.
+
+    One spelling for the whole project: the orchestrator stamps its own sources with it and the
+    shell stamps the ones only it can reach (the DTM, the WMS layers, the legends), and a report
+    must not mix two notations of the same clock.
+    """
+    return dt.datetime.now().astimezone().replace(microsecond=0).isoformat()
 
 
 @dataclass
@@ -233,6 +258,11 @@ class StudyResult:
     provenance: List[Provenance] = field(default_factory=list)
     figures: Dict[str, str] = field(default_factory=dict)
     relief: Optional[Tuple[float, float, float]] = None  # (min, max, mean) mTAW, filled by the shell
+    # Which catalogue maps this study covers, straight from the dialog's checklist; None means
+    # every enabled entry. It travels with the result rather than staying in the Settings because
+    # the shell reads it for its layers, legends and map images - and because a reader of
+    # studie.json has to be able to see which maps the study did NOT look at.
+    map_ids: Optional[List[str]] = None
 
     def summary(self) -> Dict[str, Any]:
         return {
