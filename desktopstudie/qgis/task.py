@@ -181,6 +181,16 @@ class StudyRunner(QObject):
         # without a bar rather than on a dead widget.
         self.iface.messageBar().widgetRemoved.connect(self._progress_item_removed)
 
+    def shutdown(self) -> None:
+        """Let go of the message bar. The bar belongs to QGIS and outlives the plugin, so a
+        connection left behind calls a slot of an unloaded plugin - which is what Plugin Reloader
+        does every time it reloads. Safe to call twice: a connection that is already gone is not
+        an error here, it is the goal."""
+        try:
+            self.iface.messageBar().widgetRemoved.disconnect(self._progress_item_removed)
+        except (TypeError, RuntimeError) as exc:  # not connected, or the bar itself is gone
+            self.log.debug(f"berichtenbalk al losgemaakt: {type(exc).__name__}")
+
     @property
     def running(self) -> bool:
         return self._request is not None
