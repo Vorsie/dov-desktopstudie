@@ -22,7 +22,7 @@ from pathlib import Path
 
 from qgis.core import QgsApplication, QgsProject, QgsSettings
 from qgis.PyQt.QtCore import QTimer
-from qgis.utils import iface, loadPlugin, plugins, startPlugin
+from qgis.utils import active_plugins, iface, loadPlugin, plugins, startPlugin
 
 PLUGIN = "desktopstudie"
 ADDRESS = "Kortrijksesteenweg 100 Gent"
@@ -100,11 +100,19 @@ def wait_for(condition, timeout_s: float, then, what: str) -> None:
 def step_enable():
     if STATUS.exists():
         STATUS.unlink()
-    if not loadPlugin(PLUGIN) or not startPlugin(PLUGIN):
-        fail("plugin laden of starten mislukt (staat de junction er?)")
+    # A profile that ran this before has the plugin enabled, and QGIS started it at launch;
+    # startPlugin() then answers False for "already active", which is not a failure.
+    if PLUGIN in active_plugins:
+        note("plugin was al actief in dit profiel")
+    elif not loadPlugin(PLUGIN):
+        fail("plugin laden mislukt (staat de junction er? zie het logpaneel voor de importfout)")
         return
+    elif not startPlugin(PLUGIN):
+        fail("plugin starten mislukt (zie het logpaneel)")
+        return
+    else:
+        note("plugin geladen en gestart")
     QgsSettings().setValue(f"PythonPlugins/{PLUGIN}", True)
-    note("plugin geladen en gestart")
     plugin = plugins[PLUGIN]
     plugin.run()
     dialog = plugin.dialog
