@@ -45,8 +45,10 @@ def test_wms_layer_passes_the_style_from_the_catalogue(qgs_app):
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import layers
 
-    assert "styles=gxg:gxg" in layers.wms_layer(catalogue.by_id("gxg_ghg")).source()
-    assert "layers=gxg:ghg_mmv_main" in layers.wms_layer(catalogue.by_id("gxg_ghg")).source()
+    ghg = layers.wms_layer(catalogue.by_id("gxg_ghg")).source()
+    assert "styles=gxg:gxg" in ghg
+    # the workspace service, on which the layer goes by its bare name
+    assert "layers=ghg_mmv_main&" in ghg and "url=https://www.dov.vlaanderen.be/geoserver/gxg/wms" in ghg
     assert "styles=&" in layers.wms_layer(catalogue.by_id("ferraris")).source()
 
 
