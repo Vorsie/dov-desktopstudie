@@ -386,6 +386,42 @@ def test_dismissing_the_progress_message_never_breaks_the_run(qgs_app, tmp_path,
     assert not any("ERROR" in line for line in lines), lines
 
 
+def test_a_failure_after_the_report_does_not_leave_the_user_without_a_message(qgs_app, tmp_path,
+                                                                             monkeypatch):
+    """Een fout na het rapport laat de gebruiker niet zonder bericht.
+
+    De PDF staat er, maar het zoomen of het melden valt om: het logpaneel is dan de enige plek
+    waar dat staat, en daar kijkt niemand uit zichzelf. De berichtenbalk hoort het te zeggen.
+    """
+    from qgis.core import Qgis
+
+    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis.task import StudyRunner
+
+    class _IfaceWithoutCanvas(FakeIface):
+        def mapCanvas(self):
+            raise RuntimeError("canvas weg")
+
+    request = _request(tmp_path)
+    result = _fake_result(request.zone)
+    pdf = tmp_path / "rapport.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(pipeline, "run_core", lambda *args, **kwargs: result)
+    monkeypatch.setattr(pipeline, "prepare", lambda *args, **kwargs: _fake_prepared())
+    monkeypatch.setattr(pipeline, "finish", lambda *args, **kwargs: _pipeline_result(result, pdf))
+    iface = _IfaceWithoutCanvas()
+    runner = StudyRunner(iface, _log([]))
+    done = []
+    runner.finished.connect(done.append)
+
+    runner.start(request)
+    _wait_until(lambda: done)
+
+    critical = [text for level, text, _item in iface.pushed if level == Qgis.MessageLevel.Critical]
+    assert critical, [(level, text) for level, text, _item in iface.pushed]
+    assert "canvas weg" in critical[-1]
+
+
 def test_a_failure_while_reporting_the_result_is_logged_and_finished_still_fires(qgs_app, tmp_path,
                                                                                 monkeypatch):
     """Zoomen of melden dat misgaat mag de dialoog niet in de wacht laten: de fout staat in het log,
