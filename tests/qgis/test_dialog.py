@@ -8,32 +8,7 @@ from pathlib import Path
 
 import pytest
 
-
-class _FakeIface:
-    def __init__(self):
-        from qgis.gui import QgsMapCanvas, QgsMessageBar
-
-        self.bar = QgsMessageBar()
-        self.canvas = QgsMapCanvas()
-        self.pushed = []
-        self.bar.widgetAdded.connect(self._record)
-
-    def _record(self, widget):
-        # An item the bar made itself (pushWarning) arrives as a bare QWidget; cast it back.
-        from qgis.gui import QgsMessageBarItem
-        from qgis.PyQt import sip
-
-        item = sip.cast(widget, QgsMessageBarItem)
-        self.pushed.append((item.level(), item.text()))
-
-    def messageBar(self):
-        return self.bar
-
-    def mapCanvas(self):
-        return self.canvas
-
-    def mainWindow(self):
-        return None
+from tests.qgis.conftest import FakeIface
 
 
 class _StubRunner:
@@ -66,7 +41,7 @@ def _dialog(tmp_path, runner=None):
     from desktopstudie.core.logging_util import Log
     from desktopstudie.qgis.dialog import StudyDialog
 
-    return StudyDialog(_FakeIface(), runner or _StubRunner(), log=Log("dialoog", lambda _m: None, scope="qgis"),
+    return StudyDialog(FakeIface(), runner or _StubRunner(), log=Log("dialoog", lambda _m: None, scope="qgis"),
                        settings=_settings(tmp_path))
 
 
@@ -164,7 +139,7 @@ def test_start_with_an_incomplete_form_warns_and_starts_nothing(qgs_app, tmp_pat
 
     assert runner.started == []
     assert dialog.start_button.isEnabled()
-    assert dialog.iface.pushed[-1] == (Qgis.MessageLevel.Warning, "Geef X en Y in Lambert 72 op.")
+    assert dialog.iface.pushed[-1][:2] == (Qgis.MessageLevel.Warning, "Geef X en Y in Lambert 72 op.")
 
 
 def test_start_hands_the_request_to_the_runner_and_saves_the_settings(qgs_app, tmp_path):
