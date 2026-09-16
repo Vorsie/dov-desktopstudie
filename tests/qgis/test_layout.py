@@ -489,7 +489,7 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
     blob = _png(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             asked.append((url, timeout, retries))
             return blob
 
@@ -563,7 +563,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     asked = []
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             asked.append((url, timeout, retries))
             if url.endswith("22098_png"):
                 raise HttpError(url, 500, "dienst plat")
@@ -601,7 +601,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
     images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
@@ -615,14 +615,38 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
     assert header.width() > header.height()
 
 
-def test_an_answer_that_is_no_image_is_not_saved_as_one(qgs_app, tmp_path, gent_zone):
-    """De legenda-URL's van DOV eindigen op "_png" maar zijn downloadlinks: een foutpagina komt met
-    HTTP 200 terug. Zo'n antwoord als PNG wegschrijven levert een figuurpagina met een leeg kader."""
+def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_path, gent_zone):
+    """De legenda-URL's van DOV zijn downloadlinks die soms met HTTP 200 de webpagina van de dienst
+    teruggeven in plaats van het bestand (live gezien op 2026-09-16). Die pagina als PNG
+    wegschrijven levert een figuurpagina met een leeg kader, en in de schijfcache zou ze elke
+    volgende run bederven - dus wordt er nog een keer gevraagd, langs de cache heen."""
+    from desktopstudie.core.report_content import profile_image_key
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    asked = []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            asked.append(cache_mode)
+            return b"<html><body>DSpace</body></html>" if len(asked) == 1 else blob
+
+    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+                                               _Client(cache_dir=None))
+
+    assert profile_image_key("22026") in images
+    assert asked == [None, "refresh"], "de herkansing hoort de cache over te slaan"
+
+
+def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path, gent_zone):
+    """Blijft de dienst haar webpagina geven, dan komt er geen bestand en geen figuurpagina - een
+    mislukte bron, geen leeg kader."""
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import layout
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return b"<html><body>Service unavailable</body></html>"
 
     images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
@@ -638,7 +662,7 @@ def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_
     from desktopstudie.qgis import layout
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
 
     assert layout.prepare_zone_legend_images(
