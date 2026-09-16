@@ -56,12 +56,12 @@ from ..core import catalogue, geometry, parallel
 from ..core.catalogue import MapEntry
 from ..core.model import StudyResult
 from ..core.report_content import (
-    NATURAL,
     QUARTAIR_CODE,
     QUARTAIR_ID,
     QUARTAIR_IMAGE,
     Chapter,
     FigurePage,
+    LegendPage,
     MapPage,
     Report,
     TablePage,
@@ -127,6 +127,13 @@ LEGEND_WORKERS = 4
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
+# The legend page stacks label + strip per entry. A strip is never given more than a fifth of the
+# band: it is a picture of three centimetres, and a page holding two of them blown up to a hand's
+# width each is a page that says less than it could.
+LEGEND_LABEL_H = 5.0
+LEGEND_GAP = 4.0
+LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
+MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
 ZONE_LEGEND_SHEET = "kaartblad_"
 HEADER_SUFFIX = "_kop"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -316,16 +323,13 @@ def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
     return width, rows * (line_h - 2 * margin) + 2 * margin
 
 
-def _figure_size(image_path, fit: str, max_w: float, max_h: float) -> Tuple[float, float]:
-    """How large a figure is drawn, in mm.
+def _natural_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
+    """The picture at its own pixel size (96 dpi logical pixels, as it was authored), capped.
 
-    "zoom" fills the band, which is what a CPT diagram or a section wants. "natural" is the picture
-    at its own pixel size (96 dpi logical pixels, as it was authored): a strip of three centimetres
-    stretched over a sheet is a blurred banner. Natural is a ceiling, never a promise - a drawing
-    wider than the paper is still fitted to it.
+    A strip of three centimetres stretched over a sheet is a blurred banner; its own size is what
+    it was drawn for. The cap is not negotiable, though - a drawing wider than the paper is still
+    fitted to it, aspect kept.
     """
-    if fit != NATURAL:
-        return _drawn_size(image_path, max_w, max_h)
     size = QImage(str(image_path)).size()
     if size.isEmpty():
         return max_w, max_h
@@ -466,6 +470,27 @@ def header_rows(image: QImage) -> int:
     return min(HEADER_FALLBACK_ROWS, image.height())
 
 
+def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
+    """The same drawing WITHOUT its profile-type header, as `quartair_kaartblad_<nn>.png`.
+
+    The units table underneath is valid for every profile type of the sheet. Left on, the header of
+    whichever type happened to be fetched first sits above it and the table reads as that one
+    type's. The source line under the table is part of the drawing and stays.
+    """
+    image = QImage(str(path))
+    if image.isNull():
+        if log:
+            log.warning(f"Profieltypetekening niet leesbaar: {path}")
+        return None
+    top = header_rows(image)
+    target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
+    if not image.copy(0, top, image.width(), image.height() - top).save(str(target)):
+        if log:
+            log.warning(f"Eenhedentabel niet weggeschreven: {target}")
+        return None
+    return target
+
+
 def crop_profile_header(path, log=None) -> Optional[Path]:
     """Cut the header strip off a profile-type drawing and save it beside it as `<name>_kop.png`.
 
@@ -530,9 +555,9 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
         sheet = quartair_sheet(code)
         key = sheet_image_key(sheet)
         if key not in images:
-            units = drawing.with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
-            units.write_bytes(drawing.read_bytes())
-            images[key] = units
+            units = crop_sheet_units(drawing, sheet, log)
+            if units is not None:
+                images[key] = units
     if log and targets:
         log.info(f"Profieltypetekeningen opgehaald: {len(drawings)}/{len(targets)}; "
                  f"{len(images)} bladen in het rapport")
@@ -825,6 +850,44 @@ class LayoutBuilder:
         if page.legend and self.legends:
             self.legend_pages(chapter, page)
 
+    def zone_legend_page(self, chapter: Chapter, page: LegendPage) -> None:
+        """Every class of one map on a sheet: a label per entry, its drawing under it.
+
+        The strips are what the reader looks at, so they are drawn at their own size rather than
+        stretched, and they follow one another down the sheet. When the next entry no longer fits,
+        the rest goes on a continuation sheet - a strip that runs off the paper helps nobody.
+        """
+        index = self.new_page()
+        self.header(chapter, page.title, index)
+        y = CONTENT_TOP
+        if page.note:
+            self.label(page.note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
+        for entry in page.entries:
+            image = self.out_dir / entry.image_path if entry.image_path else None
+            width, height = (_natural_size(image, CONTENT_W, LEGEND_STRIP_MAX_H)
+                             if image is not None else (0.0, 0.0))
+            needed = LEGEND_LABEL_H + height + LEGEND_GAP
+            if y + needed > CONTENT_TOP + CONTENT_H:
+                index = self.new_page()
+                self.header(chapter, f"{page.title} (vervolg)", index)
+                self.footer(index)
+                y = CONTENT_TOP
+            self.label(f"Profieltype {entry.code} - kaartblad {entry.sheet}", MARGIN, y, CONTENT_W,
+                       LEGEND_LABEL_H, index, size=9, bold=True)
+            y += LEGEND_LABEL_H
+            if image is None:
+                self.label(MISSING_DRAWING, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
+                y += LEGEND_LABEL_H + LEGEND_GAP
+                continue
+            picture = QgsLayoutItemPicture(self.layout)
+            picture.setPicturePath(str(image))
+            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
+            self.layout.addLayoutItem(picture)
+            picture.attemptMove(point_mm(MARGIN, y), page=index)
+            picture.attemptResize(size_mm(width, height))
+            y += height + LEGEND_GAP
+        self.footer(index)
+
     def legend_pages(self, chapter: Chapter, page: MapPage) -> None:
         """The legend of the preceding map page, on sheets of its own.
 
@@ -864,7 +927,7 @@ class LayoutBuilder:
         metrics = _page_metrics(LANDSCAPE if size.width() > size.height() else PORTRAIT)
         index = self.new_page(metrics.orientation)
         self.header(chapter, page.title, index, metrics)
-        width, height = _figure_size(image, page.fit, metrics.content_w, metrics.content_h - 12.0)
+        width, height = _drawn_size(image, metrics.content_w, metrics.content_h - 12.0)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
         picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
@@ -1003,6 +1066,8 @@ class LayoutBuilder:
                     self.map_page(chapter, page)
                 elif isinstance(page, FigurePage):
                     self.figure_page(chapter, page)
+                elif isinstance(page, LegendPage):
+                    self.zone_legend_page(chapter, page)
                 elif isinstance(page, TablePage):
                     self.table_page(chapter, page)
                 else:
