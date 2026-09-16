@@ -253,11 +253,23 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   `QgsTask.finished()` draait in de slot van de taakbeheerder, die de taak daarna verwijdert: de
   uitkomst verlaat de taak als data (`WorkerOutcome`), de taak laat zijn callback en connecties
   los, en de runner plant `finish` met `QTimer.singleShot(0, ...)` op zichzelf.
-- **Een tweede run in hetzelfde project is een update.** `layers.add_group` vervangt een groep met
-  dezelfde naam (haar lagen uit het project), `drop_previous_run` de layout en de rapportkopieën.
-  Elke run schrijft in een eigen map `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>`
-  (`zone_input.run_folder`), zodat het GeoPackage van de vorige run nooit vergrendeld of
-  overschreven is. De plugin werkt in het geopende project: geen `newProject()`, geen vraag.
+- **De studienaam is de sleutel in het geopende project.** Alles wat een run daar achterlaat
+  draagt `meta.project`: één groep "DOV Desktopstudie - <project>" (`pipeline.study_group_name`)
+  met de hoofdstukgroepen erin, de layout "DOV Desktopstudie - <project>" (`layout.layout_name`)
+  en de rapportkopieën (`REPORT_OVERLAY_FLAG` = de studienaam). Een tweede run met dezelfde naam
+  vervangt precies dat - `layers.add_group(parent=...)` vervangt binnen zijn ouder,
+  `drop_previous_run(owner=...)` alleen de layout en kopieën van die naam - en Gent en Antwerpen
+  in één project laten elkaar heel. Elke run schrijft in een eigen map
+  `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>` (`zone_input.run_folder`), zodat het GeoPackage van
+  de vorige run nooit vergrendeld of overschreven is; de schijfcache staat daarnaast in
+  `<uitvoermap>/cache` (`StudyRequest.cache_dir` -> `make_client(cache_dir=)`), gedeeld door alle
+  runs, want een cache in de runmap zelf wordt nooit twee keer geraakt. Headless blijft de cache
+  in `<out>/data/cache`. De plugin werkt in het geopende project: geen `newProject()`, geen vraag.
+- **Lagen in het geopende project: bevroren canvas, alleen de basiskaart aan.** `StudyRunner`
+  bevriest het canvas voor de hele hoofdthread-helft en ververst één keer aan het einde (elke laag
+  die in het project landt kan anders een render starten die tegels trekt); de hoofdstukgroepen
+  landen ingeklapt met alleen `BASE_MAP_ID` (GRB) aangevinkt, de andere kaarten staan klaar maar
+  uit. De lagenfase pollt `should_cancel` vóór elke WMS-laag en vóór het projectbestand.
 - **Instellingen onder `desktopstudie/`** (`settings.PluginSettings`): `bedrijf`, `auteur`, `logo`,
   `straal`, `uitvoermap`, `cache`, `legendas`; elke lezing valt terug op haar standaard. De opslag
   is injecteerbaar - tests schrijven in een eigen ini, nooit in het profiel.
@@ -379,13 +391,16 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   en van de schil apart.
 - Fixtures verversen: `python scripts/record_fixtures.py` (schrijft `tests/core/fixtures/` opnieuw,
   inclusief de bron-URL en datum in de README ernaast).
-- Plugin laden in QGIS: `scripts\dev_link.cmd` maakt de junction van `desktopstudie/` naar
-  `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie` (weigert als er al iets
-  staat), daarna Plugin Reloader. Onbeheerd doorlopen in een echte QGIS:
-  `"C:\Program Files\QGIS 3.40.15\bin\qgis-ltr-bin.exe" --nologo --noversioncheck --code
-  scripts\smoke_plugin.py` (adresmodus voor Gent; status in `uitvoer/plugin_gent/smoke_status.json`,
-  log ernaast; QGIS sluit zichzelf). Zip voor "Installeren uit ZIP": `python scripts/build_zip.py`
-  -> `dist/desktopstudie-<versie uit metadata.txt>.zip`.
+- Plugin laden in QGIS: `scripts\dev_link.cmd [profiel]` maakt de junction van `desktopstudie/`
+  naar `%APPDATA%\QGIS\QGIS3\profiles\<profiel>\python\plugins\desktopstudie` (standaard
+  `default`; weigert als er al iets staat), daarna Plugin Reloader. Onbeheerd doorlopen in een
+  echte QGIS, in een **eigen profiel** - de run zet de plugin aan en bewaart bedrijf/auteur/
+  uitvoermap in het profiel waarin hij draait: `scripts\dev_link.cmd smoke` en dan
+  `"C:\Program Files\QGIS 3.40.15\bin\qgis-ltr-bin.exe" --profile smoke --nologo
+  --noversioncheck --code scripts\smoke_plugin.py` (adresmodus voor Gent; status in
+  `uitvoer/plugin_gent/smoke_status.json` met de fasetabel en het aantal canvas-renders, log
+  ernaast; QGIS sluit zichzelf). Zip voor "Installeren uit ZIP": `python scripts/build_zip.py`
+  -> `dist/desktopstudie-<versie uit metadata.txt>.zip`, met LICENSE en README.md in het pakket.
 - **Een exception in een Qt-slot breekt het testproces af (0xC0000409).** Onder pytest staat de
   standaard `sys.excepthook`, en dan roept PyQt bij een onafgevangen exception in een slot `qFatal`
   aan - geen traceback, alleen een dode proces. In QGIS zelf vangt de eigen excepthook het op. Dus:
@@ -413,3 +428,7 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 - **Geen rapport zonder QGIS** / kaartpagina's en PDF komen uit QGIS-layouts; `run_core.py` levert
   alleen data, figuren en JSON / herbekijken als collega's zonder QGIS de studie willen draaien:
   "lite"-CLI met matplotlib-kaarten via WMS GetMap.
+- **Geen `log.txt` in de uitvoermap (ontwerp §8), ook headless niet** / de plugin logt naar het
+  logpaneel van QGIS en het script naar stdout; een bestand ernaast is nog niet geschreven /
+  herbekijken zodra een gebruiker een mislukte studie wil doorsturen zonder QGIS open te hebben:
+  `Log`-sink die ook naar `<runmap>/log.txt` schrijft.
