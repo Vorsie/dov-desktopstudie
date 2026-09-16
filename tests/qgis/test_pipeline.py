@@ -661,7 +661,8 @@ def test_a_run_without_project_groups_builds_the_wms_layers_once(project, core_r
 
     assert len(built) == len(set(built)), built
     assert out.project_file is not None and out.project_file.exists()
-    titles = [group.name() for group in project.layerTreeRoot().findGroups()]
+    study = project.layerTreeRoot().findGroup(pipeline.study_group_name("Testproject"))
+    titles = [group.name() for group in study.findGroups()]
     assert titles == [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP], titles
 
 
@@ -672,5 +673,6 @@ def test_a_run_with_project_groups_still_fills_the_open_project(project, core_re
 
     pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
-    titles = [group.name() for group in project.layerTreeRoot().findGroups()]
+    study = project.layerTreeRoot().findGroup(pipeline.study_group_name("Testproject"))
+    titles = [group.name() for group in study.findGroups()]
     assert list(pipeline.CHAPTER_GROUPS.values())[0] in titles
