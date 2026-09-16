@@ -379,7 +379,8 @@ def gpkg_layer(gpkg: Path, name: str) -> QgsVectorLayer:
 
 
 def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
-                       wms_layers: Optional[Dict[str, QgsMapLayer]] = None) -> QgsProject:
+                       wms_layers: Optional[Dict[str, QgsMapLayer]] = None,
+                       only: Optional[Iterable[str]] = None) -> QgsProject:
     """A fresh project holding the whole study: the catalogue maps as WMS layers and the study's
     own layers read back from `gpkg`.
 
@@ -391,6 +392,9 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     `wms_layers` (map id -> layer) hands over what the caller has already built; each one is
     CLONED, because a project owns its layers and the caller's belong to its own project. Building
     them again would cost a second GetCapabilities per map - thirty round trips for nothing.
+
+    `only` is the study's map choice (`StudyResult.map_ids`): a map the user unchecked is not in
+    the report and must not be in the deliverable project either.
     """
     gpkg = Path(gpkg)
     ready = dict(wms_layers or {})
@@ -398,7 +402,7 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
     for chapter, title in chapter_groups.items():
         rasters: List[QgsMapLayer] = []
-        for entry in catalogue.entries(chapter):
+        for entry in catalogue.entries(chapter, only=only):
             known = ready.get(entry.id)
             layer = known.clone() if known is not None else wms_layer(entry)
             if not layer.isValid():
