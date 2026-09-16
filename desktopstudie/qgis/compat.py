@@ -44,21 +44,58 @@ def qgis_version() -> str:
 def enum_name(holder, value) -> str:
     """The name QGIS gives an enum value, e.g. "LayerTypeWrong" or "FileError".
 
-    A bare "3" in a log line or an exception tells nobody what went wrong. Where the name lives
-    depends on the vintage: the enums QGIS has already modernised (`QgsZonalStatistics.Result`)
-    arrive as real Python enums that carry `.name`, while an old unscoped C++ enum
-    (`QgsLayoutExporter.ExportResult` on 3.40 / PyQt5) is a `sip.enumtype` whose members are
-    plain integers listed on the OWNING CLASS, not on the enum type - `dir()` of that type is
-    empty. So pass the class for those, the enum type for the modern ones, and either way the
-    matching member is found (or the number, when it is not a member at all).
+    A bare "3" in a log line or an exception tells nobody what went wrong, and which spelling
+    works depends on the vintage. The enums QGIS has already modernised arrive as real Python
+    enums that carry `.name`. An old unscoped C++ enum (`QgsLayoutExporter.ExportResult` on 3.40,
+    and `QgsZonalStatistics.Result` on 3.34) is a `sip.enumtype`: `getattr` on it works, but
+    `dir()` lists only int's own methods, so the type itself cannot be walked. Its members DO sit
+    on the class that owns it, and the type says which class that is (`__qualname__` is
+    "QgsZonalStatistics.Result", `__module__` the module it came from) - so `holder` may be the
+    owning class OR the enum type, and both find the name.
+
+    QGIS 3.34 is exactly why this matters: there `QgsZonalStatistics.Result` is such a type, and
+    without the detour the log panel reads "DHMV zonale statistiek gaf 1".
+
+    One class carries several enums and their numbers overlap (`QgsZonalStatistics.Count` is 1 and
+    so is `Result.LayerTypeWrong`), so a member of the SAME enum type wins; a member that merely
+    holds the same number is the last resort, because a name from the wrong enum lies where a
+    number only fails to inform.
     """
     name = getattr(value, "name", None)
     if name:
         return str(name)
-    for candidate in dir(holder):
-        if not candidate.startswith("_") and getattr(holder, candidate, None) == value:
-            return candidate
+    for owner in _enum_owners(holder):
+        found = _member_named(owner, value)
+        if found is not None:
+            return found
     return str(value)
+
+
+def _enum_owners(holder):
+    """`holder`, and after it the class that owns it when `holder` is an enum type nested in one."""
+    yield holder
+    qualname = getattr(holder, "__qualname__", "")
+    module = sys.modules.get(getattr(holder, "__module__", "") or "")
+    if "." not in qualname or module is None:
+        return
+    owner = getattr(module, qualname.split(".")[0], None)
+    if owner is not None and owner is not holder:
+        yield owner
+
+
+def _member_named(owner, value) -> Optional[str]:
+    """The attribute of `owner` that IS `value`, preferring one of the same enum type."""
+    same_number = None
+    for candidate in dir(owner):
+        if candidate.startswith("_"):
+            continue
+        member = getattr(owner, candidate, None)
+        if member != value:
+            continue
+        if type(member) is type(value):
+            return candidate
+        same_number = same_number or candidate
+    return same_number
 
 
 def ensure_font_dir(log=None) -> Optional[str]:
