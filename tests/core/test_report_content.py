@@ -10,6 +10,7 @@ from desktopstudie.core.model import (
     VbLayer,
     VirtualBorehole,
 )
+from tests import quartair
 
 
 def _result(gent_ring):
@@ -159,15 +160,10 @@ def test_the_sources_table_prints_a_date_and_a_short_url(gent_ring):
     assert "CQL_FILTER" not in row[1] and row[1].startswith("https://www.dov.vlaanderen.be/geoserver/wfs")
 
 
-QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
-                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
-
-
 def _with_quartair(result, codes=("22026", "22010", "22026", "22098")):
     """De quartairrijen zoals de WFS ze levert: een rij per kaartvlak, dus hetzelfde profieltype
     kan twee keer in de zone liggen. De eerste twee cijfers van de code zijn het kaartblad."""
-    result.map_facts.append(MapFact("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", [
-        {"profieltype": code, "legende": QUARTAIR_LEGEND.format(code=code)} for code in codes]))
+    result.map_facts.append(quartair.map_fact(codes))
     return result
 
 
