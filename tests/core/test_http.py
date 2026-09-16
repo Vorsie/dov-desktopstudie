@@ -304,7 +304,7 @@ def test_one_endless_path_segment_keeps_its_tail():
     short = http.short_url(QUARTAIR_DRAWING)
 
     assert short.startswith("https://datasets.omgeving.vlaanderen.be/...")
-    assert short.endswith("Quartair_50000_22010_png")
+    assert short.endswith("_22010_png")
     assert len(short) < len(QUARTAIR_DRAWING) - 30
 
 
@@ -342,7 +342,11 @@ def test_no_word_in_a_short_url_is_wider_than_a_table_column():
     WFS-URL tellen niet mee: daar zitten spaties in, dus die breekt de tabel zelf."""
     short = http.short_url(QUARTAIR_DRAWING)
 
+    # 80,4 mm is wat de URL-kolom van de bronnentabel krijgt, en die 67 tekens vroegen er 83,5 -
+    # vandaar dat het blad "..._22010_pn" toonde. Gemeten met `layout.column_widths` op de echte
+    # bronnenlijst van de voorbeeldstudie (2026-09-16).
     assert len(short) <= http.MAX_PATH_CHARS, short
+    assert http.MAX_PATH_CHARS <= 64, "meer dan dit past niet in de kolom"
     assert short.endswith("_22010_png") and "22010" in short, short
     assert "..." in short
     # en voor elke andere lange URL geldt hetzelfde: geen woord breder dan de kolom
