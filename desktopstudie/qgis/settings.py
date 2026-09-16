@@ -59,7 +59,9 @@ class _Field:
     def __init__(self, key: str, default: Any, read: Callable[[Any, Any], Any]):
         self.key, self.default, self.read = key, default, read
 
-    def __get__(self, settings: PluginSettings, owner=None):
+    def __get__(self, settings: Optional[PluginSettings], owner=None):
+        if settings is None:  # read off the class: the field itself, for whoever lists the keys
+            return self
         default = self.default() if callable(self.default) else self.default
         return self.read(settings.store.value(f"{PREFIX}/{self.key}", None), default)
 
