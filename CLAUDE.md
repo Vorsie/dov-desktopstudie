@@ -120,15 +120,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   machineleesbaar. Een tekening die niet binnenkwam laat de regel staan met "tekening niet
   opgehaald".
 - **De legenda-URL van een profieltype is een downloadlink van een documentportaal.** Ze eindigt op
-  `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug (live gezien op
-  2026-09-16: dezelfde URL leverde minuten eerder nog de PNG). Daarom controleert
-  `layout._drawing_bytes` de PNG-magie, vraagt ze het een tweede keer met `cache_mode="refresh"`
-  (een webpagina in de schijfcache bederft anders elke volgende run) en meldt ze de tekening
-  daarna als mislukte bron in plaats van een leeg kader af te drukken. Werkt het portaal niet mee,
-  dan staat het bestand wél op zijn eigen API: `…/server/api/discover/search/objects?query=DOV
-  Quartair 50000 <code>&dsoType=item` -> item-uuid -> `/core/items/<uuid>/bundles` -> bitstream ->
-  `/core/bitstreams/<uuid>/content` (live geverifieerd 2026-09-16). Die omweg zit bewust NIET in de
-  code: drie extra oproepen per profieltype en koppeling aan de REST-vorm van DSpace.
+  `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug. Wat
+  `layout._drawing_bytes` daarmee doet, en waar de grens ligt, staat één keer beschreven: zie
+  **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** in de schuldlijst hieronder.
 - **Kaartbeelden worden vooraf opgehaald, niet tijdens het renderen.** De QGIS-WMS-provider haalt
   tegel na tegel op TERWIJL een blad tekent, en het rapport wacht daarop: dat was 312 s van de
   607 s die een studie voor Gent kostte (gemeten 2026-09-16 met de fasetabel). `layout.
@@ -138,8 +132,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   = de export-dpi, geplafonneerd op 4096 px). Ze landen als PNG + wereldbestand in
   `data/kaarten/` en de layout tekent die lokale rasters (`layers.snapshot_layer`, CRS expliciet
   gezet - een PNG zegt niet waar hij ligt). De live WMS-lagen blijven voor het QGIS-project; de
-  layout raakt ze niet meer aan. Elk kaartbeeld is een eigen bron, en of de tegel leeg is, valt
-  gratis af te lezen - de aparte dekkingsproef is daarmee verdwenen.
+  layout raakt ze niet meer aan. Elk kaartbeeld is een eigen bron; loopt één kader van een kaart
+  mis, dan is die bron mislukt (`pipeline._fetch_map_images` schrijft één regel per kaart, want
+  `record_source` vervangt op naam en een geslaagd kader zou een mislukt kader overschrijven).
 - **Een WMS-laag bouwen kost een GetCapabilities, en de DOV-kaarten vragen die aan hun eigen
   workspace.** De globale DOV-dienst (`/geoserver/wms`) antwoordt met heel DOV: 1,1 MB die QGIS in
   2,6 s per kaart parst, vijftien keer per studie, en `clone()` doet het nog eens. Qt's schijfcache
@@ -151,16 +146,29 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   de laag ongeldig), de WFS-typenamen houden hun prefix. `catalogue.dov_wms(layer)` doet de
   vertaling. `finish(study_groups=False)` (headless) bouwt de lagen één keer; de `clone()` voor het
   projectbestand in de plugin kost nu ~1 s en is bewust gelaten.
-- **Een dienst die hier niets tekent, zegt dat.** De Popp-kaart is in Gent een wit blad: het
-  mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes met een lege tegel. Elke
-  kaart **zonder feiten** krijgt daarom een GetMap van 64 px op de extent van haar blad
-  (`layout.prepare_coverage`, WMS **1.1.1** - 1.3.0 ordent de BBOX volgens de assen van het CRS en
-  een omgedraaide BBOX levert een plaatje van elders, wat als "geen dekking" zou lezen). Alle
-  pixels gelijk of volledig doorzichtig = geen kaartbeeld: het blad krijgt een regel, de legenda
-  vervalt, en de bron blijft `ok` met de reden "geen dekking op deze locatie" (de bronnentabel
-  drukt die reden af achter "ok"). Alleen kaarten zonder feiten, want een doorzichtige tegel van de
-  watertoets betekent "geen overstromingsgevoelig gebied", niet "geen dekking" (live gemeten
-  2026-09-16). Een proef die faalt, verandert niets: onbekend is geen "geen dekking".
+- **Een dienst die hier niets tekent, zegt dat - en dat kost geen extra oproep.** De Popp-kaart is
+  in Gent een wit blad: het mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes
+  met een lege tegel. Het kaartbeeld is er toch al, dus het antwoord valt er gratis uit te lezen:
+  `layout._is_empty` in `prepare_map_images` kijkt of alle pixels gelijk of volledig doorzichtig
+  zijn. De aparte dekkingsproef (een GetMap van 64 px) bestaat niet meer. Is de tegel leeg, dan
+  krijgt het blad een regel, vervalt de legenda, en blijft de bron `ok` met de reden "geen dekking
+  op deze locatie" (de bronnentabel drukt die reden af achter "ok"). Twee grenzen. Alleen kaarten
+  **zonder feiten**, want een doorzichtige tegel van de watertoets betekent "geen
+  overstromingsgevoelig gebied", niet "geen dekking" (live gemeten 2026-09-16). En per **kader**,
+  niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de andere bladen van
+  dezelfde kaart niet meeneemt. Een ophaling die faalt, verandert niets: onbekend is geen "geen
+  dekking".
+- **De kaartenkeuze reist mee met het resultaat, en iedereen filtert ermee.** Wat de gebruiker in
+  de checklist aanvinkt staat als `Settings.map_ids` in de aanvraag en wordt door `study.run` op
+  `StudyResult.map_ids` gezet (None = alle ingeschakelde entries), zodat het ook in `studie.json`
+  belandt: een lezer moet kunnen zien welke kaarten een studie NIET bekeken heeft. Elke plek die
+  de catalogus voor één studie doorloopt geeft dat door als `catalogue.entries(..., only=...)`:
+  de kaartpagina's, de leeswijzers en de zonelegenda's (`report_content`), de bronnentabel, de
+  WMS-lagen in het project, de legenda's en `layers.standalone_project`. De kaartbeelden volgen
+  gratis, want `plan_map_images` leest de rapportboom. Een uitgevinkte kaart kost dus geen laag,
+  geen oproep en geen blad - zonder dat filter drukte haar blad "Bron niet beschikbaar" af, precies
+  de zin die een dienst krijgt die plat ligt. Uitzondering: het overzichtsblad van hoofdstuk 5
+  tekent op `grb` omdat het de proefpunten toont, ook als GRB zelf niet gekozen is.
 - **Eén tabel per kaart.** Waar een `Legenda voor de zone` bestaat, vervangt ze de feitentabel -
   twee tabellen met dezelfde rij zijn er een te veel. Wat alleen de feitentabel had, verhuist mee
   (de gegeneraliseerde legende van de bodemkaart) of verdwijnt bewust (codes die hun eigen naam
@@ -194,7 +202,8 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **De fasen van een run worden geklokt** (`pipeline.PhaseClock`): elke fase meldt zich één keer,
   dat sluit meteen de vorige af, en `PipelineResult.timings` plus een INFO-tabel zeggen waar de
   tijd heen ging. De voortgangsbalk van de plugin leest dezelfde indeling. Meten voor je iets
-  versnelt: de PDF-export bleek 312 s van de 607 s, de dekkingsproef 0,0 s.
+  versnelt: de PDF-export bleek 312 s van de 607 s, de toenmalige aparte dekkingsproef 0,0 s -
+  reden om die eruit te halen in plaats van te versnellen.
 - **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
   laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken).
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
@@ -285,7 +294,10 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   <HHMM>` (`zone_input.run_folder`), zodat het GeoPackage van de vorige run - misschien nog open in
   deze QGIS - nooit vergrendeld of overschreven is; de schijfcache in `<uitvoermap>/cache`
   (`StudyRequest.cache_dir` -> `make_client(cache_dir=)`), want een cache in de runmap zelf wordt
-  nooit twee keer geraakt.
+  nooit twee keer geraakt. Eén fabriek voor die client: `core/services/http.study_client`
+  (`pipeline.make_client` is diezelfde functie onder de naam die de schil gewend is), met
+  `<out>/data/cache` als standaard uit `cache_dir_for`. Wie er zelf een `HttpClient` naast bouwt,
+  bouwt een tweede cache die de cachemodus van de gebruiker niet kent.
 - **Lagen in het geopende project: bevroren canvas, alleen de basiskaart aan.** Elke laag die in
   het project landt kan anders een render starten die tegels trekt op de hoofdthread (gemeten:
   3 renders -> 0, lagenfase 11,4 -> 7,9 s); de hoofdstukgroepen landen ingeklapt met alleen
@@ -296,8 +308,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **Logregels van de plugin gaan naar het logpaneel** (tab "DOV Desktopstudie") via
   `task.plugin_log`; het niveau volgt het voorvoegsel (`WARNING` geel, `ERROR` rood), DEBUG blijft
   weg. Mislukte producten en bronnen (afsluitcode 3 headless) komen als `pushWarning` bij naam in
-  de berichtenbalk, een omgevallen kern als `pushCritical`, het rapport als succesmelding met
-  "Open PDF".
+  de berichtenbalk, een omgevallen kern als `pushMessage(..., Qgis.MessageLevel.Critical, 0)` (geen
+  `pushCritical`: die bestaat niet op `QgsMessageBar`, en 0 laat de melding staan tot de gebruiker
+  ze wegklikt), het rapport als succesmelding met "Open PDF".
 - **Na `relief` draaien de signaleringsregels opnieuw** (`checks.run_all`), want de reliëfregel kan
   pas dan aanslaan. De twee signaleringen die alleen de orchestrator kan kennen - een afgekapte
   WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
@@ -422,7 +435,7 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `uitvoer/plugin_gent/smoke_status.json` met de fasetabel en het aantal canvas-renders, log
   ernaast; QGIS sluit zichzelf). Zip voor "Installeren uit ZIP": `python scripts/build_zip.py`
   -> `dist/desktopstudie-<versie uit metadata.txt>.zip`, met LICENSE en README.md in het pakket
-  (42 bestanden in 0.1.0, geen `__pycache__`, geen tests). Installatie uit die zip in een schoon
+  (43 bestanden in 0.1.0, geen `__pycache__`, geen tests). Installatie uit die zip in een schoon
   profiel: `qgis-ltr-bin.exe --profile zipcheck --nologo --noversioncheck --code
   <absoluut pad van scripts\zip_check.py>` installeert via `pyplugin_installer.instance().installFromZipFile`, laadt
   de plugin, opent de dialoog één keer en schrijft `uitvoer/zip_check/zip_status.json`
@@ -454,6 +467,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 
 Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 
+- **Geen DHMV-hoogteprofiel langs de doorsnedelijn** (ontwerp §6) / `dem.py` doet alleen zonale
+  statistiek op de zone (min/max/gemiddelde in de tabel Kerngegevens ligging); het maaiveld op de
+  doorsnede komt uit het model van de virtuele boring, niet uit het DHMV. Een echt profiel vraagt
+  een WCS-uitsnede langs de lijn plus bemonstering per stap, en de doorsnedefiguur was in v0.1 al
+  het duurste onderdeel / herbekijken zodra een gebruiker het verschil tussen het modelmaaiveld en
+  het gemeten maaiveld op de doorsnede nodig heeft: dan een DHMV-raster over de corridor ophalen en
+  als tweede lijn in `section_figure` tekenen.
 - **StudyZone is één ring (geen gaten, geen multipart)** / eenvoud in v1; de schil vlakt een
   geselecteerd feature af tot zijn buitenring / herbekijken zodra een gebruiker een multipolygoon
   of een perceel met een gat aanlevert.
@@ -469,16 +489,23 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
   herbekijken zodra een gebruiker een mislukte studie wil doorsturen zonder QGIS open te hebben:
   `Log`-sink die ook naar `<runmap>/log.txt` schrijft (de `Log` neemt al een `sink`, dus een
   tweede sink is het hele werk).
-- **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** / het DOV-documentportaal
-  antwoordt op de `_png`-downloadlink soms met zijn eigen webpagina (HTTP 200).
-  `layout._drawing_bytes` controleert de PNG-magie, gooit een niet-PNG uit de cache
-  (`HttpClient.forget`) en leest met `core/services/dov_portal.content_link` de directe
-  bitstream-link uit die pagina - die staat er letterlijk in, mét de bestandsnaam, dus dat kost geen
-  extra oproep. Live geverifieerd 2026-09-16: de pagina die de smoke-run deed mislukken levert langs
-  die weg de juiste tekening (66 412 bytes PNG). De échte DSpace-omweg (zoekopdracht -> item ->
-  bundles -> bitstream) blijft eruit: drie extra oproepen per profieltype en een koppeling aan de
-  REST-vorm van DSpace / herbekijken zodra het portaal ook die link in de pagina niet meer zet, of
-  zodra de tekeningen vaker ontbreken dan binnenkomen.
+- **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** (dé beschrijving van het
+  profieltype-portaal; de huisregel hierboven verwijst hiernaar) / het DOV-documentportaal
+  antwoordt op de `_png`-downloadlink soms met zijn eigen webpagina (HTTP 200, `text/html`; live
+  gezien 2026-09-16, dezelfde URL leverde minuten eerder nog de PNG). `layout._drawing_bytes`
+  controleert daarom de PNG-magie, gooit een niet-PNG uit de cache (`HttpClient.forget`, want een
+  webpagina in de schijfcache bederft elke volgende run), leest met
+  `core/services/dov_portal.content_link` de directe bitstream-link uit die pagina - die staat er
+  letterlijk in, mét de bestandsnaam, dus dat kost geen extra oproep - en volgt ze; komt ook daar
+  geen PNG uit, dan vraagt ze het nog één keer met `cache_mode="refresh"`
+  (`ZONE_LEGEND_TRIES` = 2) en meldt ze de tekening daarna als mislukte bron in plaats van een leeg
+  kader af te drukken. Live geverifieerd 2026-09-16: de pagina die de smoke-run deed mislukken
+  levert langs die weg de juiste tekening (66 412 bytes PNG). De échte DSpace-omweg (zoekopdracht
+  `…/server/api/discover/search/objects?query=DOV Quartair 50000 <code>&dsoType=item` -> item-uuid
+  -> `/core/items/<uuid>/bundles` -> bitstream -> `/core/bitstreams/<uuid>/content`, live
+  geverifieerd 2026-09-16) blijft eruit: drie extra oproepen per profieltype en een koppeling aan
+  de REST-vorm van DSpace / herbekijken zodra het portaal ook die link in de pagina niet meer zet,
+  of zodra de tekeningen vaker ontbreken dan binnenkomen.
 - **De historische NGI-reeks (1873-1989) is een uitgeschakelde catalogusentry** (`ngi_hist`) / het
   NGI biedt er geen open WMS voor, alleen het Cartesius-portaal / herbekijken zodra het NGI een
   WMS publiceert of Cartesius onder een open licentie komt: `wms_url` en `wms_layer` invullen,
