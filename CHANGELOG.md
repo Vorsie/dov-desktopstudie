@@ -65,8 +65,12 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   in de berichtenbalk, die binnen seconden stopt - ook tussen twee runs van de PDF-export. Na afloop
   zoomt het canvas naar de zone en meldt de berichtenbalk het rapport met "Open PDF"; mislukte
   producten en bronnen worden bij naam gemeld, de fasetabel staat in het logpaneel. De plugin werkt
-  in het geopende project; een tweede run met dezelfde studienaam vervangt de groepen en de layout
-  en schrijft in een nieuwe map `<uitvoermap>/<project>_<datum>_<tijd>`. `metadata.txt`
+  in het geopende project, onder één groep "DOV Desktopstudie - <project>" met alleen de
+  GRB-basiskaart aan en de hoofdstukken ingeklapt; een tweede run met dezelfde studienaam vervangt
+  die groep, de layout en de rapportkopieën van die naam (een andere studie in hetzelfde project
+  blijft staan) en schrijft in een nieuwe map `<uitvoermap>/<project>_<datum>_<tijd>`, met de
+  schijfcache gedeeld in `<uitvoermap>/cache`. Het voortgangsbericht mag weggeklikt worden en
+  Annuleren wordt ook in de lagenfase per laag gehoord. `metadata.txt`
   (QGIS 3.34+, Qt6, 0.1.0, experimenteel), `scripts/dev_link.cmd` (junction), `scripts/build_zip.py`
-  (`dist/desktopstudie-0.1.0.zip`) en `scripts/smoke_plugin.py` (de plugin onbeheerd doorlopen in
-  een echte QGIS).
+  (`dist/desktopstudie-0.1.0.zip`, met LICENSE en README.md) en `scripts/smoke_plugin.py` (de
+  plugin onbeheerd doorlopen in een echte QGIS, in een eigen profiel).
