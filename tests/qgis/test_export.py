@@ -33,6 +33,38 @@ def _pdf_pages(path):
     return data.count(b"/Type /Page") - data.count(b"/Type /Pages")
 
 
+def _page_content(path, page):
+    """De uitgepakte inhoudsstroom van blad `page` (0-gebaseerd), zoals Qt ze wegschrijft: het
+    /Type /Page-object wijst met /Contents naar een object dat een FlateDecode-stroom draagt."""
+    import re
+    import zlib
+
+    data = path.read_bytes()
+    page_objects = [m for m in re.finditer(rb"/Type /Page\b(?!s)", data)]
+    contents = re.search(rb"/Contents (\d+) 0 R", data[page_objects[page].start():])
+    number = int(contents.group(1))
+    start = re.search(rb"(?<!\d)" + str(number).encode() + rb" 0 obj", data).end()
+    raw = data[start:data.index(b"endstream", start)]
+    stream = raw[raw.index(b"stream") + len(b"stream"):].lstrip(b"\r\n")
+    return zlib.decompress(stream)
+
+
+def _rendered(path, page):
+    """Blad `page` (0-gebaseerd) van een PDF als pixels, getekend door de PDF-driver van GDAL."""
+    from osgeo import gdal
+
+    gdal.UseExceptions()
+    dataset = gdal.Open(f"PDF:{page + 1}:{path}")
+    return dataset.ReadAsArray().astype(int)
+
+
+def _same_picture(first, second):
+    """Twee renders van hetzelfde blad: geen pixel meer dan een paar tinten uiteen, en minder dan
+    een op de duizend uberhaupt - de rasterizer rondt anders af naargelang het lettertype-subset."""
+    difference = abs(first - second)
+    return first.shape == second.shape and difference.max() <= 8 and (difference > 0).mean() < 0.001
+
+
 @pytest.fixture
 def three_pages(project, gent_zone, tmp_path):
     """Titelblad + kaartpagina + legendapagina, zonder ook maar een service aan te raken."""
@@ -80,15 +112,60 @@ def test_the_legend_switch_is_evaluated_before_the_pdf_is_written(three_pages, t
     assert _pdf_pages(pdf) == 2
 
 
+def test_the_text_in_the_pdf_is_text_a_reader_can_select_not_outlines(three_pages, tmp_path):
+    """Een rapport waarin niemand tekst kan selecteren, is een rapport waaruit niemand kan citeren.
+    QGIS tekent tekst standaard als omtrekken (paden): dan staat er op de kaartpagina - kop,
+    infovakken, schaalbalk, allemaal gewone tekst - geen enkel tekstobject. Tekst hoort als tekst
+    in de PDF te staan (een BT ... ET-blok met een lettertype), zodat ze te selecteren, te
+    doorzoeken en te kopieren valt; het bestand wordt er ook de helft kleiner van."""
+    from desktopstudie.qgis import export
+
+    pdf = export.export_pdf(three_pages, tmp_path / "rapport.pdf")
+
+    content = _page_content(pdf, 1)  # de kaartpagina: geen HTML-labels, alleen gewone tekst
+    assert b"BT" in content and b"ET" in content, "geen tekstobject op de kaartpagina: omtrekken"
+    assert b"/BaseFont" in pdf.read_bytes(), "geen enkel lettertype ingebed"
+
+
+def test_the_sheets_go_to_the_exporter_a_few_at_a_time_and_the_pdf_is_the_same(three_pages, tmp_path):
+    """Eén exportoproep voor het hele rapport betaalt per blad een prijs die groeit met het aantal
+    bladen dat al geëxporteerd is (kwadratisch; 65 van de 95 s voor Gent). De bladen gaan daarom
+    in kleine runs naar de exporter, maar de PDF hoort daar niets van te merken: elk blad één keer,
+    in volgorde, met dezelfde inhoud als in één oproep - ook met een run van één blad."""
+    from qgis.core import Qgis, QgsLayoutExporter
+
+    from desktopstudie.qgis import export
+
+    in_runs = export.export_pdf(three_pages, tmp_path / "runs.pdf", pages_per_run=1)
+    settings = QgsLayoutExporter.PdfExportSettings()
+    settings.dpi = export.PDF_DPI
+    settings.textRenderFormat = Qgis.TextRenderFormat.AlwaysText
+    at_once = tmp_path / "eens.pdf"
+    assert QgsLayoutExporter(three_pages).exportToPdf(str(at_once), settings) == export.SUCCESS
+
+    assert _pdf_pages(in_runs) == _pdf_pages(at_once) == 3
+    for page in range(3):
+        # Wat op het blad staat, vergeleken als beeld: de inhoudsstromen zelf verschillen in de
+        # nummering van de lettertype-subsets (de volgorde waarin Qt glyphs registreert).
+        assert _same_picture(_rendered(in_runs, page), _rendered(at_once, page)), f"blad {page + 1} verschilt"
+    # De layout verlaat de export zoals ze erin ging: niets uitgesloten, de legendaregel intact.
+    pages = three_pages.pageCollection()
+    assert not any(pages.page(index).excludeFromExports() for index in range(pages.pageCount()))
+    assert pages.page(2).dataDefinedProperties().property(export.EXCLUDE).isActive()
+
+
 def test_a_failed_pdf_export_says_which_result_it_got(three_pages, tmp_path):
     """Een export die mislukt, hoort te knallen met de naam van de fout, niet met een kale 3.
-    Schrijven naar een bestaande map kan niet, en dat is precies zo'n geval."""
+    Schrijven naar een bestaande map kan niet, en dat is precies zo'n geval: QGIS noemt dat
+    PrintError (de printer gaat niet open op een map) - een naam, geen nummer."""
+    import re
+
     from desktopstudie.qgis import export
 
     with pytest.raises(RuntimeError) as failure:
         export.export_pdf(three_pages, tmp_path)
 
-    assert "FileError" in str(failure.value), str(failure.value)
+    assert re.search(r"\((\w+Error)\)", str(failure.value)), str(failure.value)
 
 
 # --- pagina's als PNG ------------------------------------------------------------------------
