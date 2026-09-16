@@ -57,9 +57,9 @@ def enum_name(holder, value) -> str:
     without the detour the log panel reads "DHMV zonale statistiek gaf 1".
 
     One class carries several enums and their numbers overlap (`QgsZonalStatistics.Count` is 1 and
-    so is `Result.LayerTypeWrong`), so a member of the SAME enum type wins; a member that merely
-    holds the same number is the last resort, because a name from the wrong enum lies where a
-    number only fails to inform.
+    so is `Result.LayerTypeWrong`), so a member of the SAME enum type wins. A member that merely
+    holds the same number counts only when it is the ONLY one: a name from the wrong enum lies,
+    and the bare number it falls back to merely fails to inform.
     """
     name = getattr(value, "name", None)
     if name:
@@ -84,8 +84,12 @@ def _enum_owners(holder):
 
 
 def _member_named(owner, value) -> Optional[str]:
-    """The attribute of `owner` that IS `value`, preferring one of the same enum type."""
-    same_number = None
+    """The attribute of `owner` that IS `value`, preferring one of the same enum type.
+
+    Same type is certain. Merely equal is a guess, and a guess is only worth printing when there
+    is exactly one - two enums of one class that both own the number say nothing.
+    """
+    same_number = []
     for candidate in dir(owner):
         if candidate.startswith("_"):
             continue
@@ -94,8 +98,8 @@ def _member_named(owner, value) -> Optional[str]:
             continue
         if type(member) is type(value):
             return candidate
-        same_number = same_number or candidate
-    return same_number
+        same_number.append(candidate)
+    return same_number[0] if len(same_number) == 1 else None
 
 
 def ensure_font_dir(log=None) -> Optional[str]:
