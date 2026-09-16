@@ -81,3 +81,12 @@ def test_a_value_that_cannot_be_read_falls_back_to_its_default(qgs_app, tmp_path
     assert settings.radius_m == 500.0
     assert settings.cache_mode == "use"
     assert settings.legends is False, "een tekst die geen 'true' is, is uit"
+
+
+def test_the_fields_can_be_read_off_the_class(qgs_app):
+    """`PluginSettings.radius_m` op de klasse is het veld zelf, niet een lezing van niets: wie de
+    sleutels wil opsommen, kan dat zonder een opslag."""
+    from desktopstudie.qgis.settings import PluginSettings
+
+    assert PluginSettings.radius_m.key == "straal"
+    assert PluginSettings.legends.key == "legendas"
