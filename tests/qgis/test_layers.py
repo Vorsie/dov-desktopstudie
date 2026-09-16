@@ -214,6 +214,30 @@ def test_a_group_added_a_second_time_replaces_the_first(qgs_app, gent_zone):
     assert project.layerTreeRoot().findGroup("4 Onderzoekszone").findLayerIds() == [second.id()]
 
 
+def test_a_group_under_a_parent_replaces_only_within_that_parent(qgs_app, gent_zone):
+    """Twee studies in één project hebben allebei een "1 Ligging": de groep van de ene vervangt
+    niet die van de andere, alleen haar eigen voorganger onder dezelfde ouder."""
+    from qgis.core import QgsProject
+
+    from desktopstudie.qgis import layers
+
+    project = QgsProject()
+    root = project.layerTreeRoot()
+    gent, antwerpen = root.addGroup("Studie Gent"), root.addGroup("Studie Antwerpen")
+    layers.add_group(project, "1 Ligging", [layers.zone_layer(gent_zone)], parent=gent)
+    first_antwerpen = layers.zone_layer(gent_zone)
+    layers.add_group(project, "1 Ligging", [first_antwerpen], parent=antwerpen)
+    first_id = first_antwerpen.id()
+
+    second = layers.zone_layer(gent_zone)
+    layers.add_group(project, "1 Ligging", [second], parent=antwerpen)
+
+    assert [group.name() for group in gent.findGroups()] == ["1 Ligging"]
+    assert [group.name() for group in antwerpen.findGroups()] == ["1 Ligging"]
+    assert len(gent.findLayerIds()) == 1, "de groep van Gent is met rust gelaten"
+    assert antwerpen.findLayerIds() == [second.id()] and first_id not in project.mapLayers()
+
+
 def _study_gpkg(gent_zone, tmp_path):
     """Het GeoPackage zoals de pijplijn het achterlaat: zone, doorsnedelijn, de drie proefsoorten
     en de zoekstraal."""
