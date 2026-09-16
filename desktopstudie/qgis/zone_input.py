@@ -26,7 +26,7 @@ from qgis.core import (
 
 from ..core import geometry
 from ..core.geometry import Point
-from ..core.model import StudyZone
+from ..core.model import StudyZone, point_name
 from ..core.services.geocoder import GeocodeHit
 from .layers import CRS_AUTHID
 
@@ -69,27 +69,21 @@ def _ring(points: Sequence[Point], crs: Crs) -> List[Point]:
     return ring
 
 
-def _point_name(x: float, y: float) -> str:
-    return f"{x:.0f}/{y:.0f}"
-
-
 def zone_from_address_hit(hit: GeocodeHit, buffer_m: float, radius_m: float) -> StudyZone:
     """Address mode: a circle of `buffer_m` around the geocoder's point, named after the address."""
-    return StudyZone(ring=geometry.buffer_point(hit.x, hit.y, buffer_m), name=hit.address,
-                     radius_m=radius_m, address=hit.address)
+    return StudyZone.around_point(hit.x, hit.y, buffer_m, radius_m, address=hit.address)
 
 
 def zone_from_point(x: float, y: float, buffer_m: float, radius_m: float) -> StudyZone:
     """X/Y mode: the same circle around a Lambert 72 coordinate, named after the coordinate."""
-    return StudyZone(ring=geometry.buffer_point(x, y, buffer_m), name=_point_name(x, y),
-                     radius_m=radius_m)
+    return StudyZone.around_point(x, y, buffer_m, radius_m)
 
 
 def zone_from_ring(points: Sequence[Point], crs: Crs, radius_m: float,
                    name: Optional[str] = None) -> StudyZone:
     """Drawing mode: the vertices the map tool collected, in the canvas CRS."""
     ring = _ring(points, crs)
-    return StudyZone(ring=ring, name=name or f"Polygoon {_point_name(*geometry.centroid(ring))}",
+    return StudyZone(ring=ring, name=name or f"Polygoon {point_name(*geometry.centroid(ring))}",
                      radius_m=radius_m)
 
 
