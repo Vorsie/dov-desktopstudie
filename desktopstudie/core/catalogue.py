@@ -1,5 +1,6 @@
 """Map catalogue: one entry per map. Adding a map = adding one entry here.
-All URLs and layer names were verified live on 2026-09-15 (see design spec)."""
+All URLs and layer names were verified live on 2026-09-15 (see design spec); the DOV maps moved
+to their workspace services on 2026-09-16, verified live against the global service the same day."""
 from __future__ import annotations
 
 import types
@@ -8,6 +9,12 @@ from typing import Dict, List, Optional, Tuple
 
 DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/wfs"
 DOV_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/wms"
+# The DOV maps are asked at the service of their own GeoServer workspace, not at the global one
+# above. A WMS layer costs a GetCapabilities, and the global service answers with the whole of
+# DOV: 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. A workspace service
+# answers with a few kB (0,03 s a map) and serves identical GetMap and GetLegendGraphic bytes -
+# live 2026-09-16 for all fifteen. On it a layer goes by its own name, without the prefix.
+DOV_WORKSPACE_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/{workspace}/wms"
 GEOCODER_URL = "https://geo.api.vlaanderen.be/geolocation/v4/Location"
 VB_DOORPRIK_URL = "https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/{model}"
 # Profile query: one column of layer THICKNESSES per distance step along a line; the record
@@ -217,11 +224,22 @@ class MapEntry:
         object.__setattr__(self, "field_labels", types.MappingProxyType(dict(self.field_labels)))
 
 
+def dov_wms(layer: str) -> Tuple[str, str]:
+    """(service URL, layer name) for a DOV layer named the DOV way, `workspace:name`.
+
+    The prefixed name is how DOV lists its layers and how the WFS wants its typenames; the WMS of
+    the workspace itself knows the layer by the bare name (see DOV_WORKSPACE_WMS_URL).
+    """
+    workspace, _, name = layer.partition(":")
+    return DOV_WORKSPACE_WMS_URL.format(workspace=workspace), name
+
+
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "") -> MapEntry:
-    return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=DOV_WMS_URL, wms_layer=layer,
+    url, name = dov_wms(layer)
+    return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
@@ -358,8 +376,8 @@ CATALOGUE: List[MapEntry] = [
                        "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000),
     # The WMS layer is pfas:no_regret_huidig; "no_regret_zones" is one of its named STYLES, not a
     # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
-    MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", DOV_WMS_URL,
-             "pfas:no_regret_huidig", "OVAM / Vlaamse overheid via DOV", licence=DOV_LICENCE,
+    MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", *dov_wms("pfas:no_regret_huidig"),
+             "OVAM / Vlaamse overheid via DOV", licence=DOV_LICENCE,
              opacity=0.7, legend=True, fact_mode="wfs", wfs_typename="pfas:no_regret_huidig",
              fact_fields=("pfasdossiernr", "gemeente", "straat", "nrm_status_zone", "zone_geldig_vanaf",
                           "no_regret_maatregelen"),
