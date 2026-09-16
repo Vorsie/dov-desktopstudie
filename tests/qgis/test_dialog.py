@@ -237,6 +237,31 @@ def test_one_geocode_at_a_time_and_a_stale_answer_is_ignored(qgs_app, tmp_path):
     assert len(started) == 2, "na een antwoord mag er weer gezocht worden"
 
 
+def test_closing_the_dialog_drops_a_search_that_is_still_running(qgs_app, tmp_path):
+    """Een antwoord van de geocoder dat na het sluiten binnenkomt, hoort nergens meer te landen.
+
+    De dialoog wordt hergebruikt (de plugin houdt haar vast), dus een zoekopdracht die bij het
+    sluiten nog liep laat anders twee dingen achter: een token waarop het late antwoord de lijst
+    alsnog vult, en een knop Zoek die bij het heropenen uitgeschakeld blijft.
+    """
+    from desktopstudie.core.services.geocoder import GeocodeHit
+
+    dialog = _dialog(tmp_path)
+    started = []
+    dialog._start_geocode = lambda query, token: started.append((query, token))
+    dialog.address_edit.setText("Kortrijksesteenweg 100 Gent")
+    dialog.search_address()
+    assert not dialog.search_button.isEnabled()
+
+    dialog.close()
+
+    assert dialog.search_button.isEnabled(), "heropend met een dode knop Zoek"
+    late = GeocodeHit("Te laat 1, 9000 Gent", 104000.0, 192000.0, "Gent", "9000",
+                      "basisregisters_huisnummer")
+    dialog._address_found(started[0][1], None, [late])
+    assert dialog.hits == [] and dialog.hits_list.count() == 0
+
+
 def test_the_extension_only_applies_to_the_automatic_section_line(qgs_app, tmp_path):
     """De verlenging hoort bij de lijn die de kern zelf legt; een getekende of gekozen lijn is wat
     ze is. Buiten 'Automatisch' staat het veld uit."""
