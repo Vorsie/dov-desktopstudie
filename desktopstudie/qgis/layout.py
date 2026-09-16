@@ -25,6 +25,7 @@ footer carries "pagina n / N" as text, written when the layout is complete (`_nu
 """
 from __future__ import annotations
 
+import hashlib
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -738,6 +739,16 @@ def map_image_key(map_id: str, extent: QgsRectangle) -> str:
             f"{extent.xMaximum():.0f}:{extent.yMaximum():.0f}")
 
 
+def _image_name(key: str) -> str:
+    """The file-name part that tells two framings of one map apart, stable across runs.
+
+    `hash()` on a str is salted per process (PYTHONHASHSEED), so a headless run reusing the same
+    `--out` left a new set of orphans behind every time and two framings could collide on one
+    name. A digest of the key does neither.
+    """
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
+
+
 def _image_pixels() -> Tuple[int, int]:
     """The pixel size a map item is printed at, capped at what a service hands out in one go."""
     width = int(round(MAP_W / 25.4 * MAP_IMAGE_DPI))
@@ -798,7 +809,7 @@ def _write_world_file(path: Path, request: MapRequest) -> None:
 def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClient, log=None,
                        should_cancel: Optional[Callable[[], bool]] = None
                        ) -> Tuple[Dict[str, Path], Set[str]]:
-    """({key -> PNG}, ids of maps that drew nothing here), fetched in parallel.
+    """({key -> PNG}, keys whose service drew nothing here), fetched in parallel.
 
     This is the phase that used to be spread over ninety sheets of rendering: the WMS provider
     fetches its tiles while a page draws, one page after another, and the whole report waits on
@@ -808,6 +819,10 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
     Emptiness comes for free with the picture, so the separate coverage probe is gone. It is only
     trusted for maps WITHOUT facts: the watertoets answers Gent with a fully transparent tile
     because no flood zone lies there - data, not a hole in the mosaic - and its own table says so.
+
+    Emptiness is reported per REQUEST, not per map: one map carries several framings (the GRB base
+    map three), and a mosaic that has no sheet for the wide frame may well cover the narrow one.
+    Keyed per map, one empty tile would print "geen dekking" on every other sheet of that map.
     """
     out_dir = Path(out_dir)
     images: Dict[str, Path] = {}
@@ -821,19 +836,19 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
         if not data or not image.loadFromData(data):
             raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
                                        f"({len(data)} bytes)")
-        path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{abs(hash(request.key)) % 10000:04d}.png"
+        path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{_image_name(request.key)}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         _write_world_file(path.with_suffix(".pgw"), request)
         images[request.key] = path
         if entry.fact_mode is None and _is_empty(image):
-            empty.add(request.map_id)
+            empty.add(request.key)
 
     parallel.load_each(list(requests), fetch, "kaartbeeld", MAP_IMAGE_WORKERS, log, should_cancel)
     if log:
+        blank = sorted({request.map_id for request in requests if request.key in empty})
         log.info(f"Kaartbeelden opgehaald: {len(images)}/{len(requests)}"
-                 + (f"; geen kaartbeeld op deze locatie voor: {', '.join(sorted(empty))}"
-                    if empty else ""))
+                 + (f"; geen kaartbeeld op deze locatie voor: {', '.join(blank)}" if blank else ""))
         missing = [request.map_id for request in requests if request.key not in images]
         if missing:
             log.warning(f"Geen kaartbeeld voor: {', '.join(sorted(set(missing)))}")
@@ -941,9 +956,10 @@ class LayoutBuilder:
         to draw on top of its map image; name: what the layout is called in the layout manager
         (`layout_name`), the bare plugin name when left empty;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
-        map ids whose service draws nothing here; map_images: the key of `map_image_key` -> the
-        raster layer of the image fetched for it, which a map page draws instead of the live
-        WMS layer; overlay_boxes: what a page widens for, as `overlay_boxes` gives it - the same
+        `map_image_key`s whose service drew nothing there - per framing, because one map can carry
+        several and a mosaic can cover the narrow one and not the wide one; map_images: the same
+        key -> the raster layer of the image fetched for it, which a map page draws instead of the
+        live WMS layer; overlay_boxes: what a page widens for, as `overlay_boxes` gives it - the same
         boxes the images were planned on. Without them the page widens for its layers' extents,
         which is fine when nobody planned an image for it (the direct tests)."""
         self.project, self.report = project, report
@@ -1145,8 +1161,9 @@ class LayoutBuilder:
         self._scale_bar(map_item, real_scale, index)
         # The map stays on the sheet even without coverage - the zone circle is what the reader
         # came for - but the note says why the background is empty.
-        empty = page.map_id in self.no_coverage
-        missing = map_image_key(page.map_id, extent) not in self.map_images
+        key = map_image_key(page.map_id, extent)
+        empty = key in self.no_coverage
+        missing = key not in self.map_images
         note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "",
                                           MISSING_MAP_NOTE if missing and not empty else "") if part)
         if note:
