@@ -723,7 +723,8 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
 
     def empty_ferraris(requests, out_dir, client, log=None, should_cancel=None):
         images, _empty = real(requests, out_dir, client, log, should_cancel)
-        return images, {"ferraris"}
+        # per kader leeg, want dat is wat de dienst per GetMap antwoordt
+        return images, {request.key for request in requests if request.map_id == "ferraris"}
 
     monkeypatch.setattr(layout, "prepare_map_images", empty_ferraris)
 
