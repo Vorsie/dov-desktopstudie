@@ -304,7 +304,7 @@ def test_one_endless_path_segment_keeps_its_tail():
     short = http.short_url(QUARTAIR_DRAWING)
 
     assert short.startswith("https://datasets.omgeving.vlaanderen.be/...")
-    assert short.endswith("DOV_Quartair_50000_22010_png")
+    assert short.endswith("Quartair_50000_22010_png")
     assert len(short) < len(QUARTAIR_DRAWING) - 30
 
 
@@ -333,3 +333,43 @@ def test_an_unknown_cache_mode_on_a_call_raises_value_error(tmp_path):
 
     with pytest.raises(ValueError):
         client.get("https://x.be/a", cache_mode="sometimes")
+
+
+def test_no_word_in_a_short_url_is_wider_than_a_table_column():
+    """Inkorten is pas inkorten als het resultaat ook past. De gevouwen downloadlink was nog 75
+    tekens en werd op het bronnenblad alsnog midden in een woord afgekapt; hij hoort op een
+    scheiding ("." of "_") te breken tot hij binnen MAX_PATH_CHARS valt. De haakjes achter een
+    WFS-URL tellen niet mee: daar zitten spaties in, dus die breekt de tabel zelf."""
+    short = http.short_url(QUARTAIR_DRAWING)
+
+    assert len(short) <= http.MAX_PATH_CHARS, short
+    assert short.endswith("_22010_png") and "22010" in short, short
+    assert "..." in short
+    # en voor elke andere lange URL geldt hetzelfde: geen woord breder dan de kolom
+    for url in (DOORPRIK_URL, WATERINFO_URL, QUARTAIR_DRAWING,
+                "https://x.be/" + "a" * 300, "https://y.be/een/twee/" + "b" * 200):
+        assert max(len(word) for word in http.short_url(url).split()) <= http.MAX_PATH_CHARS, url
+
+
+def test_a_short_url_keeps_the_request_it_carried_even_when_it_folds():
+    """De haakjes zeggen WELKE bevraging het was; die mogen niet sneuvelen bij het inkorten."""
+    folded = http.short_url(WATERINFO_URL + "?SERVICE=WMS&REQUEST=GetLegendGraphic")
+
+    assert folded.endswith("(GetLegendGraphic)")
+    assert folded.startswith("https://inspirepub.waterinfo.be/...")
+
+
+def test_a_url_without_a_path_is_left_alone():
+    """Er valt niets te vouwen aan een host zonder pad."""
+    assert http.short_url("https://www.dov.vlaanderen.be") == "https://www.dov.vlaanderen.be"
+
+
+def test_off_is_off_also_for_a_call_that_asks_to_refresh(tmp_path):
+    """Een client die met cache_mode "off" is gebouwd, schrijft niet naar schijf - ook niet als een
+    oproep om een verse ophaling vraagt. "off" is de keuze van wie de client maakte; een oproep mag
+    de cache overslaan, niet aanzetten."""
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda u, t, a: b"\x89PNGdata", cache_mode="off")
+
+    assert client.get("https://x.be/tekening.png", cache_mode="refresh") == b"\x89PNGdata"
+
+    assert list(tmp_path.glob("*.bin")) == [], "off is off"
