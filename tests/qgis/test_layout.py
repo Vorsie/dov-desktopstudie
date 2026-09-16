@@ -520,17 +520,12 @@ def test_live_the_gxg_legend_is_a_real_png(qgs_app, tmp_path):
 
 # --- legenda's van de zone (profieltypes van het Quartair) ------------------------------------
 
-QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
-                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
-
-
 def _quartair_result(gent_zone, codes):
-    from desktopstudie.core.model import MapFact, StudyResult
+    from desktopstudie.core.model import StudyResult
+    from tests import quartair
 
     result = StudyResult(zone=gent_zone, created_at="2026-09-15T10:00:00")
-    result.map_facts = [MapFact("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)",
-                                [{"profieltype": code, "legende": QUARTAIR_LEGEND.format(code=code)}
-                                 for code in codes])]
+    result.map_facts = [quartair.map_fact(codes)]
     return result
 
 
@@ -1237,6 +1232,7 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
     from desktopstudie.core.model import MapFact, StudyResult
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import layout
+    from tests import quartair
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
 
@@ -1246,8 +1242,7 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
 
     result = StudyResult(zone=gent_zone, created_at="t")
     result.map_facts = [MapFact("quartair", "Quartair", [
-        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
-        {"profieltype": "22099", "legende": None}])]
+        quartair.rows(["22026"])[0], {"profieltype": "22099", "legende": None}])]
     lines = []
 
     layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
@@ -1255,3 +1250,42 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
 
     assert any("22099" in line and "WARNING" in line for line in lines), lines
     assert not any("22026" in line and "WARNING" in line for line in lines), lines
+
+
+def test_a_drawing_that_cannot_be_read_gives_no_strip(qgs_app, tmp_path):
+    """Een bestand dat geen afbeelding is, levert geen kopstrook en zegt dat in het log - het mag
+    geen leeg kader op de legendapagina worden."""
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.qgis import layout
+
+    kapot = tmp_path / "legendas" / "quartair_22026.png"
+    kapot.parent.mkdir(parents=True, exist_ok=True)
+    kapot.write_bytes(b"dit is geen png")
+    lines = []
+
+    assert layout.crop_profile_header(kapot, Log("layout", lines.append, scope="qgis")) is None
+    assert layout.crop_sheet_units(kapot, "22", Log("layout", lines.append, scope="qgis")) is None
+    assert sum("WARNING" in line for line in lines) == 2, lines
+
+
+def test_a_drawing_without_a_white_band_falls_back_to_a_fixed_strip(qgs_app, tmp_path):
+    """Zonder witte band is er geen natuurlijke snede. Dan wint een vaste strook: nog altijd een
+    strook, en niet een heel blad eenhedentabel."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.qgis import layout
+
+    vol = _drawn_png(tmp_path / "vol.png", 980, 703)
+
+    assert layout.header_rows(QImage(str(vol))) == layout.HEADER_FALLBACK_ROWS
+
+
+def test_a_drawing_shorter_than_the_fallback_keeps_its_own_height(qgs_app, tmp_path):
+    """Een tekening die korter is dan de vaste strook wordt niet langer gemaakt dan ze is."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.qgis import layout
+
+    klein = _drawn_png(tmp_path / "klein.png", 200, 40)
+
+    assert layout.header_rows(QImage(str(klein))) == 40
