@@ -453,6 +453,9 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
     bytes are therefore checked here, and a bad answer is asked again with the cache stepped over:
     a web page written into the disk cache would come back on every later run.
     """
+    # The first try may come straight from the disk cache - which is the point: a web page cached
+    # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
+    # so a bad cached answer costs one request, not none and not two.
     for attempt in range(ZONE_LEGEND_TRIES):
         data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES,
                           cache_mode="refresh" if attempt else None)
@@ -518,6 +521,22 @@ def crop_profile_header(path, log=None) -> Optional[Path]:
     return target
 
 
+def _log_rows_without_a_drawing(result: StudyResult, targets: Dict[str, str], log) -> None:
+    """Say which profile types carry no usable drawing URL - what was NOT found is a finding too.
+
+    A row with a code but without a legend link leaves the legend page with a line and no picture,
+    and without this line nobody could tell that from a download that failed.
+    """
+    if log is None:
+        return
+    known = set(targets.values())
+    missing = sorted({str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
+                      if fact.map_id == QUARTAIR_ID for row in fact.rows
+                      if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known})
+    if missing:
+        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(missing)}")
+
+
 def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
                                should_cancel: Optional[Callable[[], bool]] = None
                                ) -> Dict[str, Path]:
@@ -536,6 +555,7 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     checked before they are saved as an image.
     """
     targets = zone_legend_targets(result)
+    _log_rows_without_a_drawing(result, targets, log)
     drawings: Dict[str, Path] = {}
     out_dir = Path(out_dir)
 
@@ -549,8 +569,9 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
 
     parallel.load_each(list(targets.items()), fetch, "profieltypelegenda", LEGEND_WORKERS, log,
                        should_cancel)
-    # The threads only fetch; the cutting and the one-per-sheet choice happen here, in catalogue
-    # order, so two runs of the same study keep the same sheet drawing.
+    # The threads only fetch; the cutting and the one-per-sheet choice happen here, in the order
+    # the WFS rows first mentioned each profile type, so two runs of the same study keep the same
+    # sheet drawing.
     images: Dict[str, Path] = {}
     for code in targets.values():
         drawing = drawings.get(code)
