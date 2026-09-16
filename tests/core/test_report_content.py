@@ -312,7 +312,7 @@ def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
 
     legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - PFAS"))
     link = legend.rows[0][-1]
-    assert link.startswith("https://www.vlaanderen.be/...") and len(link) < 80, link
+    assert link.startswith("https://www.vlaanderen.be/...") and len(link) <= 64, link
 
 
 def test_a_map_gets_one_table_not_two(gent_ring):
