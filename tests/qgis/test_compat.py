@@ -65,7 +65,8 @@ def test_an_old_enum_type_names_its_value_too(qgs_app):
 def test_a_value_is_never_named_after_another_enum_of_the_same_class(qgs_app):
     """Twee enums van dezelfde klasse dragen dezelfde getallen: `QgsZonalStatistics.Count` is 1 en
     `QgsZonalStatistics.Result.LayerTypeWrong` is dat ook. Een naam die van de verkeerde enum komt
-    is erger dan een cijfer - die liegt."""
+    is erger dan een cijfer - die liegt. Een waarde die haar eigen enum bij zich draagt hoort dus
+    haar eigen naam te krijgen, en een kaal getal dat op twee enums past helemaal geen naam."""
     from qgis.analysis import QgsZonalStatistics
 
     from desktopstudie.qgis import compat
@@ -73,6 +74,7 @@ def test_a_value_is_never_named_after_another_enum_of_the_same_class(qgs_app):
     result = getattr(QgsZonalStatistics, "Result", QgsZonalStatistics)
 
     assert compat.enum_name(result, result.LayerTypeWrong) == "LayerTypeWrong"
+    assert compat.enum_name(QgsZonalStatistics, 1) == "1", "twee enums passen op 1; dan liever niets"
 
 
 def test_offscreen_without_a_font_dir_gets_one(qgs_app, monkeypatch):
