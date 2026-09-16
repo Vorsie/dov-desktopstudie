@@ -73,6 +73,7 @@ from ..core.report_content import (
     quartair_sheet,
     sheet_image_key,
 )
+from ..core.services.dov_portal import content_link
 from ..core.services.http import HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
@@ -468,8 +469,8 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
 
     The URL ends in "_png" but is a download link into a document portal, and that portal answers
     with its own web page - HTTP 200, text/html - often enough that one answer proves nothing. The
-    bytes are therefore checked here, and a bad answer is asked again with the cache stepped over:
-    a web page written into the disk cache would come back on every later run.
+    bytes are therefore checked here. Een pagina wordt niet bewaard en niet klakkeloos herhaald:
+    ze draagt de directe link naar het bestand in zich, en die wordt gevolgd.
     """
     # The first try may come straight from the disk cache - which is the point: a web page cached
     # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
@@ -479,9 +480,23 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
                           cache_mode="refresh" if attempt else None)
         if data.startswith(PNG_MAGIC):
             return data
+        # Geen bestand, dus niets om te bewaren: anders dient de cache deze pagina bij elke
+        # volgende run zonder netwerk weer op.
+        client.forget(url)
         if log:
             log.warning(f"Profieltype {code}: antwoord {attempt + 1}/{ZONE_LEGEND_TRIES} is geen PNG "
                         f"({len(data)} bytes)")
+        link = content_link(data, url)
+        if link:
+            if log:
+                log.info(f"Profieltype {code}: de pagina wijst naar het bestand zelf, die link volgen")
+            found = client.get(link, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
+            if found.startswith(PNG_MAGIC):
+                return found
+            client.forget(link)
+            if log:
+                log.warning(f"Profieltype {code}: ook de link uit de pagina gaf geen PNG "
+                            f"({len(found)} bytes)")
     raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
 
 
