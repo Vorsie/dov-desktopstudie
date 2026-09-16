@@ -71,8 +71,9 @@ GUIDE_BODEMKAART = (
 GUIDE_QUARTAIR = (
     "Het profieltype is een nummer; elk nummer hoort bij een vaste opeenvolging van Quartaire "
     "afzettingen (zand, leem, klei of veen) boven de Tertiaire ondergrond. "
-    "De tekening bij dat nummer staat als figuur achter deze tabel en leest van boven naar onder: "
-    "van de jongste laag aan het maaiveld tot de oudste. "
+    "Achter deze tabel staat per profieltype de tekening van DOV: eerst het type zelf met zijn "
+    "kleur, lettercode en omschrijving, daarna de eenhedentabel van het kaartblad, die van boven "
+    "naar onder loopt - van de jongste laag aan het maaiveld tot de oudste. "
     "Het Quartair is de jongste geologische periode, alles wat de laatste 2,6 miljoen jaar is "
     "afgezet, en is meestal het pakket waarin gefundeerd wordt. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-150000")
