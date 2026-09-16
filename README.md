@@ -53,8 +53,9 @@ python3 scripts/run_headless.py --x 104326 --y 192506 --buffer 50 --out uitvoer/
 Kies de locatie met `--adres` of met `--x/--y` (Lambert 72). Verder: `--buffer` de straal van de
 zonecirkel, `--straal` de zoekstraal voor grondonderzoek, `--project/--projectnummer/--auteur/
 --bedrijf/--logo` voor het titelblad, `--cache use|refresh|off` voor de schijfcache,
-`--geen-legendas` om de aparte legendapagina's over te slaan en `--paginas` om elk blad ook als PNG
-weg te schrijven. De uitvoermap krijgt `rapport.pdf`, `studie.qgz`, `data/studie.gpkg`,
+`--geen-legendas` om de aparte legendapagina's over te slaan (de profieltekeningen van het Quartair
+worden wel opgehaald, die horen bij de inhoud) en `--paginas` om elk blad ook als PNG weg te
+schrijven. De uitvoermap krijgt `rapport.pdf`, `studie.qgz`, `data/studie.gpkg`,
 `data/studie.json`, `figuren/` en `legendas/`.
 
 Afsluitcodes: 0 = volledig, 2 = geen bruikbare locatie (adres niet gevonden of niets opgegeven),
