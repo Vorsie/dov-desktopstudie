@@ -19,6 +19,20 @@ def test_zone_derives_centroid_bbox_and_wkt(gent_ring):
     assert zone.area_m2 == 40000.0
 
 
+def test_a_zone_around_a_point_is_a_circle_named_after_the_address_or_the_point():
+    """Adres of X/Y, in de plugin en in de scripts: één constructor. Met een adres heet de zone
+    naar het adres en draagt ze het; zonder heet ze naar het coördinaat, op de meter afgerond."""
+    zone = m.StudyZone.around_point(104326.0, 192506.0, 50.0, 600.0,
+                                    address="Kortrijksesteenweg 100, 9000 Gent")
+    assert zone.name == zone.address == "Kortrijksesteenweg 100, 9000 Gent"
+    assert zone.radius_m == 600.0
+    assert len(zone.ring) >= 32
+    assert all(abs(g.distance(point, (104326.0, 192506.0)) - 50.0) < 1e-6 for point in zone.ring)
+
+    bare = m.StudyZone.around_point(104326.4, 192506.0, 50.0, 500.0)
+    assert bare.name == "104326/192506" and bare.address is None
+
+
 def test_study_result_round_trips_to_json(gent_ring, tmp_path):
     zone = m.StudyZone(ring=gent_ring, name="Gent test")
     cpt = m.Cpt(permkey="1965-039716", number="GEO-64/306-SIX", x=104007.0, y=192682.0, z_mtaw=6.26,
