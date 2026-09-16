@@ -245,7 +245,7 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
 
 def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: Path,
                         client: HttpClient, log: Log, should_cancel) -> Dict[str, str]:
-    """The quartair profile-type drawings, as paths relative to `out_dir`.
+    """The quartair drawings, keyed as `report_content` looks them up, relative to `out_dir`.
 
     That is the shape `build_report` wants and the same one `StudyResult.figures` already uses, so
     the layout resolves both the same way. Every drawing is a source of its own: one that did not
@@ -256,8 +256,8 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     for url, code in targets.items():
         found = profile_image_key(code) in images
         record_source(result, f"Legenda profieltype {code}", url, found,
-                      "" if found else "tekening van het profieltype niet opgehaald")
-    return {url: path.relative_to(out_dir).as_posix() for url, path in images.items()}
+                      "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
+    return {key: path.relative_to(out_dir).as_posix() for key, path in images.items()}
 
 
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
