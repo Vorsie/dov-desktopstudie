@@ -107,7 +107,7 @@ class _Runner:
         self.log = log
         self.wfs = DovWfs(client, log=log.child("dov_wfs"))
         self.xml_log = log.child("dov_xml")  # one logger for the three per-item XML parsers
-        self.result = StudyResult(zone=zone, created_at=_now())
+        self.result = StudyResult(zone=zone, created_at=_now(), map_ids=settings.map_ids)
         self.zone.radius_m = settings.radius_m
 
     # --- plumbing -----------------------------------------------------------------------
@@ -340,9 +340,7 @@ class _Runner:
         of the catalogue, so the sources chapter does not shuffle itself between two runs of the
         same study. Hence the split: the threads only fetch, the main thread records.
         """
-        wanted = [e for e in catalogue.entries() if e.fact_mode is not None]
-        if self.s.map_ids is not None:
-            wanted = [e for e in wanted if e.id in self.s.map_ids]
+        wanted = [e for e in catalogue.entries(only=self.result.map_ids) if e.fact_mode is not None]
         fetched: Dict[str, Any] = {}  # entry id -> rows, or the exception that explains their absence
 
         def fetch(entry: catalogue.MapEntry) -> None:
