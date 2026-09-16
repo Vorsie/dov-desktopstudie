@@ -19,9 +19,13 @@ CPT/boring/peilput binnen de corridor), figuren
 rapportinhoud (`report_content.py`: bouwt de hoofdstuk/pagina-boom - `Chapter` met `MapPage` /
 `FigurePage` / `TablePage` / `TextPage` - uit een `StudyResult`; rendert zelf niets, dat doet de
 schil) en de orchestrator `study.py`.
-`desktopstudie/qgis/` is de dunne schil: dialoog, kaarttools, lagen, DEM, layout, export,
-QgsTask, instellingen. Kaarten staan uitsluitend in `core/catalogue.py`: één entry per kaart;
-een kaart toevoegen = één entry, geen code.
+`desktopstudie/qgis/` is de dunne schil: lagen (`layers.py`), DEM, layout, export, de pijplijn
+(`pipeline.py`: `run_core` / `prepare` / `finish`) en de plugin zelf - `plugin.py` (actie en menu),
+`dialog.py` (het formulier, in code gebouwd), `zone_input.py` (pure functies: adres, X/Y, getekende
+ring of geselecteerd object -> `StudyZone` in Lambert 72; doorsnedelijn; uitvoermap per run),
+`map_tools.py` (polygoon/lijn tekenen), `task.py` (`StudyTask` op de werkthread, `StudyRunner` op
+de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan uitsluitend in
+`core/catalogue.py`: één entry per kaart; een kaart toevoegen = één entry, geen code.
 
 ## Harde regels
 
@@ -226,11 +230,42 @@ een kaart toevoegen = één entry, geen code.
   ondersteunt het `{*}naam`-namespace-jokerteken NIET (dat werkt alleen in de ElementPath-syntax
   van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
   `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
-- **De pijplijn valt in twee helften uiteen.** `pipeline.run_core` raakt geen QGIS aan (draait dus
-  op een werkthread / QgsTask), `pipeline.finish` doet alles wat de hoofdthread vereist: reliëf,
-  regels, rapport, lagen, layout, exports. `run_pipeline` is de twee samen voor wie de hele studie in
-  één oproep wil; `scripts/run_headless.py` roept de helften zelf aan, want het meldt hoelang elk
-  van de twee duurde. Beide helften delen één `HttpClient`, dus één schijfcache.
+- **De pijplijn valt in drie delen uiteen.** `pipeline.run_core` raakt geen QGIS aan en
+  `pipeline.prepare` evenmin - legenda's, quartairtekeningen en kaartbeelden, gepland op dozen uit
+  de studie zelf (`layout.overlay_boxes`), zonder één laag - dus allebei draaien in de plugin op de
+  werkthread (`task.StudyTask`). `pipeline.finish` doet alles wat de hoofdthread vereist: reliëf
+  (WCS + zonale statistiek op de zonelaag, bewust niet in de werker), lagen, regels, rapport,
+  GeoPackage, layout, exports; zonder `prepared` doet het `prepare` eerst zelf (headless).
+  `run_pipeline` is alles in één oproep; `scripts/run_headless.py` roept de delen zelf aan, want
+  het meldt hoelang elk duurde. Alle delen delen één `HttpClient`, dus één schijfcache.
+- **De kaartpagina en het geplande kaartbeeld lezen dezelfde dozen.** `plan_map_images` (werker)
+  en `LayoutBuilder` (hoofdthread) moeten op de meter dezelfde extent vinden, anders zoekt het blad
+  zijn beeld onder een sleutel die er niet is. Daarom rekenen beide met `overlay_boxes(result)` -
+  proefpunten, zoekstraal (zonebbox + straal) en doorsnedelijn uit het resultaat - en nooit met
+  `layer.extent()` (de GEOS-buffer van de zoekstraal is in pure Python niet te reproduceren).
+  `map_extent` leest een kale bbox precies zoals een laag; `build_layout(overlay_boxes=...)` geeft
+  ze door.
+- **De hoofdthread ademt via `should_cancel`.** `finish` pollt het tussen fasen, tussen bladen van
+  de layout en tussen runs van de PDF-exporter (`export_pdf(should_cancel=, progress=)`; een
+  afgebroken export laat geen halve PDF achter). De `should_cancel` van de plugin
+  (`StudyRunner._should_cancel`) roept eerst `QCoreApplication.processEvents()` aan, zodat de
+  voortgangsbalk beweegt en Annuleren gehoord wordt; de werker krijgt `QgsTask.isCanceled`.
+  `QgsTask.finished()` draait in de slot van de taakbeheerder, die de taak daarna verwijdert: de
+  uitkomst verlaat de taak als data (`WorkerOutcome`), de taak laat zijn callback en connecties
+  los, en de runner plant `finish` met `QTimer.singleShot(0, ...)` op zichzelf.
+- **Een tweede run in hetzelfde project is een update.** `layers.add_group` vervangt een groep met
+  dezelfde naam (haar lagen uit het project), `drop_previous_run` de layout en de rapportkopieën.
+  Elke run schrijft in een eigen map `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>`
+  (`zone_input.run_folder`), zodat het GeoPackage van de vorige run nooit vergrendeld of
+  overschreven is. De plugin werkt in het geopende project: geen `newProject()`, geen vraag.
+- **Instellingen onder `desktopstudie/`** (`settings.PluginSettings`): `bedrijf`, `auteur`, `logo`,
+  `straal`, `uitvoermap`, `cache`, `legendas`; elke lezing valt terug op haar standaard. De opslag
+  is injecteerbaar - tests schrijven in een eigen ini, nooit in het profiel.
+- **Logregels van de plugin gaan naar het logpaneel** (tab "DOV Desktopstudie") via
+  `task.plugin_log`; het niveau volgt het voorvoegsel (`WARNING` geel, `ERROR` rood), DEBUG blijft
+  weg. Mislukte producten en bronnen (afsluitcode 3 headless) komen als `pushWarning` bij naam in
+  de berichtenbalk, een omgevallen kern als `pushCritical`, het rapport als succesmelding met
+  "Open PDF".
 - **Na `relief` draaien de signaleringsregels opnieuw** (`checks.run_all`), want de reliëfregel kan
   pas dan aanslaan. De twee signaleringen die alleen de orchestrator kan kennen - een afgekapte
   WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
@@ -344,8 +379,24 @@ een kaart toevoegen = één entry, geen code.
   en van de schil apart.
 - Fixtures verversen: `python scripts/record_fixtures.py` (schrijft `tests/core/fixtures/` opnieuw,
   inclusief de bron-URL en datum in de README ernaast).
-- Plugin laden in QGIS: junction van `desktopstudie/` naar
-  `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie`, daarna Plugin Reloader.
+- Plugin laden in QGIS: `scripts\dev_link.cmd` maakt de junction van `desktopstudie/` naar
+  `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\desktopstudie` (weigert als er al iets
+  staat), daarna Plugin Reloader. Onbeheerd doorlopen in een echte QGIS:
+  `"C:\Program Files\QGIS 3.40.15\bin\qgis-ltr-bin.exe" --nologo --noversioncheck --code
+  scripts\smoke_plugin.py` (adresmodus voor Gent; status in `uitvoer/plugin_gent/smoke_status.json`,
+  log ernaast; QGIS sluit zichzelf). Zip voor "Installeren uit ZIP": `python scripts/build_zip.py`
+  -> `dist/desktopstudie-<versie uit metadata.txt>.zip`.
+- **Een exception in een Qt-slot breekt het testproces af (0xC0000409).** Onder pytest staat de
+  standaard `sys.excepthook`, en dan roept PyQt bij een onafgevangen exception in een slot `qFatal`
+  aan - geen traceback, alleen een dode proces. In QGIS zelf vangt de eigen excepthook het op. Dus:
+  elke slot in de plugin vangt zijn fouten en logt ze, en een testdubbel die aan een signaal hangt
+  ook. Let op `QgsMessageBar.widgetAdded`: een item dat de balk zelf maakte (`pushMessage`) komt in
+  Python als kale `QWidget` aan; `sip.cast(widget, QgsMessageBarItem)` eerst.
+- **Een afgeronde QgsTask leeft tot de taakbeheerder hem opruimt.** Wat hij nog vasthoudt (een
+  gebonden methode van de runner, en via die de iface met een `QgsMapCanvas`) sterft dan pas - na
+  `exitQgis()` is dat een access violation bij het afsluiten van de sessie (0xC0000005 na 166x
+  PASSED). `StudyTask.finished()` laat daarom callback en connecties los, en `tests/qgis/test_task.
+  _wait_until` spoelt de `DeferredDelete`-events door na het wachten.
 - Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
 - Figuren visueel controleren: `python scripts/render_figures.py` → `uitvoer/figuren_check/`.
 
