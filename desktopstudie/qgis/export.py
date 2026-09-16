@@ -14,8 +14,8 @@ a quadratic term that has nothing to do with what is on the sheets. Measured 202
 synthetic layout of 115 sheets of six plain labels: 38 s in one call, 10 s when the same layout
 went through the iterator interface in four runs, 508 s for 230 sheets in one call. The Gent report
 (115 sheets, ~800 items) paid 65 of its 95 s to that term. So `export_pdf` feeds the one layout to
-`QgsLayoutExporter` a few sheets at a time (`_PageRuns`) and `export_pages_png` exports every sheet
-with a fresh exporter; both produce exactly the sheets a single call would.
+`QgsLayoutExporter` a few sheets at a time (`_PageRuns`), producing exactly the sheets a single
+call would. The image export has no such term worth the trouble and stays one call.
 
 *A failed export is never a returned path.* `QgsLayoutExporter` reports a result code instead of
 raising, and a caller that ignores it hands the user a report that is not there. Every failure
@@ -234,8 +234,9 @@ def export_pages_png(layout: QgsPrintLayout, directory, dpi: int = PNG_DPI) -> L
     The pages of an earlier run are removed first: a study that got shorter would otherwise hand
     back sheets of the previous one, and nothing downstream can tell the two apart.
 
-    Every page gets its own exporter (`settings.pages`), for the same reason the PDF goes out in
-    runs; QGIS names the file after the page index either way, so the names do not change.
+    One exporter call for all pages, unlike the PDF: the image export grows only mildly with the
+    page count (0,49 s a page for 30 pages, 0,56 s for 60, at 72 dpi), while a fresh exporter per
+    page costs 1,7 s a page - measured 2026-09-16 on the Gent layout.
     """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
@@ -245,10 +246,9 @@ def export_pages_png(layout: QgsPrintLayout, directory, dpi: int = PNG_DPI) -> L
     settings = QgsLayoutExporter.ImageExportSettings()
     settings.dpi = dpi
     first = directory / f"{PAGE_STEM}.png"
-    with _frozen_exclusions(layout) as exported, _quiet_gdal():
-        for index in exported:
-            settings.pages = [index]
-            _check(QgsLayoutExporter(layout).exportToImage(str(first), settings), "PNG-export", directory)
+    with _quiet_gdal():
+        result = QgsLayoutExporter(layout).exportToImage(str(first), settings)
+    _check(result, "PNG-export", directory)
     return sorted(directory.glob(f"{PAGE_STEM}*.png"), key=_page_number)
 
 
