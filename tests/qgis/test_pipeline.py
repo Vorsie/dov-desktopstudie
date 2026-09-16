@@ -229,7 +229,7 @@ def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
         {"profieltype": "22098", "legende": QUARTAIR_LEGEND.format(code="22098")}]))
 
     class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             if url.endswith("22098_png"):
                 raise HttpError(url, 500, "dienst plat")
             return blob
