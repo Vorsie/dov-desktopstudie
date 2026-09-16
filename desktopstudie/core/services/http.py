@@ -19,6 +19,11 @@ from ..logging_util import Log
 USER_AGENT = "dov-desktopstudie/0.1 (+https://github.com/Vorsie/dov-desktopstudie)"
 
 CACHE_MODES = ("use", "refresh", "off")
+# Where a study keeps its machine-readable products, and the disk cache inside it. Both names live
+# here because the cache path is part of what a study's client promises, and three callers - the
+# pipeline, the legend fetcher and `run_core.py` - each used to spell the same two folders out.
+DATA_DIR = "data"
+CACHE_DIR = "cache"
 RETRYABLE_STATUSES = (408, 429)
 # The longest path the sources table can print whole. A URL carries no spaces, so the table has
 # nothing to wrap on and cuts it off mid-word instead: the watertoets service (125 characters)
@@ -32,6 +37,24 @@ MAX_PATH_CHARS = 60
 # halfway through a word ("OV_Quartair_..." reads like a typo, "Quartair_..." reads like a name).
 SEGMENT_BOUNDARIES = "._-"
 ELIDED = "..."
+
+
+def cache_dir_for(out_dir) -> Path:
+    """The disk cache of one study: `<out>/data/cache`, next to the other data it writes."""
+    return Path(out_dir) / DATA_DIR / CACHE_DIR
+
+
+def study_client(out_dir, log: Optional[Log] = None, cache_mode: str = "use",
+                 cache_dir=None) -> HttpClient:
+    """The HTTP client for one study: one disk cache, so a second phase re-uses what the first
+    already fetched and a re-run costs nothing.
+
+    The cache sits in `cache_dir` when given - the plugin puts it next to its run folders, shared
+    by every run under the same output folder, because a run folder is fresh every time - and
+    inside the output directory otherwise (the headless script keeps one folder per study).
+    """
+    return HttpClient(cache_dir=Path(cache_dir) if cache_dir else cache_dir_for(out_dir),
+                      log=log.child("http") if log else None, cache_mode=cache_mode)
 
 
 def _tail_of(segment: str, budget: int) -> str:
@@ -155,16 +178,21 @@ class HttpClient:
             return None
         return self.cache_dir / (hashlib.sha1(full_url.encode("utf-8")).hexdigest() + ".bin")
 
-    @staticmethod
-    def _atomic_write(path: Path, data: bytes) -> None:
+    def _atomic_write(self, path: Path, data: bytes) -> None:
         """Write via a pid+thread-scoped temp file and os.replace so concurrent writers never see
-        a half-written cache entry; a failed cache write must never fail the request itself."""
+        a half-written cache entry; a failed cache write must never fail the request itself.
+
+        It is logged, though. A full disk or a read-only output folder turns every later run into
+        a full download without a word about why, and "it is suddenly slow again" is not a thing
+        anyone can debug from silence.
+        """
         tmp = path.with_name(path.name + f".{os.getpid()}.{threading.get_ident()}.tmp")
         try:
             tmp.write_bytes(data)
             os.replace(tmp, path)
-        except OSError:
-            pass
+        except OSError as exc:
+            if self.log:
+                self.log.warning(f"antwoord niet bewaard in de cache ({path.name}): {exc}")
 
     def _retryable(self, exc: HttpError) -> bool:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
