@@ -146,26 +146,32 @@ class HttpClient:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
     def get(self, url: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
-            retries: Optional[int] = None) -> bytes:
+            retries: Optional[int] = None, cache_mode: Optional[str] = None) -> bytes:
         """Fetch one URL, through the disk cache when there is one.
 
-        `timeout` and `retries` override the client's own settings for this call alone. One fiche
-        out of a hundred deserves a short breath - waiting a full minute three times over for a
-        record that is down costs the whole study its time - while the WFS call that fills a whole
-        table keeps the patient defaults.
+        `timeout`, `retries` and `cache_mode` override the client's own settings for this call
+        alone. One fiche out of a hundred deserves a short breath - waiting a full minute three
+        times over for a record that is down costs the whole study its time - while the WFS call
+        that fills a whole table keeps the patient defaults. `cache_mode="refresh"` is for the
+        caller who can SEE that the answer is wrong: a service that returns its own web page with
+        HTTP 200 instead of the file puts that page in the cache, and without a way past it every
+        later run would serve the same rubbish from disk.
         """
         full = build_url(url, params)
         timeout = self.timeout if timeout is None else timeout
         retries = self.retries if retries is None else max(0, retries)
+        cache_mode = self.cache_mode if cache_mode is None else cache_mode
+        if cache_mode not in CACHE_MODES:
+            raise ValueError(f"unknown cache_mode {cache_mode!r}; use one of {CACHE_MODES}")
         cached = self._cache_path(full)
-        if cached and self.cache_mode == "use" and cached.exists():
+        if cached and cache_mode == "use" and cached.exists():
             return cached.read_bytes()
         last: Optional[HttpError] = None
         attempt = 0
         for attempt in range(retries + 1):
             try:
                 data = self._fetch(full, timeout, self.user_agent)
-                if cached and self.cache_mode != "off":
+                if cached and cache_mode != "off":
                     self._atomic_write(cached, data)
                     self._atomic_write(cached.with_suffix(".url"), full.encode("utf-8"))
                 return data
