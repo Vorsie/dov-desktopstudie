@@ -464,3 +464,32 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
     assert kaartlaag.message == pipeline.NO_COVERAGE_MESSAGE
     others = [p for p in out.result.provenance if p.source.startswith("Kaartlaag") and p is not kaartlaag]
     assert all(p.message == "" for p in others), [p.source for p in others]
+
+
+def test_finish_reports_how_long_every_phase_took(project, core_result, offline_shell, tmp_path,
+                                                  no_pdf):
+    """Een studie die een half uur duurt moet kunnen zeggen WAAR die tijd heen ging. "Het was traag"
+    is geen diagnose, en de voortgangsbalk van de plugin heeft dezelfde opsplitsing nodig."""
+    from desktopstudie.qgis import pipeline
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    names = [name for name, _seconds in out.timings]
+    assert names == ["Relief uit DHMV", "Lagen", "Dekking van de kaarten",
+                     "Signaleringen en rapport", "GeoPackage en projectbestand", "Layout",
+                     "PDF-export (niet onderbreekbaar)"], names
+    assert all(seconds >= 0.0 for _name, seconds in out.timings)
+    assert sum(seconds for _name, seconds in out.timings) > 0.0
+
+
+def test_the_phase_table_is_logged_and_names_the_slowest(project, core_result, offline_shell,
+                                                         tmp_path, no_pdf):
+    """De tabel hoort in het log te staan, ook als niemand het resultaat uitleest: bij een trage
+    run is dat het enige spoor."""
+    from desktopstudie.qgis import pipeline
+
+    lines = []
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(lines), legends=False)
+
+    table = [line for line in lines if "fase" in line or " s " in line]
+    assert any("Layout" in line for line in table), lines[-12:]
