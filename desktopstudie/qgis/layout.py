@@ -136,6 +136,11 @@ PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # is another white band (under the word "Profieltype"), which is why the search starts there.
 HEADER_MIN_ROWS = 60
 HEADER_FALLBACK_ROWS = 110
+# How often a drawing is asked for. The download links of the dataset portal answer with HTTP 200
+# and the portal's own web page instead of the file now and then (live 2026-09-16, the same URL
+# gave the PNG minutes earlier), and that answer is not an error the HTTP client can see - so the
+# bytes are checked here and a bad answer is asked again, past the cache.
+ZONE_LEGEND_TRIES = 2
 # One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
@@ -428,6 +433,25 @@ def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
     return targets
 
 
+def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
+    """One profile-type drawing, or an HttpError saying what came back instead.
+
+    The URL ends in "_png" but is a download link into a document portal, and that portal answers
+    with its own web page - HTTP 200, text/html - often enough that one answer proves nothing. The
+    bytes are therefore checked here, and a bad answer is asked again with the cache stepped over:
+    a web page written into the disk cache would come back on every later run.
+    """
+    for attempt in range(ZONE_LEGEND_TRIES):
+        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES,
+                          cache_mode="refresh" if attempt else None)
+        if data.startswith(PNG_MAGIC):
+            return data
+        if log:
+            log.warning(f"Profieltype {code}: antwoord {attempt + 1}/{ZONE_LEGEND_TRIES} is geen PNG "
+                        f"({len(data)} bytes)")
+    raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
+
+
 def header_rows(image: QImage) -> int:
     """How many pixel rows of a profile-type drawing are its header.
 
@@ -484,9 +508,7 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
 
     def fetch(item: Tuple[str, str]) -> None:
         url, code = item
-        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
-        if not data.startswith(PNG_MAGIC):
-            raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
+        data = _drawing_bytes(client, url, code, log)
         path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
