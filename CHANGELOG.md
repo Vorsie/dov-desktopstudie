@@ -47,3 +47,10 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   bouwt de WMS-lagen nog één keer in plaats van twee. Voor Gent ging de schil daarmee van 607 s
   naar 374 s inclusief PNG-export, met de PDF-export van 312 s naar 111 s (gemeten 2026-09-16 op
   dezelfde warme cache). Elke run drukt nu een tabel met de duur per fase af.
+- Nog sneller: de PDF gaat in runs van tien bladen naar de exporter (één oproep voor het hele
+  rapport kost per blad meer naarmate er meer bladen al geëxporteerd zijn), de tekst erin is echte
+  tekst - selecteerbaar en doorzoekbaar, 13,5 in plaats van 34 MB - en de voettekst draagt haar
+  bladnummer als tekst; de DOV-kaarten vragen hun WMS aan de dienst van hun eigen workspace
+  (enkele kB capabilities in plaats van 1,1 MB per kaart). Voor Gent ging de schil van 183-206 s
+  naar 46-48 s: PDF-export 102-120 -> 28 s, GeoPackage en projectbestand 44-84 -> 5 s, layout
+  13-15 -> 9 s (gemeten 2026-09-16, dezelfde warme cache, runs kort na elkaar).
