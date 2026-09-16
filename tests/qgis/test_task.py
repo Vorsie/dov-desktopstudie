@@ -164,27 +164,45 @@ def test_a_cancelled_task_reports_cancelled_not_an_error(qgs_app, tmp_path, monk
     assert outcome.cancelled is True and outcome.error is None and outcome.result is None
 
 
+def _log_signal():
+    """Het signaal waarmee DEZE QGIS een logregel doorgeeft.
+
+    QGIS 4 heeft `messageReceived(message, tag, level)` afgekeurd en zendt het niet meer uit:
+    `QgsMessageLog::emitMessage` doet daar `emit messageReceivedWithFormat(message, tag, level,
+    format)` plus `emit messageReceived(bool)` (qgsmessagelog.cpp op master). Een test die aan het
+    oude signaal blijft hangen vangt daar niets meer - wat op 4.x als een leeg logpaneel LEEST
+    terwijl de plugin niets mankeert: die schrijft met `QgsMessageLog.logMessage` en het logpaneel
+    luistert in C++. Op 3.34/3.40 bestaat het nieuwe signaal niet (geverifieerd op 3.40.15).
+    """
+    from qgis.core import QgsApplication
+
+    log = QgsApplication.messageLog()
+    return getattr(log, "messageReceivedWithFormat", None) or log.messageReceived
+
+
 def test_the_log_sink_sorts_lines_into_the_qgis_message_log_by_level(qgs_app):
     """Elke logregel van de plugin landt in het logpaneel onder het tabblad "DOV Desktopstudie",
     met het niveau uit het voorvoegsel: een WARNING wordt geel, een ERROR rood."""
-    from qgis.core import Qgis, QgsApplication
+    from qgis.core import Qgis
 
     from desktopstudie.qgis.task import LOG_TAB, plugin_log
 
     received = []
 
-    def record(message, tag, level):
+    def record(message, tag, level, *_format):  # 4.x geeft er een opmaakvlag achteraan
         received.append((message, tag, level))
 
-    QgsApplication.messageLog().messageReceived.connect(record)
+    signal = _log_signal()
+    signal.connect(record)
     try:
         log = plugin_log("proef")
         log.info("alles goed")
         log.warning("let op")
         log.error("mis")
     finally:
-        QgsApplication.messageLog().messageReceived.disconnect(record)
+        signal.disconnect(record)
 
+    assert received, "geen enkele logregel bereikte het logpaneel"
     assert [(tag, level) for _m, tag, level in received[-3:]] == [
         (LOG_TAB, Qgis.MessageLevel.Info), (LOG_TAB, Qgis.MessageLevel.Warning),
         (LOG_TAB, Qgis.MessageLevel.Critical)]
@@ -193,21 +211,22 @@ def test_the_log_sink_sorts_lines_into_the_qgis_message_log_by_level(qgs_app):
 
 def test_debug_lines_stay_out_of_the_message_log_by_default(qgs_app):
     """Per item DEBUG is voor wie het aanzet; het logpaneel krijgt standaard de fasesamenvattingen."""
-    from qgis.core import QgsApplication
-
     from desktopstudie.qgis.task import plugin_log
 
     received = []
 
-    def record(message, tag, level):
+    def record(message, tag, level, *_format):
         received.append(message)
 
-    QgsApplication.messageLog().messageReceived.connect(record)
+    signal = _log_signal()
+    signal.connect(record)
     try:
         plugin_log("proef").debug("per item")
+        plugin_log("proef").info("wel een fasesamenvatting")  # bewijst dat er geluisterd wordt
     finally:
-        QgsApplication.messageLog().messageReceived.disconnect(record)
+        signal.disconnect(record)
 
+    assert any("wel een fasesamenvatting" in message for message in received)
     assert not any("per item" in message for message in received)
 
 
