@@ -62,7 +62,7 @@ def make_layout(project, gent_zone, tmp_path):
         merged = {"zone": [zone]}
         merged.update(overlays or {})
         return layout.build_layout(project, _report(_standard_pages() if pages is None else pages),
-                                   {MAP_ID: [wms_stand_in]}, merged, tmp_path, gent_zone.ring,
+                                   merged, tmp_path, gent_zone.ring,
                                    _meta(), legends=legends, legend_images=legend_images,
                                    no_coverage=no_coverage)
 
@@ -235,7 +235,7 @@ def test_a_long_source_line_makes_its_info_box_taller(project, gent_zone, tmp_pa
 
     def source_box_height(map_id):
         lay = layout.build_layout(project, _report([MapPage(map_id, "Kaart", legend=False)]),
-                                  {}, {}, tmp_path, gent_zone.ring, _meta())
+                                  {}, tmp_path, gent_zone.ring, _meta())
         boxes = [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]
         source = max(boxes, key=lambda box: box.pos().y())  # het bronvak staat onderaan de kaart
         return source.rect().height()
@@ -260,7 +260,7 @@ def test_the_extent_is_the_wider_of_the_target_scale_and_the_zone(project, gent_
     wint, want anders valt de zone buiten beeld."""
     from desktopstudie.qgis import layout
 
-    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(layout.MAP_W / 1000.0 * 2500, abs=0.5)
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
     assert builder.map_extent(2500, 10.0).width() == pytest.approx(ZONE_WIDTH_M * 10.0, abs=0.5)
@@ -276,7 +276,7 @@ def test_the_extent_also_holds_what_the_page_asked_to_draw(project, gent_zone, t
     from desktopstudie.qgis import layers, layout
 
     search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
-    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
 
     tight = builder.map_extent(2500, 3.0)
     wide = builder.map_extent(2500, 3.0, [search_area])
@@ -292,7 +292,7 @@ def test_a_map_widened_for_its_overlays_lands_on_a_round_scale(project, gent_zon
     from desktopstudie.qgis import layers, layout
 
     search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
-    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
 
     extent = builder.map_extent(5000, 1.0, [search_area])  # de overzichtspagina van hoofdstuk 5
 
@@ -305,7 +305,7 @@ def test_a_map_that_was_not_widened_keeps_the_catalogue_scale(project, gent_zone
     tussenstap die naar de ladder mag worden getrokken."""
     from desktopstudie.qgis import layout
 
-    builder = layout.LayoutBuilder(project, _report([]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
 
@@ -321,7 +321,7 @@ def test_the_info_box_prints_the_rounded_scale(project, gent_zone, tmp_path):
                    extent_factor=1.0, show_investigations=True)
     overlays = {"zone": [layers.zone_layer(gent_zone)],
                 "investigations": [layers.circle_layer(gent_zone)]}
-    lay = layout.build_layout(project, _report([page]), {}, overlays, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), overlays, tmp_path, gent_zone.ring, _meta())
 
     texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
     assert any("schaal 1:10 000" in text for text in texts), texts
@@ -740,7 +740,7 @@ def test_the_footer_leaves_out_what_the_study_does_not_know(project, gent_zone, 
 
     from desktopstudie.qgis import layout
 
-    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring,
+    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring,
                               {"project": "", "company": "", "created_at": "2026-09-15T10:00:00"})
     footer = next(lbl for lbl in _items_of(lay, 0, QgsLayoutItemLabel) if "@layout_page" in lbl.text())
     assert footer.text().startswith("pagina ")
@@ -804,7 +804,7 @@ def test_a_wide_table_lands_on_a_landscape_sheet_with_every_column_on_it(project
     from desktopstudie.qgis import layout
 
     page = _sonderingen_page()
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
     metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Landscape)
@@ -824,7 +824,7 @@ def test_a_narrow_table_stays_portrait_and_wraps_its_long_sentences(project, gen
     from desktopstudie.qgis import layout
 
     page = _signaleringen_page()
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
     metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Portrait)
@@ -843,7 +843,7 @@ def test_a_table_of_fiches_says_where_the_fiches_live(project, gent_zone, tmp_pa
     from desktopstudie.qgis import layout
 
     page = _sonderingen_page()
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = [item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel)]
     assert any("https://www.dov.vlaanderen.be/data/sondering/" in text for text in texts), texts
@@ -856,7 +856,7 @@ def test_a_figure_wider_than_tall_gets_a_landscape_sheet(project, gent_zone, tmp
     from desktopstudie.qgis import layout
 
     _png(tmp_path / "figuren" / "breed.png", 1400, 1142)
-    lay = layout.build_layout(project, _report([FigurePage("Doorsnede", "figuren/breed.png")]), {}, {},
+    lay = layout.build_layout(project, _report([FigurePage("Doorsnede", "figuren/breed.png")]), {},
                               tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
@@ -878,7 +878,7 @@ def test_a_legend_page_puts_a_label_and_a_strip_per_entry_on_one_sheet(project, 
         LegendEntry("22010", "22", "legendas/quartair_22010_kop.png"),
         LegendEntry("22026", "22", "legendas/quartair_22026_kop.png")])
 
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert lay.pageCollection().pageCount() == 1 + 1, "een blad, geen strookje per blad"
     sheet = lay.pageCollection().page(1)
@@ -906,7 +906,7 @@ def test_a_legend_entry_without_a_drawing_says_so(project, gent_zone, tmp_path):
 
     page = LegendPage("Legenda voor de zone - Quartair", [LegendEntry("22098", "22", "")])
 
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Profieltype 22098 - kaartblad 22" in texts
@@ -928,7 +928,7 @@ def test_a_legend_page_that_is_full_continues_on_the_next_sheet(project, gent_zo
 
     lay = layout.build_layout(project, _report([LegendPage("Legenda voor de zone - Quartair",
                                                            entries)]),
-                              {}, {}, tmp_path, gent_zone.ring, _meta())
+                              {}, tmp_path, gent_zone.ring, _meta())
 
     assert lay.pageCollection().pageCount() > 2, "twaalf stroken passen niet op een blad"
     from qgis.core import QgsLayoutItemLabel
@@ -949,7 +949,7 @@ def test_an_empty_legend_page_prints_its_note(project, gent_zone, tmp_path):
 
     page = LegendPage("Legenda voor de zone - Quartair", [], note="Bron niet beschikbaar.")
 
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Bron niet beschikbaar." in texts
@@ -960,7 +960,7 @@ def test_a_tall_figure_stays_on_a_portrait_sheet(project, gent_zone, tmp_path):
     from desktopstudie.qgis import layout
 
     _png(tmp_path / "figuren" / "hoog.png", 535, 985)
-    lay = layout.build_layout(project, _report([FigurePage("Sondering", "figuren/hoog.png")]), {}, {},
+    lay = layout.build_layout(project, _report([FigurePage("Sondering", "figuren/hoog.png")]), {},
                               tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
@@ -977,7 +977,7 @@ def test_building_a_layout_stops_when_the_user_cancels(project, gent_zone, tmp_p
     pages = [TextPage(f"Blad {number}", "<p>tekst</p>") for number in range(20)]
 
     with pytest.raises(Cancelled):
-        layout.build_layout(project, _report(pages), {}, {}, tmp_path, gent_zone.ring, _meta(),
+        layout.build_layout(project, _report(pages), {}, tmp_path, gent_zone.ring, _meta(),
                             should_cancel=lambda: True)
 
 
@@ -1039,7 +1039,7 @@ def test_a_table_without_rows_prints_its_reason_and_no_empty_header(project, gen
     page = TablePage("Legenda voor de zone - Erosie", ["Erosieklasse", "Totale erosie"], [],
                      note="Geen kaarteenheden binnen de zone.")
 
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Geen kaarteenheden binnen de zone." in texts
@@ -1054,7 +1054,7 @@ def test_a_table_with_rows_keeps_its_header(project, gent_zone, tmp_path):
 
     page = TablePage("Legenda", ["Klasse"], [["C - kleine kans [2]"]])
 
-    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert len(_items_of(lay, 1, QgsLayoutFrame)) == 1
 
@@ -1069,7 +1069,7 @@ def test_the_title_page_leaves_out_a_zone_line_that_repeats_the_address(project,
 
     meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Kortrijksesteenweg 100")
 
-    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring, meta)
+    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, meta)
 
     texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
     assert "Adres" in texts and "Kortrijksesteenweg 100" in texts
@@ -1083,7 +1083,7 @@ def test_the_title_page_keeps_a_zone_line_that_says_something_else(project, gent
 
     meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Getekende polygoon")
 
-    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring, meta)
+    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, meta)
 
     texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
     assert "Getekende polygoon" in texts
@@ -1114,86 +1114,6 @@ def _drawn_png(path, width=64, height=64):
     path.parent.mkdir(parents=True, exist_ok=True)
     assert image.save(str(path))
     return path
-
-
-def test_an_empty_tile_means_no_coverage_and_a_drawn_tile_means_coverage(qgs_app, tmp_path,
-                                                                        gent_zone):
-    """De Popp-kaart is in Gent spierwit: het mozaiek heeft daar geen blad. De dienst antwoordt wel
-    - HTTP 200 met een volledig doorzichtige tegel - dus "ok" in de bronnenlijst klopt, maar de
-    lezer hoort te weten dat er geen kaartbeeld is. Een tegel met tekening erop is dekking."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    leeg = _solid_png(tmp_path / "leeg.png").read_bytes()
-    getekend = _drawn_png(tmp_path / "getekend.png").read_bytes()
-    asked = []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append(url)
-            return leeg if "popp" in url else getekend
-
-    entry = catalogue.by_id("popp")
-    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
-
-    assert layout.probe_coverage(entry, extent, _Client(cache_dir=None)) is False
-    assert layout.probe_coverage(catalogue.by_id("grb"), extent, _Client(cache_dir=None)) is True
-    url = asked[0]
-    assert "REQUEST=GetMap" in url and "VERSION=1.1.1" in url  # 1.1.1: BBOX altijd x,y
-    assert "WIDTH=64" in url and "HEIGHT=64" in url
-    assert "LAYERS=popp" in url and "SRS=EPSG%3A31370" in url
-
-
-def test_a_probe_that_fails_says_nothing_about_coverage(qgs_app, tmp_path, gent_zone):
-    """Een mislukte proef mag een werkende kaart niet tot "geen dekking" verklaren: dan staat er
-    een onwaarheid op het blad. Onbekend is onbekend, en dat is een WARNING waard."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.core.services.http import HttpClient, HttpError
-    from desktopstudie.qgis import layout
-
-    class _Down(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            raise HttpError(url, 500, "dienst plat")
-
-    class _Rubbish(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return b"<html>geen tegel</html>"
-
-    entry = catalogue.by_id("popp")
-    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
-    lines = []
-    log = Log("layout", lines.append, scope="qgis")
-
-    assert layout.probe_coverage(entry, extent, _Down(cache_dir=None), log) is None
-    assert layout.probe_coverage(entry, extent, _Rubbish(cache_dir=None), log) is None
-    assert sum("WARNING" in line for line in lines) == 2, lines
-
-
-def test_only_maps_without_facts_are_probed(qgs_app, tmp_path, gent_zone):
-    """Een lege tegel betekent alleen "geen dekking" als er geen ander bewijs is. De watertoets
-    antwoordt in Gent met een volledig doorzichtige tegel omdat er geen overstromingsgevoelig
-    gebied ligt - dat is data, geen gat in het mozaiek - en haar feitentabel zegt dat al. Alleen
-    kaarten zonder feiten worden dus bevraagd (live gemeten 2026-09-16)."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    leeg = _solid_png(tmp_path / "leeg.png").read_bytes()
-    asked = []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append(url)
-            return leeg
-
-    entries = [catalogue.by_id(map_id) for map_id in ("popp", "watertoets_pluviaal", "bodemkaart")]
-
-    missing = layout.prepare_coverage(entries, gent_zone.ring, _Client(cache_dir=None))
-
-    assert missing == {"popp"}
-    assert len(asked) == 1 and "popp" in asked[0]
 
 
 def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout):
@@ -1423,7 +1343,7 @@ def test_a_map_page_draws_the_fetched_image_instead_of_the_live_service(project,
     page = MapPage("grb", "Ligging", scale=2500)
     extent = layout.map_extent(gent_zone.ring, 2500, 3.0)
 
-    lay = layout.build_layout(project, _report([page]), {"grb": [wms]}, {}, tmp_path,
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path,
                               gent_zone.ring, _meta(),
                               map_images={layout.map_image_key("grb", extent): snapshot})
 
@@ -1445,7 +1365,7 @@ def test_a_map_page_without_an_image_says_the_source_was_not_available(project, 
     project.addMapLayer(wms, False)
 
     lay = layout.build_layout(project, _report([MapPage("grb", "Ligging", scale=2500)]),
-                              {"grb": [wms]}, {}, tmp_path, gent_zone.ring, _meta(), map_images={})
+                              {}, tmp_path, gent_zone.ring, _meta(), map_images={})
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert layout.MISSING_MAP_NOTE in texts
