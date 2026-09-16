@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import report_meta as _meta
 from tests.qgis.conftest import write_png as _png
 
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
@@ -35,13 +36,6 @@ def _standard_pages():
                   note="Modelwaarden, geen terreinmeting."),
         TextPage("Bronnen", "<p>DOV en geopunt, opgehaald op 2026-09-15.</p>"),
     ]
-
-
-def _meta():
-    return {"project": "Testproject", "project_number": "T-001", "author": "A. Tester",
-            "company": "Testbureau", "address": "Kortrijksesteenweg 100", "municipality": "Gent",
-            "zone_name": "Gent test", "created_at": "2026-09-15T10:00:00",
-            "disclaimer": "<p>Geen interpretatie.</p>", "logo_path": ""}
 
 
 @pytest.fixture
