@@ -154,6 +154,42 @@ def test_the_sheets_go_to_the_exporter_a_few_at_a_time_and_the_pdf_is_the_same(t
     assert pages.page(2).dataDefinedProperties().property(export.EXCLUDE).isActive()
 
 
+def test_a_cancel_between_two_runs_stops_the_export_and_leaves_no_half_report(three_pages, tmp_path):
+    """De bladen gaan in runs naar de exporter, en tussen twee runs mag een gebruiker stoppen: de
+    export eindigt binnen die ene run en er blijft geen halve PDF achter die voor een rapport kan
+    doorgaan."""
+    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.qgis import export
+
+    polled = []
+
+    def stop_after_the_first_run():
+        polled.append(True)
+        return len(polled) > 1
+
+    with pytest.raises(StudyCancelled):
+        export.export_pdf(three_pages, tmp_path / "half.pdf", pages_per_run=1,
+                          should_cancel=stop_after_the_first_run)
+
+    assert not (tmp_path / "half.pdf").exists()
+    # De layout verlaat de afgebroken export zoals ze erin ging.
+    pages = three_pages.pageCollection()
+    assert not any(pages.page(index).excludeFromExports() for index in range(pages.pageCount()))
+
+
+def test_the_export_says_how_many_sheets_are_done_after_every_run(three_pages, tmp_path):
+    """Een voortgangsbalk die een halve minuut op "PDF-export" blijft staan zegt niets; na elke
+    run hoort de export te melden hoeveel bladen er staan, van hoeveel."""
+    from desktopstudie.qgis import export
+
+    done = []
+
+    export.export_pdf(three_pages, tmp_path / "rapport.pdf", pages_per_run=2,
+                      progress=lambda sheets, total: done.append((sheets, total)))
+
+    assert done == [(2, 3), (3, 3)]
+
+
 def test_a_failed_pdf_export_says_which_result_it_got(three_pages, tmp_path):
     """Een export die mislukt, hoort te knallen met de naam van de fout, niet met een kale 3.
     Schrijven naar een bestaande map kan niet, en dat is precies zo'n geval: QGIS noemt dat
