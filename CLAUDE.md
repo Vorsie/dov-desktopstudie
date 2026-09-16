@@ -67,12 +67,16 @@ een kaart toevoegen = één entry, geen code.
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
   staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
-  de kop eraf (`layout.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110) en
-  levert `profieltype:<code>` en `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`:
-  een kopstrook per profieltype, de eenhedentabel één keer. De tabel noemt dus **Profieltype |
-  Kaartblad | Omschrijving** en niet de URL - 145 tekens downloadlink zeggen een lezer niets. Een
-  kopstrook is een reepje van 26 x 3 cm: `FigurePage.fit="natural"` tekent ze op ware grootte
-  (pixels / 96 dpi, begrensd door het blad), `"zoom"` blijft de standaard.
+  de kop eraf (`layout.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
+  snijdt diezelfde rij van boven van de eenhedentabel (`crop_sheet_units`, anders leest die tabel
+  als die van het ene profieltype waarmee ze binnenkwam) en levert `profieltype:<code>` en
+  `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**:
+  een `LegendPage` die per profieltype de regel "Profieltype <code> - kaartblad <nn>" met de strook
+  eronder zet (ware grootte, hoogstens een vijfde van de band, vervolgblad zodra het niet meer
+  past), en de eenhedentabel van het kaartblad. Geen URL op papier - 145 tekens downloadlink zeggen
+  een lezer niets - maar `LegendEntry` houdt code en kaartblad als data, dus de feiten blijven
+  machineleesbaar. Een tekening die niet binnenkwam laat de regel staan met "tekening niet
+  opgehaald".
 - **De legenda-URL van een profieltype is een downloadlink van een documentportaal.** Ze eindigt op
   `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug (live gezien op
   2026-09-16: dezelfde URL leverde minuten eerder nog de PNG). Daarom controleert
