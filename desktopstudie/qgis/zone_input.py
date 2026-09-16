@@ -43,13 +43,15 @@ def _crs(crs: Crs) -> QgsCoordinateReferenceSystem:
     return resolved
 
 
-def to_lambert72(points: Sequence[Point], crs: Crs) -> List[Point]:
+def to_lambert72(points: Sequence[Point], crs: Crs,
+                 context: Optional[QgsCoordinateTransformContext] = None) -> List[Point]:
     """`points` given in `crs`, in Lambert 72. Points already in Lambert 72 pass through untouched,
-    so a ring the user typed in metres stays the ring the user typed."""
+    so a ring the user typed in metres stays the ring the user typed. `context` is the project's
+    choice of datum transforms; without one the default transform applies."""
     source, target = _crs(crs), QgsCoordinateReferenceSystem(CRS_AUTHID)
     if source == target:
         return [(float(x), float(y)) for x, y in points]
-    transform = QgsCoordinateTransform(source, target, QgsCoordinateTransformContext())
+    transform = QgsCoordinateTransform(source, target, context or QgsCoordinateTransformContext())
     try:
         moved = [transform.transform(QgsPointXY(x, y)) for x, y in points]
     except QgsCsException as exc:
@@ -57,9 +59,9 @@ def to_lambert72(points: Sequence[Point], crs: Crs) -> List[Point]:
     return [(point.x(), point.y()) for point in moved]
 
 
-def _ring(points: Sequence[Point], crs: Crs) -> List[Point]:
+def _ring(points: Sequence[Point], crs: Crs, context=None) -> List[Point]:
     """The ring in Lambert 72, its closing point dropped, refused when it is not an area."""
-    ring = to_lambert72(points, crs)
+    ring = to_lambert72(points, crs, context)
     if len(ring) > 1 and ring[0] == ring[-1]:
         ring = ring[:-1]
     if len(ring) < MIN_RING_POINTS:
@@ -80,36 +82,37 @@ def zone_from_point(x: float, y: float, buffer_m: float, radius_m: float) -> Stu
 
 
 def zone_from_ring(points: Sequence[Point], crs: Crs, radius_m: float,
-                   name: Optional[str] = None) -> StudyZone:
+                   name: Optional[str] = None, context=None) -> StudyZone:
     """Drawing mode: the vertices the map tool collected, in the canvas CRS."""
-    ring = _ring(points, crs)
+    ring = _ring(points, crs, context)
     return StudyZone(ring=ring, name=name or f"Polygoon {point_name(*geometry.centroid(ring))}",
                      radius_m=radius_m)
 
 
-def _parts(feature: QgsFeature, wanted, what: str) -> Tuple[QgsGeometry, list]:
+def _geometry_of(feature: QgsFeature, wanted, what: str) -> QgsGeometry:
+    """The feature's geometry, when it has one of the wanted kind."""
     geom = feature.geometry()
     if geom is None or geom.isNull() or geom.isEmpty():
         raise ValueError("het geselecteerde object heeft geen geometrie")
     if geom.type() != wanted:
         raise ValueError(f"het geselecteerde object is geen {what}")
-    return geom, []
+    return geom
 
 
 def zone_from_feature(feature: QgsFeature, crs: Crs, radius_m: float,
-                      name: Optional[str] = None) -> StudyZone:
+                      name: Optional[str] = None, context=None) -> StudyZone:
     """Layer mode: the exterior ring of the largest part of a (multi)polygon feature, in the layer's
     CRS. Holes are dropped - a study zone is one ring (see the debt list in CLAUDE.md) - and a
     sliver next to the real parcel must not steer the study elsewhere, hence the largest part."""
-    geom, _ = _parts(feature, Qgis.GeometryType.Polygon, "vlak")
+    geom = _geometry_of(feature, Qgis.GeometryType.Polygon, "vlak")
     parts = geom.asMultiPolygon() if geom.isMultipart() else [geom.asPolygon()]
     largest = max(parts, key=lambda rings: QgsGeometry.fromPolygonXY(rings).area())
-    return zone_from_ring([(point.x(), point.y()) for point in largest[0]], crs, radius_m, name)
+    return zone_from_ring([(point.x(), point.y()) for point in largest[0]], crs, radius_m, name, context)
 
 
-def section_from_points(points: Sequence[Point], crs: Crs) -> Line:
+def section_from_points(points: Sequence[Point], crs: Crs, context=None) -> Line:
     """A drawn section line: its first and its last vertex, in Lambert 72."""
-    line = to_lambert72(points, crs)
+    line = to_lambert72(points, crs, context)
     if len(line) < 2:
         raise ValueError("een doorsnedelijn heeft twee punten nodig")
     if line[0] == line[-1]:
@@ -117,12 +120,12 @@ def section_from_points(points: Sequence[Point], crs: Crs) -> Line:
     return line[0], line[-1]
 
 
-def section_from_feature(feature: QgsFeature, crs: Crs) -> Line:
+def section_from_feature(feature: QgsFeature, crs: Crs, context=None) -> Line:
     """A selected line feature: the two ends of its longest part, in Lambert 72."""
-    geom, _ = _parts(feature, Qgis.GeometryType.Line, "lijn")
+    geom = _geometry_of(feature, Qgis.GeometryType.Line, "lijn")
     parts = geom.asMultiPolyline() if geom.isMultipart() else [geom.asPolyline()]
     longest = max(parts, key=lambda part: QgsGeometry.fromPolylineXY(part).length())
-    return section_from_points([(point.x(), point.y()) for point in longest], crs)
+    return section_from_points([(point.x(), point.y()) for point in longest], crs, context)
 
 
 def safe_name(text: str) -> str:
