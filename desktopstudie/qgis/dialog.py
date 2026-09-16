@@ -528,5 +528,13 @@ class StudyDialog(QDialog):
         self.iface.messageBar().pushWarning(PLUGIN_NAME, text)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt virtual
+        """Close is not goodbye: the plugin keeps this dialog and shows it again. So a search that
+        is still running is forgotten here - its answer would otherwise fill the list of a dialog
+        the user had closed - and the Zoek button is handed back, because `_address_found` drops
+        the answer on the token and would never re-enable it."""
         self._stop_tool()
+        if self._geocode_token is not None:
+            self.log.info(f"adres zoeken losgelaten bij het sluiten ({self._geocode_query!r})")
+            self._geocode_token, self._geocode_task = None, None
+            self.search_button.setEnabled(True)
         super().closeEvent(event)
