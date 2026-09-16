@@ -69,7 +69,9 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Geen open WMS voor de historische NGI-reeks (1873-1989); bommenkaart.be is geen open data.
 - Geen berekeningen en geen interpretatie: de plugin verzamelt, tekent en signaleert.
 - Het DOV-documentportaal antwoordt voor de profieltypetekeningen van het Quartair soms met zijn
-  webpagina in plaats van de PNG; de tekening wordt dan als mislukte bron gemeld.
+  webpagina in plaats van de PNG. Die pagina draagt de directe link naar het bestand; die wordt
+  gevolgd en het antwoord dat geen PNG was gaat uit de cache. Blijft ook dat leeg, dan wordt de
+  tekening als mislukte bron gemeld.
 - Geen `log.txt` in de uitvoermap: de plugin logt naar het logpaneel, het script naar de terminal.
 - Een studiezone is één ring: van een multipolygoon telt het grootste deel, gaten vervallen.
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
