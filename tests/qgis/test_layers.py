@@ -28,14 +28,33 @@ def _polygon(ring):
     return QgsGeometry.fromPolygonXY([[QgsPointXY(x, y) for x, y in ring]])
 
 
+def _params(layer) -> dict:
+    """De parameters van een provider-URI, gedecodeerd.
+
+    Niet als losse stukjes tekst zoeken: QGIS 4 percent-codeert wat het wegschrijft
+    (`url=https%3A%2F%2F...`, `styles=gxg%3Agxg`), en dan vindt `"url=https://..." in src` niets
+    terwijl de laag helemaal in orde is. De URI is één querystring, dus `parse_qs` leest hem in
+    beide vormen terug; `keep_blank_values` houdt `styles=` (de laagstandaard) zichtbaar.
+    `QgsDataSourceUri` is hier niet bruikbaar: dat ontleedt een raster-URI met &-scheiding niet
+    (geverifieerd op 3.40.15 - `param("crs")` gaf de hele rest van de string terug).
+    """
+    from urllib.parse import parse_qs
+
+    return {key: values[0] for key, values in
+            parse_qs(layer.source(), keep_blank_values=True).items()}
+
+
 def test_wms_layer_uri_from_catalogue(qgs_app):
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import layers
 
     lyr = layers.wms_layer(catalogue.by_id("ferraris"))
-    src = lyr.source()
-    assert "url=https://geo.api.vlaanderen.be/HISTCART/wms" in src and "layers=ferraris" in src
-    assert "crs=EPSG:31370" in src and "format=image/png" in src
+
+    params = _params(lyr)
+    assert params["url"] == "https://geo.api.vlaanderen.be/HISTCART/wms"
+    assert params["layers"] == "ferraris"
+    assert params["crs"] == "EPSG:31370"
+    assert params["format"] == "image/png"
     assert lyr.name() == "Ferrariskaart (1777)"
 
 
@@ -45,11 +64,13 @@ def test_wms_layer_passes_the_style_from_the_catalogue(qgs_app):
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import layers
 
-    ghg = layers.wms_layer(catalogue.by_id("gxg_ghg")).source()
-    assert "styles=gxg:gxg" in ghg
+    ghg = _params(layers.wms_layer(catalogue.by_id("gxg_ghg")))
+
+    assert ghg["styles"] == "gxg:gxg"
     # the workspace service, on which the layer goes by its bare name
-    assert "layers=ghg_mmv_main&" in ghg and "url=https://www.dov.vlaanderen.be/geoserver/gxg/wms" in ghg
-    assert "styles=&" in layers.wms_layer(catalogue.by_id("ferraris")).source()
+    assert ghg["layers"] == "ghg_mmv_main"
+    assert ghg["url"] == "https://www.dov.vlaanderen.be/geoserver/gxg/wms"
+    assert _params(layers.wms_layer(catalogue.by_id("ferraris")))["styles"] == ""
 
 
 def test_wcs_layer_uri_asks_for_geotiff(qgs_app):
@@ -59,10 +80,13 @@ def test_wcs_layer_uri_asks_for_geotiff(qgs_app):
     from desktopstudie.qgis import layers
 
     lyr = layers.wcs_layer(DHMV_WCS_URL, DHMV_WCS_COVERAGE, "DHMV II DTM 1 m")
-    src = lyr.source()
-    assert "url=" + DHMV_WCS_URL in src and "identifier=" + DHMV_WCS_COVERAGE in src
-    assert "format=GeoTIFF" in src and "version=1.0.0" in src
-    assert "crs=EPSG:31370" in src
+
+    params = _params(lyr)
+    assert params["url"] == DHMV_WCS_URL
+    assert params["identifier"] == DHMV_WCS_COVERAGE
+    assert params["format"] == "GeoTIFF"
+    assert params["version"] == "1.0.0"
+    assert params["crs"] == "EPSG:31370"
     assert lyr.providerType() == "wcs" and lyr.name() == "DHMV II DTM 1 m"
 
 
