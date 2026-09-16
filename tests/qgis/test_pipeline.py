@@ -450,3 +450,23 @@ def test_a_cancelled_export_is_not_swallowed_as_a_failure(project, core_result, 
 
     with pytest.raises(StudyCancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+
+def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_result, offline_shell,
+                                                               tmp_path, monkeypatch, no_pdf):
+    """De Popp-kaart is in Gent wit: het mozaiek heeft daar geen blad. De dienst antwoordde wel, dus
+    de bron blijft "ok" - met de reden erbij, zodat het witte blad verklaard is."""
+    from desktopstudie.qgis import layout, pipeline
+
+    def no_popp(entries, zone_ring, client, log=None, should_cancel=None):
+        return {"ferraris"}
+
+    monkeypatch.setattr(layout, "prepare_coverage", no_popp)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    kaartlaag = next(p for p in out.result.provenance if p.source.startswith("Kaartlaag Ferraris"))
+    assert kaartlaag.ok is True
+    assert kaartlaag.message == pipeline.NO_COVERAGE_MESSAGE
+    others = [p for p in out.result.provenance if p.source.startswith("Kaartlaag") and p is not kaartlaag]
+    assert all(p.message == "" for p in others), [p.source for p in others]
