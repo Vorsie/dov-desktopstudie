@@ -69,11 +69,15 @@ SECTION_LABEL = "A-A'"
 ZONE_NAME = "Onderzoekszone"
 SECTION_NAME = "Doorsnedelijn"
 SEARCH_AREA_NAME = "Zoekstraal"
-# The two study groups, in the order the report numbers them, and the GeoPackage layers each one
-# holds. The pipeline writes exactly these names, so a project rebuilt from the file finds them
-# back by name; a layer that is not in the file is reported, never invented.
-ZONE_GROUP = "4 Onderzoekszone en doorsnede"
-INVESTIGATION_GROUP = "5 Grondonderzoek DOV"
+# The two groups of the study's own layers, and the GeoPackage layers each one holds. They carry
+# no number: the chapter groups do, because each of them IS a chapter of the report, and these two
+# are not - the zone and the section line appear in chapters 4 and 6, the investigations in 5 and
+# 6. A number here would promise an order the PDF does not have. They come after the numbered
+# groups in the panel because they are added after them.
+# The pipeline writes exactly these names, so a project rebuilt from the file finds them back by
+# name; a layer that is not in the file is reported, never invented.
+ZONE_GROUP = "Onderzoekszone en doorsnede"
+INVESTIGATION_GROUP = "Grondonderzoek DOV"
 GPKG_GROUPS = (
     (ZONE_GROUP, (ZONE_NAME, SECTION_NAME)),
     (INVESTIGATION_GROUP, (POINT_NAMES["sondering"], POINT_NAMES["boring"], POINT_NAMES["peilput"],
@@ -309,7 +313,7 @@ def add_group(project: QgsProject, title: str, group_layers: Sequence[QgsMapLaye
 
     A group of the same name under the same parent is replaced, its layers removed from the
     project first: a study run three times in one session must not leave three copies of
-    "5 Grondonderzoek DOV" in the layer panel, two of them stale.
+    "Grondonderzoek DOV" in the layer panel, two of them stale.
     """
     drop_group(project, title, parent)
     root = parent if parent is not None else project.layerTreeRoot()
