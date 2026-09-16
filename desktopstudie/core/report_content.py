@@ -137,13 +137,17 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
     """One table row, with the catalogue's label in front of the raw token it translates.
 
     The raw token stays visible in square brackets: a reader who knows the service has to be able
-    to check the translation without leaving the page.
+    to check the translation without leaving the page. A cell that is a bare URL is printed short:
+    a URL carries no spaces, so a table cannot wrap one - it fits or it is cut off mid-word, which
+    is what the quartair drawing links did ("...DOV_Quartair_5000"). What the service sent stays
+    in `MapFact.rows` and in studie.json.
     """
     out = []
     for col in columns:
         raw = row.get(col)
         label = entry.value_labels.get(col, {}).get(str(raw))
-        out.append(f"{label} [{raw}]" if label else _s(raw))
+        cell = f"{label} [{raw}]" if label else _s(raw)
+        out.append(short_url(cell) if cell.startswith("http") else cell)
     return out
 
 
@@ -272,12 +276,7 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
     for row in rows_src or []:
-        # A URL carries no spaces, so a table cannot wrap one: it fits or it is cut off mid-word.
-        # The drawing links of the quartair sheets run to 145 characters and came out as
-        # "...DOV_Quartair_5000" on the page; folded, the file name that tells two of them apart
-        # survives. The whole URL stays in `MapFact.rows` and in studie.json.
-        cells = [short_url(cell) if cell.startswith("http") else cell
-                 for cell in _cells(entry, row, fields)]
+        cells = _cells(entry, row, fields)  # `_cells` already prints a bare URL in its short form
         if cells not in rows:
             rows.append(cells)
     return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src))
