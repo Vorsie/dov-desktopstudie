@@ -365,3 +365,62 @@ def test_a_source_that_answered_but_has_nothing_here_says_why(gent_ring):
 
     assert [row[3] for row in sources.rows] == ["ok - geen dekking op deze locatie", "ok",
                                                 "fout: HTTP 500"]
+
+
+def test_an_unchosen_map_gets_no_sheet(gent_ring):
+    """Een kaart die niet gekozen is, krijgt geen blad.
+
+    De kaartenchecklist van de dialoog belooft dat letterlijk (README): wie Popp en de bodemkaart
+    uitvinkt, hoort ze nergens in het rapport terug te zien - ook hun leeswijzer en hun legenda
+    voor de zone niet, want die horen bij het blad dat er niet is.
+    """
+    from desktopstudie.core import catalogue
+
+    result = _result(gent_ring)
+    result.map_ids = [e.id for e in catalogue.entries() if e.id not in ("popp", "bodemkaart")]
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    maps = [p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)]
+    assert "popp" not in maps and "bodemkaart" not in maps
+    assert "ferraris" in maps and "quartair" in maps
+    titles = [p.title for ch in report.chapters for p in ch.pages]
+    assert not any("Bodemkaart van Vlaanderen" in title for title in titles), titles
+
+
+def test_an_unchosen_map_is_not_in_the_sources_list(gent_ring):
+    """Een kaart die niet gekozen is, staat niet in de bronnenlijst.
+
+    De tabel Kaartbronnen en licenties zegt welke kaarten de studie heeft geraadpleegd; een kaart
+    die nooit is opgehaald hoort daar niet in, anders leest de lezer een licentie voor een blad
+    dat niet bestaat.
+    """
+    from desktopstudie.core import catalogue
+
+    result = _result(gent_ring)
+    result.map_ids = [e.id for e in catalogue.entries() if e.id != "popp"]
+
+    sources = next(p for p in rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+                   .chapters[7].pages if p.title.startswith("Kaartbronnen"))
+
+    assert not any(row[0] == catalogue.by_id("popp").title for row in sources.rows), sources.rows
+    assert any(row[0] == catalogue.by_id("ferraris").title for row in sources.rows)
+
+
+def test_without_a_choice_every_enabled_map_stays_in_the_report(gent_ring):
+    """Zonder keuze blijven alle ingeschakelde kaarten in het rapport.
+
+    `map_ids is None` is de standaard van de kern en van de dialoog zodra alles aangevinkt staat;
+    het filter mag dan niets wegnemen.
+    """
+    from desktopstudie.core import catalogue
+
+    result = _result(gent_ring)
+    assert result.map_ids is None
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    maps = {p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)}
+    assert maps == {e.id for e in catalogue.entries()}
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Kaartbronnen"))
+    assert len(sources.rows) == len(catalogue.entries())
