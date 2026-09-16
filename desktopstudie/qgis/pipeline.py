@@ -48,7 +48,14 @@ from ..core import catalogue, checks
 from ..core.catalogue import DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
-from ..core.report_content import Report, ReportMeta, build_report, profile_image_key
+from ..core.report_content import (
+    Report,
+    ReportMeta,
+    build_report,
+    profile_image_key,
+    quartair_sheet,
+    sheet_image_key,
+)
 from ..core.services.http import HttpClient
 from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
 from ..core.study import run as run_study
@@ -334,7 +341,26 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
         found = profile_image_key(code) in images
         record_source(result, f"Legenda profieltype {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
+    # The units table of a map sheet is a page of its own, cut from the same drawing but by a
+    # second step that can fail on its own (`crop_sheet_units` returns None). Without a line per
+    # sheet, that page can disappear from the report with nothing in the sources chapter about it.
+    for sheet, sheet_url in _sheets_of(targets).items():
+        found = sheet_image_key(sheet) in images
+        record_source(result, f"Eenhedentabel kaartblad {sheet}", sheet_url, found,
+                      "" if found else "eenhedentabel van het kaartblad niet opgehaald of niet leesbaar")
     return {key: path.relative_to(out_dir).as_posix() for key, path in images.items()}
+
+
+def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
+    """map sheet -> the drawing URL it was cut from, in the order the rows first named it.
+
+    One sheet carries several profile types and one drawing per type; the units table underneath
+    is the same for all of them, so the first URL that mentions the sheet is the one to name.
+    """
+    sheets: Dict[str, str] = {}
+    for url, code in targets.items():
+        sheets.setdefault(quartair_sheet(code), url)
+    return sheets
 
 
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
@@ -352,18 +378,34 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
     pulling tiles while each of ninety sheets renders. Each image is a source of its own, and an
     image that is empty answers the coverage question for free - for maps without facts, where an
     empty tile really does mean "no sheet here". Pure HTTP and files: this is worker-thread work.
+
+    One line per MAP, not per request, and that line fails as soon as ONE of the map's framings
+    did not come back. `record_source` replaces by name, so a line per request would let a framing
+    that succeeded overwrite the one that failed with "ok" - while the sheet that lost its image
+    prints "Kaartbeeld van deze bron niet opgehaald" all the same.
     """
     images, empty = layout_mod.prepare_map_images(requests, out_dir, client, log.child("kaarten"),
                                                   should_cancel)
-    for request in requests:
-        entry = catalogue.by_id(request.map_id)
-        found = request.key in images
-        message = ("" if request.map_id not in empty else NO_COVERAGE_MESSAGE) if found else \
-            "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
+    for map_id, group in _by_map(requests).items():
+        entry = catalogue.by_id(map_id)
+        failed = [request for request in group if request.key not in images]
+        told = failed[0] if failed else group[0]  # the URL that explains the line
+        if failed:
+            message = "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
+        else:
+            message = NO_COVERAGE_MESSAGE if all(r.key in empty for r in group) else ""
         record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
-                      layout_mod.wms_map_url(entry, request.extent, request.width, request.height),
-                      found, message)
+                      layout_mod.wms_map_url(entry, told.extent, told.width, told.height),
+                      not failed, message)
     return images, empty
+
+
+def _by_map(requests: List[layout_mod.MapRequest]) -> Dict[str, List[layout_mod.MapRequest]]:
+    """The requests grouped by map, in the order the report first asked for each map."""
+    grouped: Dict[str, List[layout_mod.MapRequest]] = {}
+    for request in requests:
+        grouped.setdefault(request.map_id, []).append(request)
+    return grouped
 
 
 def _snapshot_layers(project: QgsProject, requests: List[layout_mod.MapRequest],
@@ -420,7 +462,7 @@ class Prepared:
     legend_images: Dict[str, Path]  # map id -> legend PNG
     zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
-    no_coverage: Set[str]  # map ids whose service drew nothing here
+    no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
     requests: List[layout_mod.MapRequest]  # what was asked for, in page order
     timings: List[Tuple[str, float]]
 
@@ -547,9 +589,15 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     project_file = None
     if written is not None:
         _stop_if_cancelled(should_cancel)  # fifteen clones and a write: seconds, and stoppable
-        standalone = layers.standalone_project(
+        standalone, dropped = layers.standalone_project(
             gpkg, CHAPTER_GROUPS, log,
             {map_id: group[0] for map_id, group in layers_by_map.items()}, only=result.map_ids)
+        # Headless the layers are built here and nowhere else (`study_groups=False`), so this is
+        # the only place that sees an unreachable service. Naming it here keeps `studie.qgz` and
+        # the sources chapter telling the same story.
+        for entry in dropped:
+            record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, False,
+                          "WMS-laag ongeldig; kaart niet in studie.qgz")
         project_file = _guarded("Projectbestand schrijven", failures, log,
                                 lambda: export.write_project(standalone, out_dir / PROJECT_NAME))
     log.info(f"Rapport: {len(report.chapters)} hoofdstukken, "
