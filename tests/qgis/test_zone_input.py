@@ -72,6 +72,12 @@ def test_a_ring_drawn_in_another_crs_arrives_in_lambert_72(qgs_app, gent_zone):
 
     assert zone.name == "Getekend" and zone.address is None
     assert _close(zone.ring, gent_zone.ring, 0.01)
+    # The project's transform context (its chosen datum transforms) can be handed in.
+    from qgis.core import QgsCoordinateTransformContext
+
+    same = zone_from_ring(drawn, "EPSG:4326", radius_m=500.0, name="Getekend",
+                          context=QgsCoordinateTransformContext())
+    assert same.ring == zone.ring
 
 
 def test_a_selected_feature_gives_its_exterior_ring_in_lambert_72(qgs_app, gent_zone):
