@@ -34,10 +34,6 @@ class ReportMeta:
     logo_path: str = ""
 
 
-# How a figure is sized on its sheet; see FigurePage.fit.
-ZOOM, NATURAL = "zoom", "natural"
-
-
 @dataclass
 class MapPage:
     """A rendered catalogue map. `scale` is the target scale (1:scale); the shell actually draws
@@ -56,17 +52,34 @@ class MapPage:
 
 @dataclass
 class FigurePage:
-    """A picture on a sheet of its own.
-
-    `fit` says how big to draw it: "zoom" fills the content band (what a CPT diagram or a section
-    wants), "natural" draws it at its own pixel size, capped at the band. A strip of a few
-    centimetres - the header of a quartair drawing - blown up to a whole sheet is a blurred banner,
-    and no reader thanks you for it.
-    """
+    """A picture on a sheet of its own, drawn as large as the content band allows."""
     title: str
     image_path: str
     caption: str = ""
-    fit: str = ZOOM
+
+
+@dataclass
+class LegendEntry:
+    """One class of a map legend: its code, the sheet it was mapped on, and the drawing DOV
+    publishes for it. `image_path` is empty when the shell could not fetch that drawing - the line
+    stays, because code and sheet are still true, and the sources chapter says what went wrong."""
+    code: str
+    sheet: str
+    image_path: str = ""
+
+
+@dataclass
+class LegendPage:
+    """The classes of one map inside the zone, each with its own drawing under its own label.
+
+    A strip of three centimetres does not deserve a sheet of its own: four pages for two profile
+    types (a table saying "see overleaf", two near-empty strips and the units table) is two too
+    many. So the strips sit here, on the legend page, and the entries keep the code and the sheet
+    as data - a reader gets the picture, a machine still gets the facts.
+    """
+    title: str
+    entries: List[LegendEntry]
+    note: str = ""
 
 
 @dataclass
@@ -84,7 +97,7 @@ class TextPage:
     html: str
 
 
-Page = Union[MapPage, FigurePage, TablePage, TextPage]
+Page = Union[MapPage, FigurePage, LegendPage, TablePage, TextPage]
 
 
 @dataclass
@@ -212,8 +225,6 @@ QUARTAIR_CODE, QUARTAIR_IMAGE = "profieltype", "legende"
 # units table once, and the zone legend names the sheet instead of repeating a 145-character URL
 # no reader can use.
 QUARTAIR_SHEET_CHARS = 2
-QUARTAIR_LEGEND_COLUMNS = ["Profieltype", "Kaartblad", "Omschrijving"]
-QUARTAIR_DRAWING_NOTE = "zie profieltekening hierna"
 PROFILE_KEY, SHEET_KEY = "profieltype", "kaartblad"
 
 
@@ -245,25 +256,28 @@ def _zone_legend_columns(entry: catalogue.MapEntry) -> Tuple[List[str], List[str
     return [f for f, _h in chosen], [h for _f, h in chosen]
 
 
-def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult) -> TablePage:
-    """Profile type, map sheet, and a pointer to the drawing that follows.
+def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
+                          images: Dict[str, str]) -> LegendPage:
+    """Every profile type in the zone, with the header strip DOV draws for it.
 
-    Not the legend URL the row carries: it is 145 characters of download link, it cannot be
-    wrapped, and a reader with a printed report cannot do anything with it. The drawing itself is
-    the next page; the raw URL stays in `MapFact.rows` and in studie.json.
+    Not the legend URL the row carries: 145 characters of download link that a table cannot wrap
+    and a reader of a printed report cannot use. The strip itself - colour swatch, letter code, one
+    line of description - says what the URL was for. The raw URL stays in `MapFact.rows` and in
+    studie.json.
     """
     rows_src = _fact_rows(entry, result)
-    rows: List[List[str]] = []
+    entries: List[LegendEntry] = []
     for row in rows_src or []:
         code = _s(row.get(QUARTAIR_CODE))
-        cells = [code, quartair_sheet(code), QUARTAIR_DRAWING_NOTE]
-        if cells not in rows:
-            rows.append(cells)
-    return TablePage(f"Legenda voor de zone - {entry.title}", list(QUARTAIR_LEGEND_COLUMNS), rows,
-                     _rows_note(rows_src))
+        if any(existing.code == code for existing in entries):
+            continue
+        entries.append(LegendEntry(code, quartair_sheet(code),
+                                   images.get(profile_image_key(code), "")))
+    return LegendPage(f"Legenda voor de zone - {entry.title}", entries, _rows_note(rows_src))
 
 
-def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePage:
+def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
+                     images: Dict[str, str]) -> Union[TablePage, LegendPage]:
     """The classes that lie inside the zone, once each.
 
     Deduplicated on the printed cells: the WFS answers with one row per map polygon, so the same
@@ -271,7 +285,7 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
     legend the reader stops reading.
     """
     if entry.id == QUARTAIR_ID:
-        return _quartair_zone_legend(entry, result)
+        return _quartair_zone_legend(entry, result, images)
     rows_src = _fact_rows(entry, result)
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
@@ -284,34 +298,27 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePag
 
 def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
                          images: Dict[str, str]) -> List[Page]:
-    """The quartair drawings the shell managed to fetch: a header per profile type, then the units
-    table of every map sheet involved, once.
+    """The units table of every map sheet the zone touches, once each.
 
-    The header is a strip of a few centimetres and is drawn at its own size; the units table is a
-    whole drawing and may fill the sheet. The core fetches nothing, so a profile type without an
-    image simply gets no page - never an empty frame promising a drawing that is not there.
+    That table is the same drawing for every profile type of its sheet, so printing it per type
+    would be the same page three times over; the part that DOES differ per type is the header
+    strip, and that one sits on the legend page above. A sheet whose drawing did not come back
+    simply has no page.
     """
     if entry.id != QUARTAIR_ID or not images:
         return []
-    headers: List[Page] = []
-    sheets: List[Page] = []
-    seen_codes, seen_sheets = set(), set()
+    pages: List[Page] = []
+    seen = set()
     for row in _fact_rows(entry, result) or []:
-        code = _s(row.get(QUARTAIR_CODE))
-        header = images.get(profile_image_key(code))
-        if header is None or code in seen_codes:
-            continue
-        seen_codes.add(code)
-        headers.append(FigurePage(f"Profieltype {code}", header,
-                                  f"Profieltype {code} - DOV", fit=NATURAL))
-        sheet = quartair_sheet(code)
+        sheet = quartair_sheet(_s(row.get(QUARTAIR_CODE)))
         units = images.get(sheet_image_key(sheet))
-        if units is not None and sheet not in seen_sheets:
-            seen_sheets.add(sheet)
-            sheets.append(FigurePage(f"Eenheden op kaartblad {sheet}", units,
-                                     f"Eenheden van kaartblad {sheet}, geldig voor elk profieltype "
-                                     f"van dat blad - DOV"))
-    return headers + sheets
+        if units is None or sheet in seen:
+            continue
+        seen.add(sheet)
+        pages.append(FigurePage(f"Eenheden op kaartblad {sheet}", units,
+                                f"Eenheden van kaartblad {sheet}, geldig voor elk profieltype van "
+                                f"dat blad - DOV"))
+    return pages
 
 
 def _chapter_ligging(result: StudyResult) -> Chapter:
@@ -359,7 +366,7 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
         rows = _fact_rows(entry, result) or []
         geo.pages.append(_fact_table_for(entry, result))
         geo.pages.extend(_guide_page(entry, rows))
-        geo.pages.append(_zone_legend_for(entry, result))
+        geo.pages.append(_zone_legend_for(entry, result, zone_legend_images))
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
 
