@@ -56,6 +56,7 @@ from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF, QImage
 
 from ..core import catalogue, geometry, parallel
 from ..core.catalogue import MapEntry
+from ..core.geometry import BBox
 from ..core.model import StudyResult
 from ..core.report_content import (
     QUARTAIR_CODE,
@@ -604,8 +605,43 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     return images
 
 
+def overlay_boxes(result: StudyResult) -> Dict[str, List[BBox]]:
+    """The boxes a map page widens for, read from the study itself: 'investigations' (every
+    point that was found, and the search area around the zone), 'section' (the section line).
+
+    From the study and not from the overlay layers, on purpose. The map images are planned
+    where no layer exists - on the worker thread, before the shell touches QGIS - and the page
+    that draws them later must arrive at the same box to the metre, or it looks its image up
+    under a key that is not there. Two computations from two sources can never promise that; one
+    function over one result can. The search area is the zone's box grown by the radius, which
+    holds the buffered polygon whole (a GEOS buffer stays inside it by construction).
+
+    Keys are always present; a study without a section line has an empty list under 'section',
+    and a page that asks for it widens for nothing.
+    """
+    zone = result.zone
+    investigations: List[BBox] = [geometry.expand_bbox(geometry.bbox(zone.ring), zone.radius_m)]
+    points = [(item.x, item.y) for item in (*result.cpts, *result.boreholes, *result.gw_filters)]
+    if points:
+        investigations.append(geometry.bbox(points))
+    section: List[BBox] = [geometry.bbox(zone.section_line)] if zone.section_line else []
+    return {"investigations": investigations, "section": section}
+
+
+def _box_of(item) -> Optional[BBox]:
+    """A plain (minx, miny, maxx, maxy) from a layer or from a box that already is one; None for
+    a layer without features, which has nothing to widen for."""
+    if isinstance(item, QgsMapLayer):
+        extent = item.extent()
+        if extent.isEmpty():
+            return None
+        return (extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum())
+    minx, miny, maxx, maxy = item
+    return (float(minx), float(miny), float(maxx), float(maxy))
+
+
 def map_extent(zone_ring: Sequence, scale: int, extent_factor: float,
-               extra_layers: Sequence[QgsMapLayer] = ()) -> QgsRectangle:
+               extra: Sequence = ()) -> QgsRectangle:
     """The extent the map item gets: wide enough for the target scale, for `extent_factor`
     zones, and for everything the page asked to draw on top.
 
@@ -619,15 +655,18 @@ def map_extent(zone_ring: Sequence, scale: int, extent_factor: float,
     that width goes back through the 1-2-5 ladder and the extent is rebuilt from the rounded
     scale. The catalogue scale and the zone factor are deliberate framings and stay as they
     are - and since the ladder only rounds up, nothing that had to fit stops fitting.
+
+    `extra` holds what to widen for: plain boxes (see `overlay_boxes`) or layers, read the same
+    way - the planner on the worker thread has boxes, the older tests hand in layers.
     """
     minx, miny, maxx, maxy = geometry.bbox(zone_ring)
     zone_w, zone_h = maxx - minx, maxy - miny
-    for layer in extra_layers:
-        extent = layer.extent()
-        if extent.isEmpty():
+    for item in extra:
+        box = _box_of(item)
+        if box is None:
             continue
-        minx, miny = min(minx, extent.xMinimum()), min(miny, extent.yMinimum())
-        maxx, maxy = max(maxx, extent.xMaximum()), max(maxy, extent.yMaximum())
+        minx, miny = min(minx, box[0]), min(miny, box[1])
+        maxx, maxy = max(maxx, box[2]), max(maxy, box[3])
     ratio = MAP_H / MAP_W
     cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
     width_at_scale = MAP_W / 1000.0 * scale  # metres across the paper width at 1:scale
@@ -689,12 +728,24 @@ def _image_pixels() -> Tuple[int, int]:
     return width, height
 
 
+def page_boxes(page: MapPage, boxes: Dict[str, Sequence]) -> List:
+    """What one map page widens for, out of `boxes` keyed 'investigations' / 'section': the same
+    pick for the planner and for the page, so the two cannot drift apart."""
+    extra: List = []
+    if page.show_investigations:
+        extra += list(boxes.get("investigations", []))
+    if page.show_section_line:
+        extra += list(boxes.get("section", []))
+    return extra
+
+
 def plan_map_images(report: Report, zone_ring: Sequence,
-                    overlays: Dict[str, List[QgsMapLayer]]) -> List[MapRequest]:
+                    boxes: Dict[str, Sequence]) -> List[MapRequest]:
     """One request per distinct (map, box) in the report, in the order the pages need them.
 
     The box is computed here exactly as the page will compute it, overlays included - a page that
-    widens for the search radius shows a wider picture and must ask for that picture.
+    widens for the search radius shows a wider picture and must ask for that picture. `boxes` is
+    what `overlay_boxes` gives for the study; no layer is needed, so this runs on a worker thread.
     """
     requests: List[MapRequest] = []
     seen = set()
@@ -702,12 +753,7 @@ def plan_map_images(report: Report, zone_ring: Sequence,
         for page in chapter.pages:
             if not isinstance(page, MapPage):
                 continue
-            extra: List[QgsMapLayer] = []
-            if page.show_investigations:
-                extra += list(overlays.get("investigations", []))
-            if page.show_section_line:
-                extra += list(overlays.get("section", []))
-            extent = map_extent(zone_ring, page.scale, page.extent_factor, extra)
+            extent = map_extent(zone_ring, page.scale, page.extent_factor, page_boxes(page, boxes))
             key = map_image_key(page.map_id, extent)
             if key in seen:
                 continue
@@ -867,15 +913,19 @@ class LayoutBuilder:
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
                  log=None, should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
-                 map_images: Optional[Dict[str, QgsMapLayer]] = None):
+                 map_images: Optional[Dict[str, QgsMapLayer]] = None,
+                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None):
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
         to draw on top of its map image;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
         map ids whose service draws nothing here; map_images: the key of `map_image_key` -> the
         raster layer of the image fetched for it, which a map page draws instead of the live
-        WMS layer."""
+        WMS layer; overlay_boxes: what a page widens for, as `overlay_boxes` gives it - the same
+        boxes the images were planned on. Without them the page widens for its layers' extents,
+        which is fine when nobody planned an image for it (the direct tests)."""
         self.project, self.report = project, report
         self.overlays = overlays
+        self.overlay_boxes = overlay_boxes
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
         self.legend_images = dict(legend_images or {})
@@ -997,19 +1047,18 @@ class LayoutBuilder:
 
     # --- map page ---------------------------------------------------------------------------------
 
-    def map_extent(self, scale: int, extent_factor: float,
-                   extra_layers: Sequence[QgsMapLayer] = ()) -> QgsRectangle:
+    def map_extent(self, scale: int, extent_factor: float, extra: Sequence = ()) -> QgsRectangle:
         """The extent of this page's map; see the module-level `map_extent`."""
-        return map_extent(self.zone_ring, scale, extent_factor, extra_layers)
+        return map_extent(self.zone_ring, scale, extent_factor, extra)
 
     def _page_overlays(self, page: MapPage) -> List[QgsMapLayer]:
-        """The overlays this page asked for, zone excluded - the zone is the ring we start from."""
-        extra: List[QgsMapLayer] = []
-        if page.show_investigations:
-            extra += list(self.overlays.get("investigations", []))
-        if page.show_section_line:
-            extra += list(self.overlays.get("section", []))
-        return extra
+        """The overlays this page draws, zone excluded - the zone is the ring we start from."""
+        return page_boxes(page, self.overlays)
+
+    def _page_boxes(self, page: MapPage) -> List:
+        """What this page widens for: the study's boxes when the builder has them (then the
+        planner used the very same), its layers' extents otherwise."""
+        return page_boxes(page, self.overlay_boxes if self.overlay_boxes is not None else self.overlays)
 
     def _map_layers(self, page: MapPage, extent: QgsRectangle) -> List[QgsMapLayer]:
         """Draw order, topmost first: the zone always, then what the page asked for, then the map.
@@ -1045,7 +1094,7 @@ class LayoutBuilder:
         index = self.new_page()
         self.header(chapter, page.title, index)
         entry = catalogue.by_id(page.map_id)
-        extent = self.map_extent(page.scale, page.extent_factor, self._page_overlays(page))
+        extent = self.map_extent(page.scale, page.extent_factor, self._page_boxes(page))
         map_item = QgsLayoutItemMap(self.layout)
         map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
         map_item.setLayers(self._map_layers(page, extent))
@@ -1337,8 +1386,9 @@ def build_layout(project: QgsProject, report: Report,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
                  should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
-                 map_images: Optional[Dict[str, QgsMapLayer]] = None) -> QgsPrintLayout:
+                 map_images: Optional[Dict[str, QgsMapLayer]] = None,
+                 overlay_boxes: Optional[Dict[str, List[BBox]]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
-                         map_images).build()
+                         map_images, overlay_boxes).build()
