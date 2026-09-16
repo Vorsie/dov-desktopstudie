@@ -475,6 +475,89 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
                    for chapter in out.report.chapters for page in chapter.pages)
 
 
+def test_a_map_with_one_failed_image_is_a_failed_source(qgs_app, core_result, gent_zone, tmp_path,
+                                                        monkeypatch):
+    """Een kaart waarvan een beeld mislukt, staat als mislukte bron in het rapport.
+
+    De GRB-basiskaart wordt op meer dan een kader opgehaald. Kwam er een niet binnen, dan drukt
+    dat blad "Kaartbeeld van deze bron niet opgehaald" af; een bronnenregel die "ok" zegt omdat
+    het volgende kader wel lukte, spreekt dat blad tegen.
+    """
+    from desktopstudie.core.report_content import Chapter, MapPage, Report
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    pages = [MapPage("grb", "Ligging", scale=2500),
+             MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
+    report = Report(title="t", meta={}, chapters=[Chapter(1, "Test", pages)])
+    requests = layout_mod.plan_map_images(report, gent_zone.ring, {})
+    assert len(requests) == 2, [request.key for request in requests]
+
+    def only_the_second(reqs, out_dir, client, log=None, should_cancel=None):
+        write_png(Path(out_dir) / "kaarten" / "tweede.png")
+        return {reqs[1].key: Path(out_dir) / "kaarten" / "tweede.png"}, set()
+
+    monkeypatch.setattr(layout_mod, "prepare_map_images", only_the_second)
+
+    pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None)
+
+    images = [p for p in core_result.provenance if p.source.startswith(pipeline.MAP_IMAGE_SOURCE)]
+    assert images and not any(p.ok for p in images), [(p.source, p.ok, p.message) for p in images]
+
+
+def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result, tmp_path,
+                                                            monkeypatch):
+    """Een kaartblad zonder eenhedentabel staat als mislukte bron in het rapport.
+
+    De tekening komt binnen, maar de snede van de eenhedentabel mislukt: dan verdwijnt dat blad
+    uit het rapport. Zonder een bronnenregel per kaartblad is er niets dat dat zegt.
+    """
+    from desktopstudie.core.report_content import profile_image_key, quartair_sheet
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    header = write_png(tmp_path / "legendas" / "quartair_22026_kop.png")
+    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+                        lambda result, out_dir, client, log=None, should_cancel=None:
+                        {profile_image_key("22026"): header})
+
+    pipeline._fetch_zone_legends(core_result, {"https://dov/22026_png": "22026"}, tmp_path, None,
+                                 _log(), None)
+
+    sheet = quartair_sheet("22026")
+    failed = {p.source: p for p in core_result.provenance if not p.ok}
+    assert any(f"kaartblad {sheet}" in source for source in failed), sorted(failed)
+
+
+def test_a_map_the_service_does_not_deliver_is_in_the_sources_without_project_groups(
+        project, core_result, offline_shell, tmp_path, monkeypatch, no_pdf):
+    """Een kaart die de dienst niet levert, staat in de bronnenlijst ook als er geen
+    projectgroepen zijn.
+
+    Headless bouwt `finish` de lagen alleen voor `studie.qgz`; zonder dit valt een ongeldige laag
+    daar stilzwijgend uit en zegt niets in het rapport dat die kaart ontbreekt.
+    """
+    from qgis.core import QgsRasterLayer
+
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layers, pipeline
+
+    real = layers.wms_layer
+
+    def half_broken(entry):
+        if entry.id == "ferraris":
+            return QgsRasterLayer("", entry.title, "wms")  # ongeldig, zoals een dienst die plat ligt
+        return real(entry)
+
+    monkeypatch.setattr(layers, "wms_layer", half_broken)
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                    study_groups=False)
+
+    failed = {p.source: p for p in core_result.provenance if not p.ok}
+    assert f"Kaartlaag {catalogue.by_id('ferraris').title}" in failed, sorted(failed)
+
+
 def test_a_failed_pdf_still_leaves_the_project_and_the_geopackage(project, core_result, offline_shell,
                                                                   tmp_path, monkeypatch):
     """De PDF is het laatste product, niet het enige. Loopt de export stuk, dan houdt de gebruiker
