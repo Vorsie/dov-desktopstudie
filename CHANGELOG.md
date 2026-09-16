@@ -23,3 +23,22 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
 - GeoPackage en projectbestand worden vóór de PDF geschreven, en elke bron die de schil zelf
   raadpleegt (DHMV, WMS-lagen, legenda's) komt in de bronnenlijst - een mislukte export kost
   daardoor het rapport, niet de studie.
+- Leesbare legenda's: elke kaart met een code krijgt een "Leeswijzer" van drie tot vijf zinnen
+  (`MapEntry.reading_guide`, met de DOV-pagina die de volledige legende draagt) en een "Legenda
+  voor de zone" met alleen de klassen die in de zone liggen - die tabel vervangt de feitentabel,
+  zodat er één tabel per kaart op papier staat. De legenda van de Quartairkaart is de tekening van
+  DOV zelf: de kopstrook per profieltype (kleurvlak, lettercode, omschrijving) op de legendapagina
+  en de eenhedentabel van het kaartblad ernaast, één keer per blad.
+- De opgehaalde WMS-legenda's staan in twee kolommen van 9 pt met `forceLabels`, leesbaar op
+  papier; het hoogtemodel verloor zijn legendablad (een kleurbalk van 27 x 18 mm) en zegt zijn
+  kleurschaal nu in de leeswijzer.
+- Kaarten worden bevraagd op dekking: een dienst die op deze locatie niets tekent (de Popp-kaart
+  heeft geen blad voor Gent) zegt dat op het kaartblad en in de bronnenlijst - "ok", want de
+  dienst antwoordde, met de reden erbij - en krijgt geen legendapagina.
+- URL's in tabellen worden ingekort tot ze in hun kolom passen (host + laatste stuk), zodat er
+  niets meer middenin een woord wordt afgekapt; de rauwe waarden blijven in `studie.json`.
+- `scripts/run_headless.py`: een volledige studie zonder QGIS-GUI (project, GeoPackage, PDF,
+  optioneel elk blad als PNG), met de duur van kern en schil apart en afsluitcodes 0/2/3.
+  `scripts/_cli.py` deelt de locatie-opties met `run_core.py`.
+- CI draait de schiltests in `qgis/qgis:release-3_34` en `qgis/qgis:latest`, plus een losse
+  live-studie voor Gent waarvan de bladen als artefact bewaard worden.
