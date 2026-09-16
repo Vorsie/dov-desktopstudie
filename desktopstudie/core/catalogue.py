@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import types
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/wfs"
 DOV_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/wms"
@@ -390,8 +390,19 @@ CATALOGUE: List[MapEntry] = [
 ]
 
 
-def entries(chapter: Optional[str] = None, enabled_only: bool = True) -> List[MapEntry]:
-    return [e for e in CATALOGUE if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)]
+def entries(chapter: Optional[str] = None, enabled_only: bool = True,
+            only: Optional[Iterable[str]] = None) -> List[MapEntry]:
+    """The catalogue, narrowed down. `only` is the study's map choice (`StudyResult.map_ids`):
+    None means every entry that passes the other two filters, a list means exactly those ids.
+
+    Every place that walks the catalogue for one study takes it - report pages, sources table,
+    layers, legends, map images - because a map the user unchecked must cost nothing at all, not
+    a layer, not a request and not a sheet that says "Bron niet beschikbaar".
+    """
+    wanted = None if only is None else set(only)
+    return [e for e in CATALOGUE
+            if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)
+            and (wanted is None or e.id in wanted)]
 
 
 def by_id(map_id: str) -> MapEntry:
