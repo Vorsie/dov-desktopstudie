@@ -98,10 +98,17 @@ een kaart toevoegen = één entry, geen code.
   gezet - een PNG zegt niet waar hij ligt). De live WMS-lagen blijven voor het QGIS-project; de
   layout raakt ze niet meer aan. Elk kaartbeeld is een eigen bron, en of de tegel leeg is, valt
   gratis af te lezen - de aparte dekkingsproef is daarmee verdwenen.
-- **Een WMS-laag bouwen kost een GetCapabilities.** Tegen DOV is dat 2,6 s per kaart, en de studie
-  deed het twee keer: eens voor het geopende project, eens (via `clone()`) voor het projectbestand.
-  `finish(study_groups=False)` slaat de eerste over - headless kijkt niemand naar dat geopende
-  project - en scheelt 42 s. De `.qgz` krijgt ze hoe dan ook.
+- **Een WMS-laag bouwen kost een GetCapabilities, en de DOV-kaarten vragen die aan hun eigen
+  workspace.** De globale DOV-dienst (`/geoserver/wms`) antwoordt met heel DOV: 1,1 MB die QGIS in
+  2,6 s per kaart parst, vijftien keer per studie, en `clone()` doet het nog eens. Qt's schijfcache
+  helpt niet (DOV antwoordt `Cache-Control: max-age=0, must-revalidate`; gemeten 2026-09-16: met
+  `setupDefaultProxyAndCache()` 2,6-2,9 s, zonder 2,2-2,9 s). De workspace-dienst
+  (`DOV_WORKSPACE_WMS_URL`, `/geoserver/<workspace>/wms`) antwoordt met enkele kB: 0,03 s per kaart,
+  en levert byte-identieke GetMap- en GetLegendGraphic-antwoorden (live 2026-09-16, alle vijftien).
+  Daar heet een laag bij haar kale naam (`bodemtypes`, niet `bodemkaart:bodemtypes`; met prefix is
+  de laag ongeldig), de WFS-typenamen houden hun prefix. `catalogue.dov_wms(layer)` doet de
+  vertaling. `finish(study_groups=False)` (headless) bouwt de lagen één keer; de `clone()` voor het
+  projectbestand in de plugin kost nu ~1 s en is bewust gelaten.
 - **Een dienst die hier niets tekent, zegt dat.** De Popp-kaart is in Gent een wit blad: het
   mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes met een lege tegel. Elke
   kaart **zonder feiten** krijgt daarom een GetMap van 64 px op de extent van haar blad
@@ -121,9 +128,15 @@ een kaart toevoegen = één entry, geen code.
   wordt naar boven afgerond op de 1-2-5-ladder (`layout.SCALE_STEPS`) en de extent volgt opnieuw
   uit die schaal. Alleen naar boven: naar beneden zou net wegsnijden waarvoor de kaart openrekte.
   De catalogusschaal en `extent_factor` blijven onaangeroerd - dat zijn keuzes, geen tussenstap.
-- **Na het bouwen van een layout altijd `layout.refresh()` vóór export**, anders zijn de
-  data-gedefinieerde eigenschappen (de legendaschakelaar voorop) nog niet geëvalueerd. Elke
-  exportfunctie in `export.py` doet het zelf, zodat geen enkele oproeper het kan vergeten.
+- **Vóór een export de data-gedefinieerde eigenschappen evalueren** (`export.refresh_data_defined`),
+  anders is de legendaschakelaar nog niet geëvalueerd. Elke exportfunctie in `export.py` doet het
+  zelf, zodat geen enkele oproeper het kan vergeten. NIET `layout.refresh()`: die herberekent elk
+  label (expressiecontext, ellipsoïde-lookup) à 4 ms - 451 labels in Gent, 3,5 s per oproep, en dat
+  twee keer per studie. Let op: vanuit Python geeft `page.excludeFromExports()` alleen de vaste
+  vlag terug, nooit het oordeel van de regel; wie dat oordeel nodig heeft, evalueert de
+  `QgsProperty` zelf (`_frozen_exclusions`). En `dataDefinedProperties().property(k)` is een
+  verwijzing in de opslag van de collectie: kopieer ze (`QgsProperty(...)`) vóór een `setProperty`
+  op dezelfde sleutel, anders leest de kopie vrijgegeven geheugen (access violation, 3.40.15).
   **Paginaindex nooit zelf tellen, altijd `pageCollection().pageCount()`**: een tabel met
   `ExtendToNextPage` maakt zelf pagina's bij, dus een eigen teller loopt achter en de volgende
   rapportpagina belandt bovenop de laatste tabelpagina. Vervolgframes van zo'n tabel beslaan het
@@ -140,6 +153,27 @@ een kaart toevoegen = één entry, geen code.
   dat sluit meteen de vorige af, en `PipelineResult.timings` plus een INFO-tabel zeggen waar de
   tijd heen ging. De voortgangsbalk van de plugin leest dezelfde indeling. Meten voor je iets
   versnelt: de PDF-export bleek 312 s van de 607 s, de dekkingsproef 0,0 s.
+- **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
+  laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken).
+  - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
+    `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
+    geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
+    zes labels): 38 s in één oproep, 10 s via de iterator-interface in vier runs, 508 s voor 230
+    bladen. Gent betaalde er 65 van zijn 95 s aan. `export_pdf` voert de ene layout daarom in runs
+    van `PDF_PAGES_PER_RUN` (10) bladen aan `QgsLayoutExporter.exportToPdf(iterator, ...)`
+    (`_PageRuns`): PDF-export 102-120 s -> 28 s. Binnen zo'n run telt `@layout_numpages` alleen
+    de run, dus **de voettekst draagt "pagina n / N" als tekst** (`_number_footers`, id
+    `FOOTER_ID`), geschreven zodra de layout compleet is. De PNG-export blijft één oproep: die
+    groeit nauwelijks (0,49 s/blad bij 30, 0,56 bij 60) en een exporter per blad kost 1,7 s/blad.
+  - **Tekst als tekst** (`textRenderFormat = AlwaysText`): selecteerbaar, doorzoekbaar, 13,5 MB in
+    plaats van 34 MB, en 6 % sneller. De exportvlaggen `appendGeoreference`/`exportMetadata`
+    maken geen verschil (96,0 s tegen 95,5 s) en staan op hun standaard.
+  - **Layout bouwen** (13 s -> 7,5 s): `addPage` kost 35 ms per blad omdat de paginacollectie bij
+    elke toevoeging alle pagina's herlegt (O(n²), niet te vermijden via de API; undo blokkeren
+    scheelt een vijfde), de volledige `refresh()` aan het einde is vervangen door de gerichte, de
+    rijen van een tabel gaan er na de opmaak in.
+  - **GeoPackage en projectbestand** (44-84 s -> 4,5-5,9 s): de DOV-capabilities, zie de WMS-regel.
+  - Per blad, in dezelfde run: kaart 0,48 s, tabel 0,47 s, figuur 0,28 s, tekst 0,24 s.
 - **`QgsLayoutExporter` gooit niet, het geeft een code terug.** Een oproeper die de code negeert,
   overhandigt de gebruiker een rapport dat er niet is. Elke export controleert de code en noemt
   ze bij naam via `compat.enum_name` ("FileError", niet "3"). Let op: een oude unscoped C++-enum
