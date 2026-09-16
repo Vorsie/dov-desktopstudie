@@ -21,7 +21,7 @@ def _request(tmp_path):
 
     zone = StudyZone(ring=geometry.buffer_point(104326.0, 192506.0, 50.0), name="Gent test", radius_m=500.0)
     return StudyRequest(zone, Settings(), ReportMeta(project="Test", author="A", company="B"),
-                        tmp_path / "run", "use", False)
+                        tmp_path / "studies" / "run", "use", False, tmp_path / "studies" / "cache")
 
 
 def _log(lines):
@@ -100,6 +100,10 @@ def test_the_worker_runs_core_and_prepare_and_hands_the_outcome_to_the_main_thre
     assert [name for name, _thread, _client in calls] == ["core", "prepare"]
     assert all(thread != threading.current_thread().name for _name, thread, _client in calls), calls
     assert calls[0][2] is calls[1][2] and calls[0][2] is not None, "één client voor beide helften"
+    # The cache lives next to the run folders, not in one: a re-run of the same study with the
+    # cache on must find what the previous run fetched.
+    assert calls[0][2].cache_dir == request.cache_dir == tmp_path / "studies" / "cache"
+    assert not request.cache_dir.is_relative_to(request.out_dir)
     assert (0.25, "halverwege de kern") in phases
 
 
@@ -233,7 +237,7 @@ def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs
     def fake_finish(project, res, meta, out_dir, log, progress=None, legends=True, should_cancel=None,
                     client=None, cache_mode="use", pngs=False, study_groups=True, prepared=None):
         seen.update(thread=threading.current_thread().name, prepared=prepared, project=project,
-                    legends=legends, cancel=should_cancel())
+                    legends=legends, cancel=should_cancel(), frozen=iface.canvas.isFrozen())
         progress(0.5, "Layout")
         pdf = tmp_path / "rapport.pdf"
         pdf.write_bytes(b"%PDF-1.4")
@@ -254,6 +258,9 @@ def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs
     assert seen["thread"] == threading.current_thread().name, "finish hoort op de hoofdthread"
     assert seen["prepared"] is prepared and seen["project"] is QgsProject.instance()
     assert seen["legends"] is False and seen["cancel"] is False
+    # Every layer added to the open project would otherwise start a render that pulls tiles on
+    # the main thread; the canvas is frozen for the project half and refreshed once at the end.
+    assert seen["frozen"] is True and not iface.canvas.isFrozen()
     assert done[0].pdf == tmp_path / "rapport.pdf" and not runner.running
     levels = [level for level, _text, _item in iface.pushed]
     assert levels == [Qgis.MessageLevel.Info, Qgis.MessageLevel.Success], iface.pushed
@@ -337,3 +344,75 @@ def test_a_failure_in_the_worker_and_failed_sources_are_named_to_the_user(qgs_ap
 
     assert done[1] is None
     assert iface.pushed[-1][:2] == (Qgis.MessageLevel.Critical, "Studie mislukt: DOV WFS antwoordt niet")
+
+
+def test_dismissing_the_progress_message_never_breaks_the_run(qgs_app, tmp_path, monkeypatch):
+    """De gebruiker mag het voortgangsbericht wegklikken. QGIS verwijdert het item dan; de run gaat
+    door zonder balk (alleen het log), meldt haar rapport en geeft Start weer vrij."""
+    from qgis.core import Qgis
+    from qgis.PyQt.QtCore import QCoreApplication, QEvent
+
+    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis.task import StudyRunner
+
+    request = _request(tmp_path)
+    result = _fake_result(request.zone)
+    monkeypatch.setattr(pipeline, "run_core", lambda *args, **kwargs: result)
+    monkeypatch.setattr(pipeline, "prepare", lambda *args, **kwargs: _fake_prepared())
+
+    def finish_while_the_bar_is_closed(project, res, meta, out_dir, log, progress=None, should_cancel=None,
+                                       **kwargs):
+        iface.bar.popWidget(iface.bar.currentItem())  # what the close button of the message does
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        progress(0.5, "Layout")  # the item is gone; this must not raise
+        assert should_cancel() is False
+        pdf = tmp_path / "rapport.pdf"
+        pdf.write_bytes(b"%PDF-1.4")
+        return _pipeline_result(res, pdf)
+
+    monkeypatch.setattr(pipeline, "finish", finish_while_the_bar_is_closed)
+    iface = FakeIface()
+    lines = []
+    runner = StudyRunner(iface, _log(lines))
+    done = []
+    runner.finished.connect(done.append)
+
+    runner.start(request)
+    _wait_until(lambda: done)
+
+    assert done[0] is not None and done[0].pdf == tmp_path / "rapport.pdf"
+    assert not runner.running
+    assert iface.pushed[-1][0] == Qgis.MessageLevel.Success
+    assert not any("ERROR" in line for line in lines), lines
+
+
+def test_a_failure_while_reporting_the_result_is_logged_and_finished_still_fires(qgs_app, tmp_path,
+                                                                                monkeypatch):
+    """Zoomen of melden dat misgaat mag de dialoog niet in de wacht laten: de fout staat in het log,
+    `finished` komt met het resultaat, en de runner is klaar voor de volgende studie."""
+    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis.task import StudyRunner
+
+    class _IfaceWithoutCanvas(FakeIface):
+        def mapCanvas(self):
+            raise RuntimeError("canvas weg")
+
+    request = _request(tmp_path)
+    result = _fake_result(request.zone)
+    pdf = tmp_path / "rapport.pdf"
+    pdf.write_bytes(b"%PDF-1.4")
+    monkeypatch.setattr(pipeline, "run_core", lambda *args, **kwargs: result)
+    monkeypatch.setattr(pipeline, "prepare", lambda *args, **kwargs: _fake_prepared())
+    monkeypatch.setattr(pipeline, "finish", lambda *args, **kwargs: _pipeline_result(result, pdf))
+    iface = _IfaceWithoutCanvas()
+    lines = []
+    runner = StudyRunner(iface, _log(lines))
+    done = []
+    runner.finished.connect(done.append)
+
+    runner.start(request)
+    _wait_until(lambda: done)
+
+    assert done[0] is not None and done[0].pdf == pdf
+    assert any("ERROR" in line and "canvas weg" in line for line in lines), lines
+    assert not runner.running
