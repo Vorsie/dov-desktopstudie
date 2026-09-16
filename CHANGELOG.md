@@ -54,3 +54,19 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   (enkele kB capabilities in plaats van 1,1 MB per kaart). Voor Gent ging de schil van 183-206 s
   naar 46-48 s: PDF-export 102-120 -> 28 s, GeoPackage en projectbestand 44-84 -> 5 s, layout
   13-15 -> 9 s (gemeten 2026-09-16, dezelfde warme cache, runs kort na elkaar).
+- De plugin zelf: een knop in de werkbalk en het pluginmenu, een niet-modale dialoog met drie
+  tabbladen - Locatie (adres via de geocoder, X/Y in Lambert 72, polygoon tekenen op de kaart,
+  eerste geselecteerde vlak uit een laag; buffer rond een punt), Instellingen (zoekstraal, aantal
+  figuren, doorsnedelijn automatisch/tekenen/uit laag met verlenging, kaarten aan- of uitvinken,
+  cache, legendapagina's) en Rapport (project, projectnummer, auteur, bedrijf, logo, uitvoermap).
+  Bedrijf, auteur, logo, straal, uitvoermap, cache en legendakeuze worden onthouden (`QgsSettings`,
+  `desktopstudie/...`). De kern en alle HTTP-werk van de schil (legenda's, tekeningen, kaartbeelden)
+  draaien op een `QgsTask`; de rest op de hoofdthread met een voortgangsbalk en een knop Annuleren
+  in de berichtenbalk, die binnen seconden stopt - ook tussen twee runs van de PDF-export. Na afloop
+  zoomt het canvas naar de zone en meldt de berichtenbalk het rapport met "Open PDF"; mislukte
+  producten en bronnen worden bij naam gemeld, de fasetabel staat in het logpaneel. De plugin werkt
+  in het geopende project; een tweede run met dezelfde studienaam vervangt de groepen en de layout
+  en schrijft in een nieuwe map `<uitvoermap>/<project>_<datum>_<tijd>`. `metadata.txt`
+  (QGIS 3.34+, Qt6, 0.1.0, experimenteel), `scripts/dev_link.cmd` (junction), `scripts/build_zip.py`
+  (`dist/desktopstudie-0.1.0.zip`) en `scripts/smoke_plugin.py` (de plugin onbeheerd doorlopen in
+  een echte QGIS).
