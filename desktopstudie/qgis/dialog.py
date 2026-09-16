@@ -250,6 +250,11 @@ class StudyDialog(QDialog):
 
     # --- reading the form -------------------------------------------------------------------------
 
+    @property
+    def hits(self) -> List[GeocodeHit]:
+        """The geocoder's candidates, in the order the list shows them."""
+        return list(self._hits)
+
     def mode(self) -> int:
         return next(mode for button, mode in self._mode_buttons if button.isChecked())
 
