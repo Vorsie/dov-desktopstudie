@@ -861,20 +861,19 @@ class LayoutBuilder:
     """One report -> one layout. Build it once; `build()` is not idempotent."""
 
     def __init__(self, project: QgsProject, report: Report,
-                 layers_by_map: Dict[str, List[QgsMapLayer]],
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
                  log=None, should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None):
-        """layers_by_map: map_id -> [QgsMapLayer, ...] to draw (WMS + basemap); overlays: keys
-        'zone', 'investigations', 'section' -> the memory layers a page may ask to draw on top;
+        """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
+        to draw on top of its map image;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
         map ids whose service draws nothing here; map_images: the key of `map_image_key` -> the
         raster layer of the image fetched for it, which a map page draws instead of the live
         WMS layer."""
         self.project, self.report = project, report
-        self.layers_by_map, self.overlays = layers_by_map, overlays
+        self.overlays = overlays
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
         self.legend_images = dict(legend_images or {})
@@ -1304,13 +1303,13 @@ class LayoutBuilder:
         return self.layout
 
 
-def build_layout(project: QgsProject, report: Report, layers_by_map: Dict[str, List[QgsMapLayer]],
+def build_layout(project: QgsProject, report: Report,
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
                  should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
-    return LayoutBuilder(project, report, layers_by_map, overlays, out_dir, zone_ring, meta,
+    return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
                          map_images).build()
