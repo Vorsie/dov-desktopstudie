@@ -580,7 +580,9 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
                            sheet_image_key("22")}
     assert images[profile_image_key("22026")].name == "quartair_22026_kop.png"
     assert images[sheet_image_key("22")].name == "quartair_kaartblad_22.png"
-    assert images[sheet_image_key("22")].read_bytes() == blob, "het kaartblad houdt de hele tekening"
+    # De eenhedentabel van het blad houdt alles behalve de kop van het profieltype waarmee ze
+    # binnenkwam; die kop staat al op de legendapagina.
+    assert images[sheet_image_key("22")].read_bytes() != blob
     assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
     # Dezelfde korte adem als een gewone legenda: een dienst die plat ligt mag het rapport geen
     # drie volle minuten kosten.
@@ -613,6 +615,33 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
     assert header.height() < whole.height() / 2, "de eenhedentabel hoort er niet meer op te staan"
     assert header.height() > 60, "het kleurvlak en de omschrijving horen er wel op te staan"
     assert header.width() > header.height()
+
+
+def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone):
+    """De eenhedentabel geldt voor elk profieltype van het blad. Stond de kop van profieltype 22010
+    er nog boven, dan leest ze als de tabel van dat ene type - dus die kop gaat eraf, en de bronregel
+    onder de tabel blijft staan."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.core.report_content import profile_image_key, sheet_image_key
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return blob
+
+    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+                                               _Client(cache_dir=None))
+
+    whole = QImage(str(tmp_path / "bron.png"))
+    header = QImage(str(images[profile_image_key("22026")]))
+    units = QImage(str(images[sheet_image_key("22")]))
+    assert units.width() == whole.width()
+    assert units.height() == whole.height() - header.height(), "precies de kop eraf"
+    assert units.height() > whole.height() / 2, "de tabel zelf staat er nog helemaal op"
 
 
 def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_path, gent_zone):
@@ -838,39 +867,92 @@ def test_a_figure_wider_than_tall_gets_a_landscape_sheet(project, gent_zone, tmp
     assert sheet.pageSize().width() > sheet.pageSize().height()
 
 
-def test_a_figure_that_asks_for_its_own_size_is_not_blown_up(project, gent_zone, tmp_path):
-    """Een kopstrook van 980 x 103 px is een reepje van 26 x 3 cm. Paginavullend getekend wordt ze
-    een wazige banner over het hele blad, dus ze wordt op ware grootte gezet: pixels gedeeld door
-    96 dpi."""
-    from qgis.core import QgsLayoutItemPicture
+def test_a_legend_page_puts_a_label_and_a_strip_per_entry_on_one_sheet(project, gent_zone, tmp_path):
+    """De legendapagina draagt per eenheid haar eigen regel en haar eigen strook: code en kaartblad
+    in tekst, de tekening van DOV eronder. Een strook van 980 x 98 px is een reepje van 26 x 3 cm -
+    dat blijft een reepje, het wordt niet over een blad uitgerekt."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
 
-    from desktopstudie.core.report_content import NATURAL, FigurePage
+    from desktopstudie.core.report_content import LegendEntry, LegendPage
     from desktopstudie.qgis import layout
 
-    _png(tmp_path / "legendas" / "kop.png", 980, 103)
-    page = FigurePage("Profieltype 22026", "legendas/kop.png", fit=NATURAL)
+    _png(tmp_path / "legendas" / "quartair_22010_kop.png", 980, 98)
+    _png(tmp_path / "legendas" / "quartair_22026_kop.png", 980, 98)
+    page = LegendPage("Legenda voor de zone - Quartair", [
+        LegendEntry("22010", "22", "legendas/quartair_22010_kop.png"),
+        LegendEntry("22026", "22", "legendas/quartair_22026_kop.png")])
+
     lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
 
-    picture = _items_of(lay, 1, QgsLayoutItemPicture)[0]
-    size = picture.sizeWithUnits()
-    assert size.width() == pytest.approx(980 * layout.MM_PER_PX, abs=0.5)
-    assert size.height() == pytest.approx(103 * layout.MM_PER_PX, abs=0.5)
+    assert lay.pageCollection().pageCount() == 1 + 1, "een blad, geen strookje per blad"
+    sheet = lay.pageCollection().page(1)
+    assert sheet.pageSize().height() > sheet.pageSize().width(), "staand"
+    texts = [item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel)]
+    assert "Profieltype 22010 - kaartblad 22" in texts
+    assert "Profieltype 22026 - kaartblad 22" in texts
+    pictures = _items_of(lay, 1, QgsLayoutItemPicture)
+    assert len(pictures) == 2
+    # 980 px op 96 dpi is 259 mm; dat past niet op 180 mm, dus de strook krimpt mee met de breedte
+    # en houdt haar verhouding - nooit uitgerekt tot een banner van een half blad.
+    for picture in pictures:
+        size = picture.sizeWithUnits()
+        assert size.width() <= layout.CONTENT_W + 0.01
+        assert size.height() == pytest.approx(size.width() * 98 / 980, abs=0.5)
 
 
-def test_a_figure_at_its_own_size_never_grows_past_the_sheet(project, gent_zone, tmp_path):
-    """Ware grootte is een bovengrens, geen belofte: een tekening die breder is dan het blad wordt
-    alsnog ingepast."""
-    from qgis.core import QgsLayoutItemPicture
+def test_a_legend_entry_without_a_drawing_says_so(project, gent_zone, tmp_path):
+    """Een tekening die niet binnenkwam, mag geen leeg kader worden: de regel blijft staan en zegt
+    dat de tekening ontbreekt."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
 
-    from desktopstudie.core.report_content import NATURAL, FigurePage
+    from desktopstudie.core.report_content import LegendEntry, LegendPage
     from desktopstudie.qgis import layout
 
-    _png(tmp_path / "legendas" / "breed.png", 4000, 400)
-    page = FigurePage("Brede tekening", "legendas/breed.png", fit=NATURAL)
+    page = LegendPage("Legenda voor de zone - Quartair", [LegendEntry("22098", "22", "")])
+
     lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
 
-    picture = _items_of(lay, 1, QgsLayoutItemPicture)[0]
-    assert picture.sizeWithUnits().width() <= layout._page_metrics(layout.LANDSCAPE).content_w + 0.01
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Profieltype 22098 - kaartblad 22" in texts
+    assert layout.MISSING_DRAWING in texts
+    assert _items_of(lay, 1, QgsLayoutItemPicture) == []
+
+
+def test_a_legend_page_that_is_full_continues_on_the_next_sheet(project, gent_zone, tmp_path):
+    """Tien eenheden passen niet op een blad. Dan hoort er een tweede te komen met "(vervolg)" in
+    de kop, niet een rij stroken die van het papier af loopt."""
+    from desktopstudie.core.report_content import LegendEntry, LegendPage
+    from desktopstudie.qgis import layout
+
+    entries = []
+    for number in range(12):
+        code = f"220{number:02d}"
+        _png(tmp_path / "legendas" / f"quartair_{code}_kop.png", 980, 98)
+        entries.append(LegendEntry(code, "22", f"legendas/quartair_{code}_kop.png"))
+
+    lay = layout.build_layout(project, _report([LegendPage("Legenda voor de zone - Quartair",
+                                                           entries)]),
+                              {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    assert lay.pageCollection().pageCount() > 2, "twaalf stroken passen niet op een blad"
+    from qgis.core import QgsLayoutItemLabel
+    headers = [item.text() for index in range(1, lay.pageCollection().pageCount())
+               for item in _items_of(lay, index, QgsLayoutItemLabel)]
+    assert any("(vervolg)" in text for text in headers), headers
+
+
+def test_an_empty_legend_page_prints_its_note(project, gent_zone, tmp_path):
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import LegendPage
+    from desktopstudie.qgis import layout
+
+    page = LegendPage("Legenda voor de zone - Quartair", [], note="Bron niet beschikbaar.")
+
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Bron niet beschikbaar." in texts
 
 
 def test_a_tall_figure_stays_on_a_portrait_sheet(project, gent_zone, tmp_path):
