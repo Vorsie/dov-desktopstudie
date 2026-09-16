@@ -59,6 +59,12 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
   bestaat, vervangt ze de feitentabel (één tabel per kaart); het hoogtemodel heeft geen legendablad
   maar zegt zijn kleurschaal in de leeswijzer; de profieltypetekeningen zijn rapportinhoud en worden
   ook zonder legendapagina's opgehaald.
+- Ten opzichte van het ontwerp: drie geplande bronbestanden zijn er niet gekomen, elk bewust.
+  `resources/paginasjabloon.qpt` niet, want de layout wordt in code gebouwd (een .qpt kan geen
+  pagina per rapportpagina bijmaken); `resources/stijlen/*.qml` niet, want de huisstijl van elke
+  laag staat als `layers.style_*`-helper in code, zodat de memory-laag van een run en dezelfde laag
+  uit het GeoPackage gegarandeerd hetzelfde tonen; `dialog.ui` niet, want de dialoog wordt in code
+  gebouwd en een .ui zou een tweede plaats zijn waar widgets bestaan.
 - Snelheid: de DOV-kaarten vragen hun WMS aan de dienst van hun eigen workspace (enkele kB
   capabilities in plaats van 1,1 MB per kaart), kaartbeelden worden vooraf in één GetMap per blad
   opgehaald en als lokale raster getekend, en de PDF gaat in runs van tien bladen naar de exporter
