@@ -1289,3 +1289,163 @@ def test_a_drawing_shorter_than_the_fallback_keeps_its_own_height(qgs_app, tmp_p
     klein = _drawn_png(tmp_path / "klein.png", 200, 40)
 
     assert layout.header_rows(QImage(str(klein))) == 40
+
+
+# --- kaartbeelden vooraf ophalen ---------------------------------------------------------------
+
+def test_every_map_page_asks_for_one_image_at_the_size_it_will_be_printed(project, gent_zone,
+                                                                          tmp_path):
+    """De QGIS-WMS-provider haalt tijdens het renderen tegel na tegel op, een blad tegelijk, en het
+    rapport wacht daarop. Dus wordt elk kaartbeeld vooraf als een enkele GetMap opgehaald, op de
+    extent en de pixelmaat waarop het blad het toch afdrukt."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout
+
+    pages = [MapPage("grb", "Ligging", scale=2500), MapPage("ferraris", "Ferraris", scale=25000)]
+
+    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+
+    assert [request.map_id for request in requests] == ["grb", "ferraris"]
+    first = requests[0]
+    # 180 x 200 mm op de exportresolutie, en nooit meer dan de dienst aankan
+    assert first.width == int(round(layout.MAP_W / 25.4 * layout.MAP_IMAGE_DPI))
+    assert first.height == int(round(layout.MAP_H / 25.4 * layout.MAP_IMAGE_DPI))
+    assert max(first.width, first.height) <= layout.MAP_IMAGE_MAX_PX
+    assert first.extent == layout.map_extent(gent_zone.ring, 2500, 3.0)
+
+
+def test_two_pages_of_the_same_map_at_the_same_extent_share_one_image(project, gent_zone, tmp_path):
+    """De GRB-basiskaart staat op vier bladen. Waar de uitsnede dezelfde is, hoeft ze maar een keer
+    opgehaald te worden; waar ze verschilt (hoofdstuk 5 rekt open voor de zoekstraal) niet."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout
+
+    pages = [MapPage("grb", "Ligging", scale=2500), MapPage("grb", "Nog eens", scale=2500),
+             MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
+
+    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+
+    assert len(requests) == 2, [request.key for request in requests]
+    assert len({request.key for request in requests}) == 2
+
+
+def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tmp_path):
+    """Een PNG zonder wereldbestand ligt nergens: de layout moet hem op de meter kunnen plaatsen."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
+    asked = []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            asked.append((url, timeout, retries))
+            return blob
+
+    requests = layout.plan_map_images(_report([MapPage("grb", "Ligging", scale=2500)]),
+                                      gent_zone.ring, {})
+
+    images, empty = layout.prepare_map_images(requests, tmp_path, _Client(cache_dir=None))
+
+    path = images[requests[0].key]
+    assert path.parent.name == layout.MAP_IMAGE_DIR and path.suffix == ".png"
+    world = path.with_suffix(".pgw")
+    assert world.exists()
+    lines = world.read_text(encoding="utf-8").splitlines()
+    extent = requests[0].extent
+    assert float(lines[0]) == pytest.approx(extent.width() / requests[0].width, rel=1e-6)
+    assert float(lines[3]) == pytest.approx(-extent.height() / requests[0].height, rel=1e-6)
+    assert float(lines[4]) == pytest.approx(extent.xMinimum() + float(lines[0]) / 2, rel=1e-6)
+    assert empty == set()
+    assert "REQUEST=GetMap" in asked[0][0] and "VERSION=1.1.1" in asked[0][0]
+    assert asked[0][1:] == (layout.MAP_IMAGE_TIMEOUT_S, layout.MAP_IMAGE_RETRIES)
+
+
+def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_path):
+    """De dekkingsproef was een extra GetMap per kaart. Nu het beeld er toch al is, valt het
+    antwoord eruit: een volledig lege tegel betekent geen kaartbeeld op deze locatie - en alleen
+    voor kaarten zonder feiten, want een lege watertoetstegel is data."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    leeg = _solid_png(tmp_path / "leeg.png", 64, 64).read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return leeg
+
+    pages = [MapPage("popp", "Popp", scale=5000), MapPage("watertoets_pluviaal", "Watertoets",
+                                                          scale=10000)]
+    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+
+    _images, empty = layout.prepare_map_images(requests, tmp_path, _Client(cache_dir=None))
+
+    assert empty == {"popp"}
+
+
+def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, gent_zone, tmp_path):
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.core.services.http import HttpClient, HttpError
+    from desktopstudie.qgis import layout
+
+    class _Down(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            raise HttpError(url, 500, "dienst plat")
+
+    requests = layout.plan_map_images(_report([MapPage("popp", "Popp", scale=5000)]),
+                                      gent_zone.ring, {})
+    lines = []
+
+    images, empty = layout.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
+                                              Log("layout", lines.append, scope="qgis"))
+
+    assert images == {} and empty == set(), "een mislukte ophaling zegt niets over dekking"
+    assert any("WARNING" in line for line in lines), lines
+
+
+def test_a_map_page_draws_the_fetched_image_instead_of_the_live_service(project, gent_zone,
+                                                                        tmp_path):
+    """Het blad tekent de opgehaalde momentopname; de live WMS-laag blijft voor het project."""
+    from qgis.core import QgsLayoutItemMap
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layers, layout
+
+    _png(tmp_path / "data" / "kaarten" / "grb_1.png", 120, 130)
+    snapshot = layers.snapshot_layer(tmp_path / "data" / "kaarten" / "grb_1.png", "GRB momentopname")
+    project.addMapLayer(snapshot, False)
+    wms = layers.zone_layer(gent_zone)
+    wms.setName("GRB live")
+    project.addMapLayer(wms, False)
+    page = MapPage("grb", "Ligging", scale=2500)
+    extent = layout.map_extent(gent_zone.ring, 2500, 3.0)
+
+    lay = layout.build_layout(project, _report([page]), {"grb": [wms]}, {}, tmp_path,
+                              gent_zone.ring, _meta(),
+                              map_images={layout.map_image_key("grb", extent): snapshot})
+
+    item = [i for i in lay.pageCollection().itemsOnPage(1) if isinstance(i, QgsLayoutItemMap)][0]
+    assert snapshot in item.layers()
+    assert wms not in item.layers(), "de trage laag hoort niet meer op het blad te staan"
+
+
+def test_a_map_page_without_an_image_says_the_source_was_not_available(project, gent_zone,
+                                                                       tmp_path):
+    """Kon het beeld niet opgehaald worden, dan blijft de kaart leeg - met een regel die zegt
+    waarom, want een wit vlak zonder uitleg is het ergste van alles."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layers, layout
+
+    wms = layers.zone_layer(gent_zone)
+    project.addMapLayer(wms, False)
+
+    lay = layout.build_layout(project, _report([MapPage("grb", "Ligging", scale=2500)]),
+                              {"grb": [wms]}, {}, tmp_path, gent_zone.ring, _meta(), map_images={})
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert layout.MISSING_MAP_NOTE in texts
