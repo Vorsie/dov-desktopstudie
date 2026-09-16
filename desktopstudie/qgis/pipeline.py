@@ -371,13 +371,19 @@ def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]
 def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, log: Log,
            progress: Optional[Callable[[float, str], None]] = None, legends: bool = True,
            should_cancel: Optional[Callable[[], bool]] = None, client: Optional[HttpClient] = None,
-           cache_mode: str = "use", pngs: bool = False) -> PipelineResult:
+           cache_mode: str = "use", pngs: bool = False,
+           study_groups: bool = True) -> PipelineResult:
     """Main-thread part: relief, layers, legends, files, report, layout, exports.
 
     `project` is the project the layers and the layout go into - the one the user has open in the
     plugin, a fresh one headless. The standalone `.qgz` is built separately, from the GeoPackage.
     `pngs` writes every page as an image as well; off by default, because it renders the whole
     report a second time for a product nobody asked for.
+
+    `study_groups` puts the catalogue maps in `project` as live WMS layers. That is what the plugin
+    wants - the user carries on working in that project - and what a headless run does not: nobody
+    ever sees that QgsProject, while building the layers costs a GetCapabilities per map (2,6 s
+    each against DOV, measured 2026-09-16). The deliverable `.qgz` gets them either way.
     """
     out_dir = Path(out_dir)
     clock = PhaseClock(progress or (lambda fraction, message: None), log)
@@ -393,7 +399,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
 
     _stop_if_cancelled(should_cancel)
     report_progress(0.05, "Lagen")
-    layers_by_map = _map_layers_into_groups(project, result, log)
+    layers_by_map = _map_layers_into_groups(project, result, log) if study_groups else {}
     layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"])
     layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"])
 
@@ -461,7 +467,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # is spared; they were made minutes ago and the layout below is about to draw with them.
     drop_previous_run(project, keep=list(map_images.values())
                       + [layer for group in report_overlays.values() for layer in group])
-    lay = layout_mod.build_layout(project, report, layers_by_map, report_overlays,
+    lay = layout_mod.build_layout(project, report, report_overlays,
                                   out_dir, result.zone.ring, report.meta, legends=legends,
                                   legend_images=legend_images, log=log.child("layout"),
                                   should_cancel=should_cancel, no_coverage=no_coverage,
