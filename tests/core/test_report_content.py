@@ -347,3 +347,25 @@ def test_a_generic_zone_legend_translates_its_codes(gent_ring):
     legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Watertoets"))
     assert legend.columns == ["Klasse"]
     assert legend.rows == [["C - Kleine kans op overstromingen [2]"]], "ontdubbeld en vertaald"
+
+
+def test_a_source_that_answered_but_has_nothing_here_says_why(gent_ring):
+    """Een historisch mozaiek zonder blad voor deze gemeente antwoordt netjes - HTTP 200, lege
+    tegel. Dat is geen fout, maar "ok" alleen laat de lezer met een wit blad en geen uitleg
+    zitten."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [
+        Provenance("Kaartlaag Popp", "https://geo.api.vlaanderen.be/HISTCART/wms", "2026-09-16T08:00:00",
+                   True, "geen dekking op deze locatie"),
+        Provenance("Kaartlaag GRB", "https://geo.api.vlaanderen.be/GRB-basiskaart/wms",
+                   "2026-09-16T08:00:00", True),
+        Provenance("Sonderingen", "https://www.dov.vlaanderen.be/geoserver/wfs", "2026-09-16T08:00:00",
+                   False, "HTTP 500")]
+
+    sources = next(p for p in rc.build_report(result, rc.ReportMeta(project="T", author="A", company="B"))
+                   .chapters[7].pages if p.title.startswith("Geraadpleegde"))
+
+    assert [row[3] for row in sources.rows] == ["ok - geen dekking op deze locatie", "ok",
+                                                "fout: HTTP 500"]
