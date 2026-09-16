@@ -978,6 +978,12 @@ class LayoutBuilder:
         metrics = _page_metrics(LANDSCAPE if len(page.columns) >= WIDE_TABLE_COLUMNS else PORTRAIT)
         index = self.new_page(metrics.orientation)
         self.header(chapter, page.title, index, metrics)
+        if not rows:
+            # A row of column headings with nothing under it promises a table that never comes; the
+            # note ("Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar.") is the answer.
+            self.label(page.note, MARGIN, NOTE_Y, metrics.content_w, 5, index, size=7)
+            self.footer(index, metrics)
+            return
         table = QgsLayoutItemTextTable(self.layout)
         self.layout.addMultiFrame(table)
         # What the columns may share is the frame minus what the table spends around them: a cell
@@ -1043,11 +1049,16 @@ class LayoutBuilder:
             picture.attemptResize(size_mm(60, 30))
             y += 35
         self.label(self.report.title, MARGIN, y, CONTENT_W, 14, index, size=20, bold=True)
+        # The zone line is left out when it only repeats the address: a study started from an
+        # address names its zone after that address, and the same line twice says nothing twice.
+        zone_name = self.meta.get("zone_name")
         rows = [("Project", self.meta.get("project")),
                 ("Projectnummer", self.meta.get("project_number")),
-                ("Adres", self.meta.get("address")), ("Gemeente", self.meta.get("municipality")),
-                ("Zone", self.meta.get("zone_name")), ("Datum", self._date()),
-                ("Auteur", self.meta.get("author")), ("Bedrijf", self.meta.get("company"))]
+                ("Adres", self.meta.get("address")), ("Gemeente", self.meta.get("municipality"))]
+        if zone_name and zone_name != self.meta.get("address"):
+            rows.append(("Zone", zone_name))
+        rows += [("Datum", self._date()), ("Auteur", self.meta.get("author")),
+                 ("Bedrijf", self.meta.get("company"))]
         cells = "".join(f"<tr><td><b>{key}</b></td><td>{value or '-'}</td></tr>" for key, value in rows)
         self.label(f"<table>{cells}</table>", MARGIN, y + 20, CONTENT_W, 60, index, size=9, html=True)
         chapters = "<br>".join(f"{c.number}. {c.title}" for c in self.report.chapters)
