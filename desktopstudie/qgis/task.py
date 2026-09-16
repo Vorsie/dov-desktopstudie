@@ -35,6 +35,7 @@ from qgis.core import (
     QgsRectangle,
     QgsTask,
 )
+from qgis.PyQt import sip
 from qgis.PyQt.QtCore import QCoreApplication, QObject, QTimer, QUrl, pyqtSignal
 from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import QProgressBar, QPushButton
@@ -79,6 +80,9 @@ class StudyRequest:
     out_dir: Path
     cache_mode: str
     legends: bool
+    # The disk cache, shared by every run under the same output folder: a run folder is fresh
+    # every time, and a cache inside it would never be hit twice.
+    cache_dir: Optional[Path] = None
 
 
 @dataclass
@@ -109,7 +113,7 @@ class StudyTask(QgsTask):
         try:
             # One client for both halves: one disk cache, so the legends phase re-uses what the
             # core already fetched and a re-run costs nothing.
-            client = pipeline.make_client(request.out_dir, self.log, request.cache_mode)
+            client = pipeline.make_client(request.out_dir, self.log, request.cache_mode, request.cache_dir)
             self.result = pipeline.run_core(request.zone, request.settings, request.out_dir, self.log,
                                             progress=part_of(self._progress, 0.0, CORE_SHARE),
                                             should_cancel=self.isCanceled,
@@ -173,6 +177,9 @@ class StudyRunner(QObject):
         self._item = None
         self._progress_bar: Optional[QProgressBar] = None
         self._message = ""
+        # The user may close the progress message; QGIS deletes it, and the run carries on
+        # without a bar rather than on a dead widget.
+        self.iface.messageBar().widgetRemoved.connect(self._progress_item_removed)
 
     @property
     def running(self) -> bool:
@@ -220,15 +227,37 @@ class StudyRunner(QObject):
         QTimer.singleShot(0, self._assemble)
 
     def _assemble(self) -> None:
+        """The main-thread half, in a timer slot: whatever happens, `finished` fires at the end,
+        because the dialog's Start button waits on it."""
         request, outcome = self._request, self._outcome
+        result: Optional[PipelineResult] = None
         try:
-            result = self._finish(request, outcome)
+            self._freeze_canvas(True)
+            try:
+                result = self._finish(request, outcome)
+            finally:
+                self._freeze_canvas(False)
+                self._hide_progress_item()
+                self._request, self._outcome = None, None
+            if result is not None:
+                self._delivered(result)
+        except Exception as exc:  # noqa: BLE001 - a slot must not raise, and the study itself is done
+            self.log.error(f"afronding van de studie mislukt: {type(exc).__name__}: {exc}")
+            self.log.debug(traceback.format_exc())
         finally:
-            self._hide_progress_item()
-            self._request = None
-        if result is not None:
-            self._delivered(result)
-        self.finished.emit(result)
+            self.finished.emit(result)
+
+    def _freeze_canvas(self, frozen: bool) -> None:
+        """No render while the study fills the project: every layer that lands in the open project
+        would otherwise start one, and a WMS render pulls tiles on the main thread. One refresh at
+        the end instead. A canvas that cannot be reached is logged, not fatal."""
+        try:
+            canvas = self.iface.mapCanvas()
+            canvas.freeze(frozen)
+            if not frozen:
+                canvas.refresh()
+        except Exception as exc:  # noqa: BLE001 - the study does not depend on the canvas
+            self.log.warning(f"canvas niet {'bevroren' if frozen else 'vrijgegeven'}: {exc}")
 
     def _finish(self, request: StudyRequest, outcome: WorkerOutcome) -> Optional[PipelineResult]:
         if outcome.cancelled or self._cancelled:
@@ -295,6 +324,17 @@ class StudyRunner(QObject):
         item.layout().addWidget(button)
         bar.pushWidget(item, Qgis.MessageLevel.Success, 0)
 
+    def _progress_item_removed(self, widget) -> None:
+        """Our progress item left the bar - the user closed it, or we popped it. Forget it either
+        way: QGIS deletes the item after this signal, and any later call on it would raise."""
+        item = self._item
+        if item is None:
+            return
+        if sip.isdeleted(item) or sip.unwrapinstance(widget) == sip.unwrapinstance(item):
+            self._item, self._progress_bar = None, None
+            if self.running:
+                self.log.info("voortgangsbericht weggeklikt; de studie loopt door, zie het logpaneel")
+
     def _show_progress_item(self) -> None:
         bar = self.iface.messageBar()
         self._item = bar.createMessage(PLUGIN_NAME, "Studie gestart")
@@ -311,11 +351,15 @@ class StudyRunner(QObject):
         self._message = message
         if self._item is None:
             return
+        if sip.isdeleted(self._item):
+            self._item, self._progress_bar = None, None
+            return
         if fraction is not None and self._progress_bar is not None:
             self._progress_bar.setValue(int(round(fraction * 100.0)))
         self._item.setText(message)
 
     def _hide_progress_item(self) -> None:
-        if self._item is not None:
-            self.iface.messageBar().popWidget(self._item)
-            self._item, self._progress_bar = None, None
+        item = self._item
+        self._item, self._progress_bar = None, None
+        if item is not None and not sip.isdeleted(item):
+            self.iface.messageBar().popWidget(item)
