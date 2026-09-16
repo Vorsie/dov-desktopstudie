@@ -422,10 +422,10 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     return PipelineResult(result, report, pdf, project_file, written, page_pngs, failures)
 
 
-def _part_of(progress: Optional[Callable[[float, str], None]], low: float, high: float):
+def part_of(progress: Optional[Callable[[float, str], None]], low: float, high: float):
     """`progress` restricted to one stretch of the bar. Both halves report 0 -> 1 of their own
     work; handed the caller's callback unchanged, the bar would run full, jump back to zero and
-    run full again."""
+    run full again. Public because the headless runner drives the two halves itself."""
     if progress is None:
         return None
     return lambda fraction, message: progress(low + (high - low) * fraction, message)
@@ -439,8 +439,8 @@ def run_pipeline(zone: StudyZone, settings: Settings, meta: ReportMeta, out_dir,
     share the same disk cache."""
     out_dir = Path(out_dir)
     client = make_client(out_dir, log, cache_mode)
-    result = run_core(zone, settings, out_dir, log, _part_of(progress, 0.0, CORE_SHARE),
+    result = run_core(zone, settings, out_dir, log, part_of(progress, 0.0, CORE_SHARE),
                       should_cancel, cache_mode, client)
-    return finish(project, result, meta, out_dir, log, _part_of(progress, CORE_SHARE, 1.0),
+    return finish(project, result, meta, out_dir, log, part_of(progress, CORE_SHARE, 1.0),
                   legends=legends, should_cancel=should_cancel, client=client, cache_mode=cache_mode,
                   pngs=pngs)
