@@ -276,11 +276,14 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
     report: it is left out, logged, and recorded as a failed source so the report names it. Every
     layer is a network round trip, so the cancel flag is looked at before each one. The chapter
     groups land collapsed with only the base map checked - see BASE_MAP_ID.
+
+    Only the maps the study chose (`StudyResult.map_ids`): an unchecked map costs no layer, which
+    is what the dialog's checklist promises.
     """
     layers_by_map: Dict[str, List[QgsMapLayer]] = {}
     for chapter, title in CHAPTER_GROUPS.items():
         group_layers: List[QgsMapLayer] = []
-        entries = catalogue.entries(chapter)
+        entries = catalogue.entries(chapter, only=result.map_ids)
         for entry in entries:
             _stop_if_cancelled(should_cancel)
             layer = layers.wms_layer(entry)
@@ -303,10 +306,11 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
 
 def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: Log,
                    should_cancel) -> Dict[str, Path]:
-    """Every legend image, with the misses recorded as failed sources."""
-    images, _missing = layout_mod.prepare_legends(catalogue.entries(), out_dir, client,
+    """Every legend image of a CHOSEN map, with the misses recorded as failed sources."""
+    chosen = catalogue.entries(only=result.map_ids)
+    images, _missing = layout_mod.prepare_legends(chosen, out_dir, client,
                                                   log.child("legendas"), should_cancel)
-    for entry in catalogue.entries():
+    for entry in chosen:
         if not entry.legend:
             continue
         found = entry.id in images
@@ -545,7 +549,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         _stop_if_cancelled(should_cancel)  # fifteen clones and a write: seconds, and stoppable
         standalone = layers.standalone_project(
             gpkg, CHAPTER_GROUPS, log,
-            {map_id: group[0] for map_id, group in layers_by_map.items()})
+            {map_id: group[0] for map_id, group in layers_by_map.items()}, only=result.map_ids)
         project_file = _guarded("Projectbestand schrijven", failures, log,
                                 lambda: export.write_project(standalone, out_dir / PROJECT_NAME))
     log.info(f"Rapport: {len(report.chapters)} hoofdstukken, "
