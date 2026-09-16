@@ -74,12 +74,12 @@ from ..core.report_content import (
     quartair_sheet,
     sheet_image_key,
 )
-from ..core.services.dov_portal import content_link
-from ..core.services.http import HttpClient, HttpError, build_url
+from ..core.services.dov_portal import PNG_MAGIC, content_link
+from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
+from .layers import CRS_AUTHID
 
-CRS_AUTHID = "EPSG:31370"
 LAYOUT_NAME = "DOV Desktopstudie"
 
 
@@ -104,7 +104,6 @@ SCALE_BAR_Y = 232.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
 LEGEND_DIR = "legendas"
-DATA_DIR = "data"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
 # Arial is the house face, but the PDF is also produced on the Linux CI images and on machines that
 # do not have it. Naming the substitutes keeps the metrics predictable instead of leaving the
@@ -164,7 +163,6 @@ LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
 ZONE_LEGEND_SHEET = "kaartblad_"
 HEADER_SUFFIX = "_kop"
-PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 # A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
 # of description - and continues with the units table of the whole map sheet. The two are separated
 # by a white band, and the first white row BELOW the swatch is the cut. Above HEADER_MIN_ROWS there
@@ -416,7 +414,7 @@ def fetch_legend(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Opti
     return path
 
 
-def prepare_legends(entries: Sequence[MapEntry], out_dir, client: Optional[HttpClient] = None,
+def prepare_legends(entries: Sequence[MapEntry], out_dir, client: HttpClient,
                     log=None, should_cancel: Optional[Callable[[], bool]] = None
                     ) -> Tuple[Dict[str, Path], List[MapEntry]]:
     """(map_id -> legend PNG, entries that came back without one).
@@ -425,10 +423,12 @@ def prepare_legends(entries: Sequence[MapEntry], out_dir, client: Optional[HttpC
     the report, and so the shell can run this phase with its own progress and cancellation. The
     fourteen legends are independent downloads from three services, so they go out in parallel;
     each still fails on its own, and the caller gets the misses back to record as failed sources.
+
+    The client comes from the caller, always: one study has one disk cache and one cache mode
+    (`http.study_client`), and a client built here would quietly be a second one that ignores the
+    mode the user chose.
     """
     out_dir = Path(out_dir)
-    if client is None:
-        client = HttpClient(cache_dir=out_dir / "data" / "cache", log=log)
     wanted = [entry for entry in entries if entry.legend]
     images: Dict[str, Path] = {}
 
@@ -515,6 +515,26 @@ def header_rows(image: QImage) -> int:
     return min(HEADER_FALLBACK_ROWS, image.height())
 
 
+def _cropped(path, target: Path, part: Callable[[QImage], Tuple[int, int, int, int]],
+             what: str, log=None) -> Optional[Path]:
+    """One rectangle out of a profile-type drawing, saved as `target`.
+
+    The two crops below differ in exactly two things - which rectangle and what the failure is
+    called - so the reading, the null check and the save live here. `part` gets the image and
+    answers (x, y, width, height), because both rectangles need `header_rows` on the loaded image.
+    """
+    image = QImage(str(path))
+    if image.isNull():
+        if log:
+            log.warning(f"Profieltypetekening niet leesbaar: {path}")
+        return None
+    if not image.copy(*part(image)).save(str(target)):
+        if log:
+            log.warning(f"{what} niet weggeschreven: {target}")
+        return None
+    return target
+
+
 def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
     """The same drawing WITHOUT its profile-type header, as `quartair_kaartblad_<nn>.png`.
 
@@ -522,18 +542,11 @@ def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
     whichever type happened to be fetched first sits above it and the table reads as that one
     type's. The source line under the table is part of the drawing and stays.
     """
-    image = QImage(str(path))
-    if image.isNull():
-        if log:
-            log.warning(f"Profieltypetekening niet leesbaar: {path}")
-        return None
-    top = header_rows(image)
     target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
-    if not image.copy(0, top, image.width(), image.height() - top).save(str(target)):
-        if log:
-            log.warning(f"Eenhedentabel niet weggeschreven: {target}")
-        return None
-    return target
+    return _cropped(path, target,
+                    lambda image: (0, header_rows(image), image.width(),
+                                   image.height() - header_rows(image)),
+                    "Eenhedentabel", log)
 
 
 def crop_profile_header(path, log=None) -> Optional[Path]:
@@ -542,17 +555,9 @@ def crop_profile_header(path, log=None) -> Optional[Path]:
     What is left out is the units table of the map sheet, which is the same drawing for every
     profile type of that sheet: printed once per type it would be the same page three times over.
     """
-    image = QImage(str(path))
-    if image.isNull():
-        if log:
-            log.warning(f"Profieltypetekening niet leesbaar: {path}")
-        return None
     target = Path(path).with_name(Path(path).stem + HEADER_SUFFIX + ".png")
-    if not image.copy(0, 0, image.width(), header_rows(image)).save(str(target)):
-        if log:
-            log.warning(f"Kopstrook niet weggeschreven: {target}")
-        return None
-    return target
+    return _cropped(path, target, lambda image: (0, 0, image.width(), header_rows(image)),
+                    "Kopstrook", log)
 
 
 def _log_rows_without_a_drawing(result: StudyResult, targets: Dict[str, str], log) -> None:
