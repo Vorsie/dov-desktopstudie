@@ -84,6 +84,19 @@ LOCKED_HINT = "sluit de lagen van een vorige studie in QGIS en probeer opnieuw"
 
 # --- raster layers from the catalogue ------------------------------------------------------------
 
+def snapshot_layer(path, name: str) -> QgsRasterLayer:
+    """A map image already on disk, as a layer the layout can draw.
+
+    The report draws these instead of the live WMS: the provider fetches tile after tile WHILE a
+    page renders, one page at a time, and ninety sheets of that is the slowest thing a study does.
+    The world file next to the PNG carries the placement; the CRS is set here, because a PNG has
+    no way to say it and a layer without one lands wherever the project happens to think.
+    """
+    layer = QgsRasterLayer(str(path), name, "gdal")
+    layer.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    return layer
+
+
 def wms_layer(entry: MapEntry) -> QgsRasterLayer:
     """A WMS layer for one catalogue entry. Validity needs a live GetCapabilities, so an offline
     caller gets an invalid layer rather than an exception - the pipeline reports that per map."""
