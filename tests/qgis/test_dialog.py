@@ -343,9 +343,10 @@ def test_layer_mode_takes_the_first_selected_polygon_in_its_own_crs(qgs_app, tmp
     dialog.mode_layer.setChecked(True)
     assert dialog.layer_combo.count() == 0
     QgsProject.instance().addMapLayer(layer, False)
+    layer_id = layer.id()  # the project owns the layer and deletes it on removal
     try:
-        assert dialog.layer_combo.findData(layer.id()) >= 0, "de lijst volgt het project"
-        dialog.layer_combo.setCurrentIndex(dialog.layer_combo.findData(layer.id()))
+        assert dialog.layer_combo.findData(layer_id) >= 0, "de lijst volgt het project"
+        dialog.layer_combo.setCurrentIndex(dialog.layer_combo.findData(layer_id))
         with pytest.raises(ValueError, match="Selecteer eerst een object"):
             dialog.build_request()
 
@@ -356,8 +357,8 @@ def test_layer_mode_takes_the_first_selected_polygon_in_its_own_crs(qgs_app, tmp
         assert request.zone.name == f"percelen #{fid}"
         assert _close(request.zone.ring, gent_zone.ring, 0.05)
     finally:
-        QgsProject.instance().removeMapLayer(layer.id())
-    assert dialog.layer_combo.findData(layer.id()) < 0, "een verwijderde laag verdwijnt uit de lijst"
+        QgsProject.instance().removeMapLayer(layer_id)
+    assert dialog.layer_combo.findData(layer_id) < 0, "een verwijderde laag verdwijnt uit de lijst"
 
 
 def test_a_section_line_from_a_selected_line_layer(qgs_app, tmp_path):
