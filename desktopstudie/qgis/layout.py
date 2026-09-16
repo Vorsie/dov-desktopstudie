@@ -56,6 +56,7 @@ from ..core import catalogue, geometry, parallel
 from ..core.catalogue import MapEntry
 from ..core.model import StudyResult
 from ..core.report_content import (
+    NATURAL,
     QUARTAIR_CODE,
     QUARTAIR_ID,
     QUARTAIR_IMAGE,
@@ -65,6 +66,9 @@ from ..core.report_content import (
     Report,
     TablePage,
     TextPage,
+    profile_image_key,
+    quartair_sheet,
+    sheet_image_key,
 )
 from ..core.services.http import HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
@@ -123,7 +127,15 @@ LEGEND_WORKERS = 4
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
+ZONE_LEGEND_SHEET = "kaartblad_"
+HEADER_SUFFIX = "_kop"
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+# A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
+# of description - and continues with the units table of the whole map sheet. The two are separated
+# by a white band, and the first white row BELOW the swatch is the cut. Above HEADER_MIN_ROWS there
+# is another white band (under the word "Profieltype"), which is why the search starts there.
+HEADER_MIN_ROWS = 60
+HEADER_FALLBACK_ROWS = 110
 # One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
@@ -299,6 +311,25 @@ def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
     return width, rows * (line_h - 2 * margin) + 2 * margin
 
 
+def _figure_size(image_path, fit: str, max_w: float, max_h: float) -> Tuple[float, float]:
+    """How large a figure is drawn, in mm.
+
+    "zoom" fills the band, which is what a CPT diagram or a section wants. "natural" is the picture
+    at its own pixel size (96 dpi logical pixels, as it was authored): a strip of three centimetres
+    stretched over a sheet is a blurred banner. Natural is a ceiling, never a promise - a drawing
+    wider than the paper is still fitted to it.
+    """
+    if fit != NATURAL:
+        return _drawn_size(image_path, max_w, max_h)
+    size = QImage(str(image_path)).size()
+    if size.isEmpty():
+        return max_w, max_h
+    natural_w, natural_h = size.width() * MM_PER_PX, size.height() * MM_PER_PX
+    if natural_w <= max_w and natural_h <= max_h:
+        return natural_w, natural_h
+    return _drawn_size(image_path, max_w, max_h)
+
+
 def _drawn_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
     """The size in mm at which a picture is really drawn inside max_w x max_h, aspect kept.
 
@@ -397,37 +428,92 @@ def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
     return targets
 
 
+def header_rows(image: QImage) -> int:
+    """How many pixel rows of a profile-type drawing are its header.
+
+    The answer is the first fully white row under the colour swatch: that band is the gap before
+    "Eenheden op kaartblad <nn>". A drawing without such a band falls back to a fixed strip, which
+    is still a strip rather than a whole sheet of units table.
+    """
+    flags = _blank_rows(image)
+    for row in range(min(HEADER_MIN_ROWS, len(flags)), len(flags)):
+        if flags[row]:
+            return row
+    return min(HEADER_FALLBACK_ROWS, image.height())
+
+
+def crop_profile_header(path, log=None) -> Optional[Path]:
+    """Cut the header strip off a profile-type drawing and save it beside it as `<name>_kop.png`.
+
+    What is left out is the units table of the map sheet, which is the same drawing for every
+    profile type of that sheet: printed once per type it would be the same page three times over.
+    """
+    image = QImage(str(path))
+    if image.isNull():
+        if log:
+            log.warning(f"Profieltypetekening niet leesbaar: {path}")
+        return None
+    target = Path(path).with_name(Path(path).stem + HEADER_SUFFIX + ".png")
+    if not image.copy(0, 0, image.width(), header_rows(image)).save(str(target)):
+        if log:
+            log.warning(f"Kopstrook niet weggeschreven: {target}")
+        return None
+    return target
+
+
 def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
                                should_cancel: Optional[Callable[[], bool]] = None
                                ) -> Dict[str, Path]:
-    """The DOV drawing of every quartair profile type in the zone: {legend URL -> saved PNG}.
+    """The DOV drawings behind the quartair zone legend, by the key `report_content` looks them up
+    with: `profieltype:<code>` for the header strip of one type, `kaartblad:<nn>` for the units
+    table of a whole map sheet.
 
     That drawing IS the legend of the quartair map - its GetLegendGraphic is a 20 x 20 stamp
-    without a class name - so the shell fetches it here and hands it to `build_report`, which turns
-    it into a figure page per profile type. The core fetches nothing itself.
+    without a class name - so the shell fetches it here and hands it to `build_report`. The core
+    fetches nothing itself.
 
-    What does not come back has no entry, and `report_content` then leaves that figure page out
-    rather than promising a drawing that is not there. The URLs end in "_png" but are download
-    links that answer an error page with HTTP 200, so the bytes are checked before they are saved
-    as an image.
+    One request per distinct profile type; the units table underneath is identical for every type
+    of the same sheet, so it is kept once. What does not come back has no entry, and the report
+    then leaves that page out rather than promising a drawing that is not there. The URLs end in
+    "_png" but are download links that can answer an error page with HTTP 200, so the bytes are
+    checked before they are saved as an image.
     """
     targets = zone_legend_targets(result)
-    images: Dict[str, Path] = {}
+    drawings: Dict[str, Path] = {}
+    out_dir = Path(out_dir)
 
     def fetch(item: Tuple[str, str]) -> None:
         url, code = item
         data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
         if not data.startswith(PNG_MAGIC):
             raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
-        path = Path(out_dir) / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
+        path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
-        images[url] = path
+        drawings[code] = path
 
     parallel.load_each(list(targets.items()), fetch, "profieltypelegenda", LEGEND_WORKERS, log,
                        should_cancel)
+    # The threads only fetch; the cutting and the one-per-sheet choice happen here, in catalogue
+    # order, so two runs of the same study keep the same sheet drawing.
+    images: Dict[str, Path] = {}
+    for code in targets.values():
+        drawing = drawings.get(code)
+        if drawing is None:
+            continue
+        header = crop_profile_header(drawing, log)
+        if header is None:
+            continue
+        images[profile_image_key(code)] = header
+        sheet = quartair_sheet(code)
+        key = sheet_image_key(sheet)
+        if key not in images:
+            units = drawing.with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
+            units.write_bytes(drawing.read_bytes())
+            images[key] = units
     if log and targets:
-        log.info(f"Profieltypelegendas opgehaald: {len(images)}/{len(targets)}")
+        log.info(f"Profieltypetekeningen opgehaald: {len(drawings)}/{len(targets)}; "
+                 f"{len(images)} bladen in het rapport")
     return images
 
 
@@ -756,7 +842,7 @@ class LayoutBuilder:
         metrics = _page_metrics(LANDSCAPE if size.width() > size.height() else PORTRAIT)
         index = self.new_page(metrics.orientation)
         self.header(chapter, page.title, index, metrics)
-        width, height = _drawn_size(image, metrics.content_w, metrics.content_h - 12.0)
+        width, height = _figure_size(image, page.fit, metrics.content_w, metrics.content_h - 12.0)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
         picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
