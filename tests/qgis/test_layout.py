@@ -1388,3 +1388,68 @@ def test_a_map_page_without_an_image_says_the_source_was_not_available(project, 
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert layout.MISSING_MAP_NOTE in texts
+
+
+# --- de dozen waarvoor een kaart openrekt komen uit de studie, niet uit de lagen -----------------
+
+def _gent_result(gent_zone):
+    from desktopstudie.core.model import Cpt, StudyResult
+
+    result = StudyResult(zone=gent_zone, created_at="2026-09-15T10:00:00", municipality="Gent")
+    result.cpts = [Cpt("k1", "GEO-01", 104300.0, 192500.0, 8.0, 20.0, "2020-01-01", "continu elektrisch",
+                       "M1", "Uitvoerder", "Opdracht", "https://www.dov.vlaanderen.be/data/sondering/k1", 12.0)]
+    return result
+
+
+def test_the_boxes_a_page_widens_for_are_read_from_the_study_itself(gent_zone):
+    """De planner van de kaartbeelden draait in de werkthread, zonder een enkele laag; het blad
+    tekent daarna met lagen. Allebei moeten ze dezelfde uitsnede vinden, dus de dozen komen uit de
+    studie zelf: de proefpunten, de zoekstraal rond de zone en de doorsnedelijn - en niets als de
+    studie die niet heeft."""
+    from desktopstudie.core import geometry
+    from desktopstudie.qgis import layout
+
+    result = _gent_result(gent_zone)
+
+    boxes = layout.overlay_boxes(result)
+
+    minx, miny, maxx, maxy = geometry.bbox(gent_zone.ring)
+    assert (minx - 500.0, miny - 500.0, maxx + 500.0, maxy + 500.0) in boxes["investigations"]
+    assert (104300.0, 192500.0, 104300.0, 192500.0) in boxes["investigations"]
+    assert boxes["section"] == []
+    gent_zone.section_line = ((104226.0, 192406.0), (104426.0, 192606.0))
+    assert layout.overlay_boxes(result)["section"] == [(104226.0, 192406.0, 104426.0, 192606.0)]
+
+
+def test_map_extent_reads_a_plain_box_exactly_as_it_reads_a_layer(qgs_app, gent_zone):
+    """Een kale (minx, miny, maxx, maxy) en een laag met precies die extent leveren dezelfde
+    uitsnede op; anders vindt het blad het beeld niet dat de planner voor het ophaalde."""
+    from desktopstudie.qgis import layers, layout
+
+    search_area = layers.circle_layer(gent_zone)
+    extent = search_area.extent()
+    box = (extent.xMinimum(), extent.yMinimum(), extent.xMaximum(), extent.yMaximum())
+
+    assert layout.map_extent(gent_zone.ring, 5000, 1.0, [box]) == \
+        layout.map_extent(gent_zone.ring, 5000, 1.0, [search_area])
+
+
+def test_a_page_widens_for_the_study_boxes_it_was_given_not_for_its_layers(project, gent_zone, tmp_path):
+    """Krijgt de bouwer de dozen van de studie mee, dan rekt de pagina daarvoor open, ook als er
+    geen enkele laag te tekenen valt: de dozen zijn de waarheid, de lagen alleen het beeld."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout
+
+    boxes = layout.overlay_boxes(_gent_result(gent_zone))
+    page = MapPage(MAP_ID, "Overzicht", legend=False, scale=5000, extent_factor=1.0,
+                   show_investigations=True)
+
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta(),
+                              overlay_boxes=boxes)
+
+    texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
+    assert any("schaal 1:10 000" in text for text in texts), texts
+    planned = layout.plan_map_images(_report([page]), gent_zone.ring, boxes)
+    assert planned[0].extent == layout.map_extent(gent_zone.ring, 5000, 1.0, boxes["investigations"])
