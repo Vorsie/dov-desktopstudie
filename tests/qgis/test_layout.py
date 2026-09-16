@@ -1227,3 +1227,31 @@ def layout_module():
     from desktopstudie.qgis import layout
 
     return layout
+
+
+def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent_zone):
+    """Een profieltype zonder bruikbare legenda-URL levert een regel zonder tekening op. Zonder
+    logregel is dat niet te onderscheiden van een download die mislukte - en wat NIET gevonden is,
+    hoort in het log."""
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.model import MapFact, StudyResult
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return blob
+
+    result = StudyResult(zone=gent_zone, created_at="t")
+    result.map_facts = [MapFact("quartair", "Quartair", [
+        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
+        {"profieltype": "22099", "legende": None}])]
+    lines = []
+
+    layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+                                      Log("layout", lines.append, scope="qgis"))
+
+    assert any("22099" in line and "WARNING" in line for line in lines), lines
+    assert not any("22026" in line and "WARNING" in line for line in lines), lines
