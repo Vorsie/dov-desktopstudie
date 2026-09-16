@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from qgis.core import QgsMapLayer, QgsProject
 
@@ -260,6 +260,26 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     return {key: path.relative_to(out_dir).as_posix() for key, path in images.items()}
 
 
+NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
+
+
+def _probe_coverage(result: StudyResult, loaded: Dict[str, List[QgsMapLayer]], client: HttpClient,
+                    log: Log, should_cancel) -> Set[str]:
+    """Which of the loaded maps draw nothing here, and say so in the sources chapter.
+
+    The source stays `ok`: the service answered, it simply has no sheet for this place. That is a
+    different thing from a service that is down, and the reader has to be able to tell them apart -
+    "geen dekking" next to "ok" says the map is empty on purpose.
+    """
+    missing = layout_mod.prepare_coverage([catalogue.by_id(map_id) for map_id in loaded],
+                                          result.zone.ring, client, log.child("dekking"),
+                                          should_cancel)
+    for map_id in missing:
+        entry = catalogue.by_id(map_id)
+        record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, True, NO_COVERAGE_MESSAGE)
+    return missing
+
+
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
     """Hand the layout to the project's layout manager, replacing the one from an earlier run.
 
@@ -336,6 +356,13 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
 
+    # Before the rules run: a map that draws nothing here is a fact about this study, and the
+    # sources chapter has to carry it.
+    _stop_if_cancelled(should_cancel)
+    report_progress(0.29, "Dekking van de kaarten")
+    client = client or make_client(out_dir, log, cache_mode)
+    no_coverage = _probe_coverage(result, layers_by_map, client, log, should_cancel)
+
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
     report_progress(0.30, "Signaleringen en rapport")
@@ -370,7 +397,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     lay = layout_mod.build_layout(project, report, layers_by_map, _report_overlays(project, overlays),
                                   out_dir, result.zone.ring, report.meta, legends=legends,
                                   legend_images=legend_images, log=log.child("layout"),
-                                  should_cancel=should_cancel)
+                                  should_cancel=should_cancel, no_coverage=no_coverage)
     _install_layout(project, lay, log)
     log.info(f"Layout: {lay.pageCollection().pageCount()} bladen")
 
