@@ -87,6 +87,20 @@ een kaart toevoegen = één entry, geen code.
   Quartair 50000 <code>&dsoType=item` -> item-uuid -> `/core/items/<uuid>/bundles` -> bitstream ->
   `/core/bitstreams/<uuid>/content` (live geverifieerd 2026-09-16). Die omweg zit bewust NIET in de
   code: drie extra oproepen per profieltype en koppeling aan de REST-vorm van DSpace.
+- **Een dienst die hier niets tekent, zegt dat.** De Popp-kaart is in Gent een wit blad: het
+  mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes met een lege tegel. Elke
+  kaart **zonder feiten** krijgt daarom een GetMap van 64 px op de extent van haar blad
+  (`layout.prepare_coverage`, WMS **1.1.1** - 1.3.0 ordent de BBOX volgens de assen van het CRS en
+  een omgedraaide BBOX levert een plaatje van elders, wat als "geen dekking" zou lezen). Alle
+  pixels gelijk of volledig doorzichtig = geen kaartbeeld: het blad krijgt een regel, de legenda
+  vervalt, en de bron blijft `ok` met de reden "geen dekking op deze locatie" (de bronnentabel
+  drukt die reden af achter "ok"). Alleen kaarten zonder feiten, want een doorzichtige tegel van de
+  watertoets betekent "geen overstromingsgevoelig gebied", niet "geen dekking" (live gemeten
+  2026-09-16). Een proef die faalt, verandert niets: onbekend is geen "geen dekking".
+- **Eén tabel per kaart.** Waar een `Legenda voor de zone` bestaat, vervangt ze de feitentabel -
+  twee tabellen met dezelfde rij zijn er een te veel. Wat alleen de feitentabel had, verhuist mee
+  (de gegeneraliseerde legende van de bodemkaart) of verdwijnt bewust (codes die hun eigen naam
+  herhalen). `MapFact.rows` in `studie.json` blijven ongemoeid.
 - **Een kaart die openrekt voor haar overlays krijgt een ronde schaal.** Past de zoekstraal niet op
   de catalogusschaal, dan volgt de schaal uit de zoekstraal en leest het infovak "1:6 104"; ze
   wordt naar boven afgerond op de 1-2-5-ladder (`layout.SCALE_STEPS`) en de extent volgt opnieuw
@@ -267,7 +281,9 @@ een kaart toevoegen = één entry, geen code.
 - Volledige studie zonder GUI (kern + schil + PDF), met de QGIS-Python:
   `"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\run_headless.py --x 104326
   --y 192506 --buffer 50 --out uitvoer\gent --paginas` (of `--adres "..."`). Verder
-  `--straal/--project/--projectnummer/--auteur/--bedrijf/--logo/--cache/--geen-legendas`;
+  `--straal/--project/--projectnummer/--auteur/--bedrijf/--logo/--cache/--geen-legendas`
+  (dat laatste slaat alleen de legendabladen over; de quartairtekeningen worden wel opgehaald,
+  want die zijn rapportinhoud);
   `--paginas` schrijft elk blad ook als PNG. Het script zet `QT_QPA_PLATFORM=offscreen` zelf en
   roept `compat.ensure_font_dir()` aan **vóór** `QgsApplication([], True)` (GUI-geschikt, want
   lettertypes en SVG lopen door de QApplication). Afsluitcodes: 0 = volledig, 2 = geen bruikbare
