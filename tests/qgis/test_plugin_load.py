@@ -74,9 +74,8 @@ def test_unload_lets_go_of_the_message_bar_and_the_runner(qgs_app):
     from desktopstudie.qgis.task import StudyRunner
     from tests.qgis.conftest import FakeIface
 
-    iface = FakeIface()
+    iface = FakeIface()  # deze heeft een echte berichtenbalk; de werkbalk blijft buiten beeld
     plugin = desktopstudie.classFactory(iface)
-    plugin.initGui()
     runner = StudyRunner(iface)
     plugin.runner = runner
 
