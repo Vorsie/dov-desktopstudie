@@ -197,7 +197,8 @@ ZONE_LEGEND_COLUMNS: Dict[str, Tuple[Tuple[str, str], ...]] = {
                    ("Textuurklasse", "Textuur"), ("Drainageklasse", "Drainage")),
     "tertiair": (("code", "Code"), ("formatie", "Formatie"), ("lid", "Lid"),
                  ("beschrijving", "Beschrijving")),
-    "quartair": (("profieltype", "Profieltype"), ("legende", "Legenda (URL)")),
+    # No quartair entry: that legend is not built from fact fields at all but from the code, its
+    # map sheet and the drawing that follows it (`_quartair_zone_legend`).
 }
 QUARTAIR_ID = "quartair"
 QUARTAIR_CODE, QUARTAIR_IMAGE = "profieltype", "legende"
