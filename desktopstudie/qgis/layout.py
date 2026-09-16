@@ -25,6 +25,7 @@ the pages that were left out, because the numbering belongs to the layout, not t
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
@@ -72,6 +73,7 @@ from ..core.report_content import (
 )
 from ..core.services.http import HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
+from .export import PDF_DPI
 
 CRS_AUTHID = "EPSG:31370"
 LAYOUT_NAME = "DOV Desktopstudie"
@@ -91,6 +93,7 @@ ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 SCALE_BAR_Y = 232.0
 LEGEND_VARIABLE = "legendas"
 LEGEND_DIR = "legendas"
+DATA_DIR = "data"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
 # Arial is the house face, but the PDF is also produced on the Linux CI images and on machines that
 # do not have it. Naming the substitutes keeps the metrics predictable instead of leaving the
@@ -124,14 +127,20 @@ TABLE_FONT_PT = 7.0
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
-# The coverage probe: one small GetMap per map without facts. 64 px is enough to tell a drawn tile
-# from an empty one and costs the service almost nothing; a short breath, because a probe that
-# cannot answer simply leaves the page as it was.
-COVERAGE_PX = 64
-COVERAGE_TIMEOUT_S = 10.0
-COVERAGE_RETRIES = 0
 DEFAULT_EXTENT_FACTOR = 3.0
 NO_COVERAGE_NOTE = "Deze bron levert geen kaartbeeld op deze locatie (geen dekking)."
+MISSING_MAP_NOTE = "Kaartbeeld van deze bron niet opgehaald (zie hoofdstuk Bronnen)."
+# One GetMap per map page, fetched up front and in parallel, instead of letting the WMS provider
+# pull tiles while each page renders. Asked at exactly the size the page prints it, so nothing is
+# up- or downscaled on paper; capped at what a service will hand out in one request.
+MAP_IMAGE_DIR = "kaarten"
+MAP_IMAGE_DPI = PDF_DPI
+MAP_IMAGE_MAX_PX = 4096
+MAP_IMAGE_WORKERS = 8
+# A full-page GetMap is a hundred times the work of a 64 px probe, so it gets a longer breath than
+# a legend - but one retry only: the page can be printed without its background.
+MAP_IMAGE_TIMEOUT_S = 30.0
+MAP_IMAGE_RETRIES = 1
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
@@ -631,20 +640,135 @@ def map_extent(zone_ring: Sequence, scale: int, extent_factor: float,
 
 # --- does this service draw anything here? ---------------------------------------------------------
 
-def wms_map_url(entry: MapEntry, extent: QgsRectangle, pixels: int = COVERAGE_PX) -> str:
-    """A GetMap for one small square of the page's extent.
+@dataclass(frozen=True)
+class MapRequest:
+    """One map image to fetch: which map, over which box, at which pixel size."""
+    key: str
+    map_id: str
+    extent: QgsRectangle
+    width: int
+    height: int
+
+
+def wms_map_url(entry: MapEntry, extent: QgsRectangle, width: int, height: int) -> str:
+    """A GetMap for one box at one pixel size.
 
     WMS 1.1.1 on purpose: 1.3.0 orders the BBOX by the axis order of the CRS, and getting that
-    wrong for EPSG:31370 yields a picture of somewhere else - which would read as "no coverage".
+    wrong for EPSG:31370 yields a picture of somewhere else - which would read as an empty map.
     1.1.1 is always minx,miny,maxx,maxy, and every service in the catalogue answers it (checked
     live 2026-09-16 on geopunt, DOV, waterinfo and NGI).
     """
     params = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap", "LAYERS": entry.wms_layer,
               "STYLES": entry.wms_style, "SRS": CRS_AUTHID, "FORMAT": entry.image_format,
-              "TRANSPARENT": "TRUE", "WIDTH": pixels, "HEIGHT": pixels,
+              "TRANSPARENT": "TRUE", "WIDTH": width, "HEIGHT": height,
               "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
                       f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
     return build_url(entry.wms_url, params)
+
+
+def map_image_key(map_id: str, extent: QgsRectangle) -> str:
+    """What makes two map pages share one image: the same map over the same box.
+
+    The GRB base map carries four pages of this report at three different framings; keying on the
+    box means the two that look alike are fetched once.
+    """
+    return (f"{map_id}:{extent.xMinimum():.0f}:{extent.yMinimum():.0f}:"
+            f"{extent.xMaximum():.0f}:{extent.yMaximum():.0f}")
+
+
+def _image_pixels() -> Tuple[int, int]:
+    """The pixel size a map item is printed at, capped at what a service hands out in one go."""
+    width = int(round(MAP_W / 25.4 * MAP_IMAGE_DPI))
+    height = int(round(MAP_H / 25.4 * MAP_IMAGE_DPI))
+    largest = max(width, height)
+    if largest > MAP_IMAGE_MAX_PX:
+        width = int(width * MAP_IMAGE_MAX_PX / largest)
+        height = int(height * MAP_IMAGE_MAX_PX / largest)
+    return width, height
+
+
+def plan_map_images(report: Report, zone_ring: Sequence,
+                    overlays: Dict[str, List[QgsMapLayer]]) -> List[MapRequest]:
+    """One request per distinct (map, box) in the report, in the order the pages need them.
+
+    The box is computed here exactly as the page will compute it, overlays included - a page that
+    widens for the search radius shows a wider picture and must ask for that picture.
+    """
+    requests: List[MapRequest] = []
+    seen = set()
+    for chapter in report.chapters:
+        for page in chapter.pages:
+            if not isinstance(page, MapPage):
+                continue
+            extra: List[QgsMapLayer] = []
+            if page.show_investigations:
+                extra += list(overlays.get("investigations", []))
+            if page.show_section_line:
+                extra += list(overlays.get("section", []))
+            extent = map_extent(zone_ring, page.scale, page.extent_factor, extra)
+            key = map_image_key(page.map_id, extent)
+            if key in seen:
+                continue
+            seen.add(key)
+            width, height = _image_pixels()
+            requests.append(MapRequest(key, page.map_id, extent, width, height))
+    return requests
+
+
+def _write_world_file(path: Path, request: MapRequest) -> None:
+    """The six lines that put a PNG on the map: pixel size, rotation, and the centre of the
+    top-left pixel (not its corner - that half pixel is the classic world-file mistake)."""
+    x_size = request.extent.width() / request.width
+    y_size = request.extent.height() / request.height
+    path.write_text("\n".join((f"{x_size:.10f}", "0.0", "0.0", f"{-y_size:.10f}",
+                                f"{request.extent.xMinimum() + x_size / 2:.4f}",
+                                f"{request.extent.yMaximum() - y_size / 2:.4f}")) + "\n",
+                    encoding="utf-8")
+
+
+def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClient, log=None,
+                       should_cancel: Optional[Callable[[], bool]] = None
+                       ) -> Tuple[Dict[str, Path], Set[str]]:
+    """({key -> PNG}, ids of maps that drew nothing here), fetched in parallel.
+
+    This is the phase that used to be spread over ninety sheets of rendering: the WMS provider
+    fetches its tiles while a page draws, one page after another, and the whole report waits on
+    the network. Here every page's background is one GetMap, they go out together, and the layout
+    then draws local files.
+
+    Emptiness comes for free with the picture, so the separate coverage probe is gone. It is only
+    trusted for maps WITHOUT facts: the watertoets answers Gent with a fully transparent tile
+    because no flood zone lies there - data, not a hole in the mosaic - and its own table says so.
+    """
+    out_dir = Path(out_dir)
+    images: Dict[str, Path] = {}
+    empty: Set[str] = set()
+
+    def fetch(request: MapRequest) -> None:
+        entry = catalogue.by_id(request.map_id)
+        url = wms_map_url(entry, request.extent, request.width, request.height)
+        data = client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES)
+        image = QImage()
+        if not data or not image.loadFromData(data):
+            raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
+                                       f"({len(data)} bytes)")
+        path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{abs(hash(request.key)) % 10000:04d}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        _write_world_file(path.with_suffix(".pgw"), request)
+        images[request.key] = path
+        if entry.fact_mode is None and _is_empty(image):
+            empty.add(request.map_id)
+
+    parallel.load_each(list(requests), fetch, "kaartbeeld", MAP_IMAGE_WORKERS, log, should_cancel)
+    if log:
+        log.info(f"Kaartbeelden opgehaald: {len(images)}/{len(requests)}"
+                 + (f"; geen kaartbeeld op deze locatie voor: {', '.join(sorted(empty))}"
+                    if empty else ""))
+        missing = [request.map_id for request in requests if request.key not in images]
+        if missing:
+            log.warning(f"Geen kaartbeeld voor: {', '.join(sorted(set(missing)))}")
+    return images, empty
 
 
 def _is_empty(image: QImage) -> bool:
@@ -662,55 +786,6 @@ def _is_empty(image: QImage) -> bool:
     first = pixels[:4]
     return (all(pixels[i:i + 4] == first for i in range(0, len(pixels), 4))
             or all(pixels[i + 3] == 0 for i in range(0, len(pixels), 4)))
-
-
-def probe_coverage(entry: MapEntry, extent: QgsRectangle, client: HttpClient,
-                   log=None) -> Optional[bool]:
-    """Does this service draw anything at this location? True / False / None when it cannot be told.
-
-    None is not False. A probe that times out or answers something that is not an image says
-    nothing about coverage, and declaring a working map empty would put an untruth on the sheet -
-    so the page is then rendered exactly as before, with a WARNING in the log.
-    """
-    url = wms_map_url(entry, extent)
-    try:
-        data = client.get(url, timeout=COVERAGE_TIMEOUT_S, retries=COVERAGE_RETRIES)
-    except HttpError as exc:
-        if log:
-            log.warning(f"Dekking van {entry.id} niet te bepalen: {exc}")
-        return None
-    image = QImage()
-    if not data or not image.loadFromData(data):
-        if log:
-            log.warning(f"Dekking van {entry.id} niet te bepalen: antwoord is geen afbeelding "
-                        f"({len(data)} bytes)")
-        return None
-    return not _is_empty(image)
-
-
-def prepare_coverage(entries: Sequence[MapEntry], zone_ring: Sequence, client: HttpClient,
-                     log=None, should_cancel: Optional[Callable[[], bool]] = None) -> Set[str]:
-    """The ids of the maps that draw nothing at this location.
-
-    Only maps WITHOUT facts are asked. An empty tile means "no sheet here" only when there is no
-    other evidence: the watertoets answers Gent with a fully transparent tile because no flood
-    zone lies there - that is data, and its own table already says so - while the Popp mosaic
-    answers the same tile because it has no sheet for the city at all (both measured live
-    2026-09-16). Asking a map that has facts could only produce a wrong sentence.
-    """
-    wanted = [entry for entry in entries if entry.fact_mode is None and entry.wms_url]
-    missing: Set[str] = set()
-
-    def probe(entry: MapEntry) -> None:
-        if probe_coverage(entry, map_extent(zone_ring, entry.scale, DEFAULT_EXTENT_FACTOR),
-                          client, log) is False:
-            missing.add(entry.id)
-
-    parallel.load_each(wanted, probe, "dekkingsproef", LEGEND_WORKERS, log, should_cancel)
-    if log:
-        log.info(f"Dekking bevraagd voor {len(wanted)} kaarten; geen kaartbeeld op deze locatie "
-                 f"voor: {', '.join(sorted(missing)) or 'geen'}")
-    return missing
 
 
 def _blank_rows(image: QImage) -> List[bool]:
@@ -790,17 +865,21 @@ class LayoutBuilder:
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
                  log=None, should_cancel: Optional[Callable[[], bool]] = None,
-                 no_coverage: Optional[Set[str]] = None):
+                 no_coverage: Optional[Set[str]] = None,
+                 map_images: Optional[Dict[str, QgsMapLayer]] = None):
         """layers_by_map: map_id -> [QgsMapLayer, ...] to draw (WMS + basemap); overlays: keys
         'zone', 'investigations', 'section' -> the memory layers a page may ask to draw on top;
         legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
-        map ids whose service draws nothing here, as `prepare_coverage` found them."""
+        map ids whose service draws nothing here; map_images: the key of `map_image_key` -> the
+        raster layer of the image fetched for it, which a map page draws instead of the live
+        WMS layer."""
         self.project, self.report = project, report
         self.layers_by_map, self.overlays = layers_by_map, overlays
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
         self.legend_images = dict(legend_images or {})
         self.no_coverage = set(no_coverage or ())
+        self.map_images = dict(map_images or {})
         self.log = log
         self.should_cancel = should_cancel or (lambda: False)
         self.layout = QgsPrintLayout(project)
@@ -914,10 +993,17 @@ class LayoutBuilder:
             extra += list(self.overlays.get("section", []))
         return extra
 
-    def _map_layers(self, page: MapPage) -> List[QgsMapLayer]:
-        """Draw order, topmost first: the zone always, then what the page asked for, then the map."""
+    def _map_layers(self, page: MapPage, extent: QgsRectangle) -> List[QgsMapLayer]:
+        """Draw order, topmost first: the zone always, then what the page asked for, then the map.
+
+        The map itself is the image fetched up front for exactly this box. Falling back to the live
+        WMS layer when that image is missing would trade one empty background for a page that takes
+        half a minute to draw, so a missing image simply leaves the background empty and the page
+        says so.
+        """
+        snapshot = self.map_images.get(map_image_key(page.map_id, extent))
         return (list(self.overlays.get("zone", [])) + self._page_overlays(page)
-                + list(self.layers_by_map.get(page.map_id, [])))
+                + ([snapshot] if snapshot is not None else []))
 
     def _scale_bar(self, map_item: QgsLayoutItemMap, real_scale: int,
                    page: int) -> QgsLayoutItemScaleBar:
@@ -941,14 +1027,15 @@ class LayoutBuilder:
         index = self.new_page()
         self.header(chapter, page.title, index)
         entry = catalogue.by_id(page.map_id)
+        extent = self.map_extent(page.scale, page.extent_factor, self._page_overlays(page))
         map_item = QgsLayoutItemMap(self.layout)
         map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
-        map_item.setLayers(self._map_layers(page))
+        map_item.setLayers(self._map_layers(page, extent))
         map_item.setFrameEnabled(True)
         self.layout.addLayoutItem(map_item)
         map_item.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
         map_item.attemptResize(size_mm(MAP_W, MAP_H))
-        map_item.setExtent(self.map_extent(page.scale, page.extent_factor, self._page_overlays(page)))
+        map_item.setExtent(extent)
         real_scale = int(round(map_item.scale()))
         # What the reader needs to judge the map: which map, of which project, at which scale...
         self.info_box([self.meta.get("project", ""), self._date(), entry.title,
@@ -969,7 +1056,9 @@ class LayoutBuilder:
         # The map stays on the sheet even without coverage - the zone circle is what the reader
         # came for - but the note says why the background is empty.
         empty = page.map_id in self.no_coverage
-        note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "") if part)
+        missing = map_image_key(page.map_id, extent) not in self.map_images
+        note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "",
+                                          MISSING_MAP_NOTE if missing and not empty else "") if part)
         if note:
             self.label(note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
         self.footer(index)
@@ -1219,7 +1308,9 @@ def build_layout(project: QgsProject, report: Report, layers_by_map: Dict[str, L
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
                  should_cancel: Optional[Callable[[], bool]] = None,
-                 no_coverage: Optional[Set[str]] = None) -> QgsPrintLayout:
+                 no_coverage: Optional[Set[str]] = None,
+                 map_images: Optional[Dict[str, QgsMapLayer]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, layers_by_map, overlays, out_dir, zone_ring, meta,
-                         legends, legend_images, log, should_cancel, no_coverage).build()
+                         legends, legend_images, log, should_cancel, no_coverage,
+                         map_images).build()
