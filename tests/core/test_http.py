@@ -377,3 +377,31 @@ def test_off_is_off_also_for_a_call_that_asks_to_refresh(tmp_path):
     assert client.get("https://x.be/tekening.png", cache_mode="refresh") == b"\x89PNGdata"
 
     assert list(tmp_path.glob("*.bin")) == [], "off is off"
+
+PNG = bytes.fromhex("89504e470d0a1a0a")  # de magie van een PNG, voor de proef hierna
+
+
+def test_an_answer_the_caller_rejects_does_not_stay_in_the_cache(tmp_path):
+    """Wie ziet dat een antwoord verkeerd is, mag het uit de cache halen.
+
+    Een webpagina die op een bestands-URL binnenkomt hoort niet op schijf te blijven staan: elke
+    volgende run zou ze dan zonder netwerk terugkrijgen en dezelfde fout maken.
+    """
+    answers = [b"<!DOCTYPE html>een webpagina", PNG + b"het echte bestand"]
+
+    def fetch(url, timeout, user_agent):
+        return answers.pop(0)
+
+    client = http.HttpClient(cache_dir=tmp_path, fetch=fetch)
+    assert client.get("https://x.be/tekening_png").startswith(b"<!DOCTYPE")
+    assert list(tmp_path.glob("*.bin"))
+
+    assert client.forget("https://x.be/tekening_png") is True
+    assert not list(tmp_path.glob("*.bin"))
+    assert client.get("https://x.be/tekening_png").startswith(PNG)
+
+
+def test_forgetting_something_that_was_never_cached_is_no_error(tmp_path):
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda url, timeout, user_agent: b"x")
+
+    assert client.forget("https://x.be/nooit-opgehaald") is False
