@@ -431,6 +431,50 @@ def test_a_wms_layer_that_does_not_load_is_named_in_the_sources(project, core_re
     assert "ongeldig" in failed[f"Kaartlaag {title}"].message.lower()
 
 
+def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
+        project, core_result, offline_shell, tmp_path, monkeypatch, no_pdf):
+    """Een kaart die niet gekozen is, krijgt geen laag en geen legenda en geen kaartbeeld.
+
+    De kaartenchecklist belooft dat letterlijk (README). Zonder dit kost een uitgevinkte kaart nog
+    altijd een laag, een GetLegendGraphic en een GetMap, en drukt haar blad "Bron niet
+    beschikbaar" af - dezelfde zin als een dienst die plat ligt.
+    """
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layers, pipeline
+    from desktopstudie.qgis import layout as layout_mod
+
+    core_result.map_ids = ["grb", "bodemkaart", "quartair"]  # ferraris is uitgevinkt
+    asked_legends = []
+
+    def fake_legends(entries, out_dir, client, log=None, should_cancel=None):
+        asked_legends.extend(entry.id for entry in entries)
+        return {entry.id: write_png(Path(out_dir) / "legendas" / f"{entry.id}.png")
+                for entry in entries}, []
+
+    monkeypatch.setattr(layout_mod, "prepare_legends", fake_legends)
+    built = []
+    stand_in = layers.wms_layer
+
+    def counted(entry):
+        built.append(entry.id)
+        return stand_in(entry)
+
+    monkeypatch.setattr(layers, "wms_layer", counted)
+
+    prepared = pipeline.prepare(core_result, _meta(), tmp_path, _log(), legends=True)
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                          prepared=prepared)
+
+    assert "bodemkaart" in asked_legends and "ferraris" not in asked_legends, asked_legends
+    assert "grb" in built and "ferraris" not in built, built
+    assert not any(request.map_id == "ferraris" for request in prepared.requests)
+    ferraris = catalogue.by_id("ferraris").title
+    assert not any(ferraris in p.source for p in core_result.provenance),         [p.source for p in core_result.provenance]
+    assert not any(isinstance(page, MapPage) and page.map_id == "ferraris"
+                   for chapter in out.report.chapters for page in chapter.pages)
+
+
 def test_a_failed_pdf_still_leaves_the_project_and_the_geopackage(project, core_result, offline_shell,
                                                                   tmp_path, monkeypatch):
     """De PDF is het laatste product, niet het enige. Loopt de export stuk, dan houdt de gebruiker
