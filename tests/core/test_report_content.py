@@ -315,3 +315,17 @@ def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
     legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - PFAS"))
     link = legend.rows[0][-1]
     assert link.startswith("https://www.vlaanderen.be/...") and len(link) < 80, link
+
+
+def test_a_fact_table_prints_a_link_in_its_short_form_too(gent_ring):
+    """Dezelfde regel als in de legenda voor de zone, en om dezelfde reden: de feitentabel van het
+    Quartair kapte de tekening-URL af op "...DOV_Quartair_5000", midden in een woord. Wat de dienst
+    stuurde blijft in `MapFact.rows` en in studie.json staan; op papier staat de korte vorm."""
+    geo = _geologie(_with_quartair(_result(gent_ring)))
+
+    facts = next(p for p in geo.pages if p.title.endswith("eenheden in de zone")
+                 and p.title.startswith("Quartairgeologische kaart 1/50"))
+    links = [row[1] for row in facts.rows]
+    assert all(link.startswith("https://datasets.omgeving.vlaanderen.be/...") for link in links), links
+    assert all(len(link) < 80 for link in links), links
+    assert links[0].endswith("DOV_Quartair_50000_22026_png")
