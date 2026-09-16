@@ -306,3 +306,30 @@ def test_one_endless_path_segment_keeps_its_tail():
     assert short.startswith("https://datasets.omgeving.vlaanderen.be/...")
     assert short.endswith("DOV_Quartair_50000_22010_png")
     assert len(short) < len(QUARTAIR_DRAWING) - 30
+
+
+def test_a_single_call_may_step_past_the_cache(tmp_path):
+    """Een dienst die met HTTP 200 haar eigen webpagina teruggeeft in plaats van het bestand, zet
+    die pagina in de schijfcache - en dan levert elke volgende run diezelfde pagina. De oproeper
+    die dat merkt, moet één keer langs de cache heen kunnen vragen zonder de hele client om te
+    zetten."""
+    answers = [b"<html>geen bestand</html>", b"\x89PNG\r\n\x1a\nhet echte bestand"]
+
+    def fetch(url, timeout, user_agent):
+        return answers.pop(0)
+
+    client = http.HttpClient(cache_dir=tmp_path, fetch=fetch, cache_mode="use")
+
+    assert client.get("https://x.be/tekening.png") == b"<html>geen bestand</html>"
+    assert client.get("https://x.be/tekening.png") == b"<html>geen bestand</html>", "uit de cache"
+    fresh = client.get("https://x.be/tekening.png", cache_mode="refresh")
+
+    assert fresh.startswith(b"\x89PNG")
+    assert client.get("https://x.be/tekening.png").startswith(b"\x89PNG"), "de cache is bijgewerkt"
+
+
+def test_an_unknown_cache_mode_on_a_call_raises_value_error(tmp_path):
+    client = http.HttpClient(cache_dir=tmp_path, fetch=lambda u, t, a: b"x")
+
+    with pytest.raises(ValueError):
+        client.get("https://x.be/a", cache_mode="sometimes")
