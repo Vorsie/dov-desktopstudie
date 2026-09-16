@@ -155,11 +155,13 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     assert any(signal["code"] == "relief" for signal in data["signaleringen"])
     assert any(p["source"] == "DHMV II relief" and p["ok"] for p in data["provenance"])
 
-    # het project waarin de gebruiker verder werkt
-    names = [group.name() for group in project.layerTreeRoot().findGroups()]
-    assert names == list(pipeline.CHAPTER_GROUPS.values()) + ["4 Onderzoekszone en doorsnede",
-                                                             "5 Grondonderzoek DOV"]
-    assert project.layoutManager().layoutByName(layout.LAYOUT_NAME) is not None
+    # het project waarin de gebruiker verder werkt: één groep per studie, de hoofdstukken erin
+    top = [group.name() for group in project.layerTreeRoot().findGroups()]
+    assert top == [pipeline.study_group_name("Testproject")]
+    study = project.layerTreeRoot().findGroup(top[0])
+    assert [group.name() for group in study.findGroups()] == \
+        list(pipeline.CHAPTER_GROUPS.values()) + ["4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+    assert project.layoutManager().layoutByName(layout.layout_name("Testproject")) is not None
 
 
 def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core_result, offline_shell,
@@ -174,7 +176,7 @@ def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core
     pipeline.finish(project, core_result, _meta(), tmp_path / "twee", _log(), legends=False)
 
     layouts = [item.name() for item in project.layoutManager().printLayouts()]
-    assert layouts.count(layout.LAYOUT_NAME) == 1
+    assert layouts == [layout.layout_name("Testproject")]
     # De zes gestileerde kopieën van de tweede run plus haar kaartbeelden - en niets van de eerste.
     report_copies = [layer for layer in project.mapLayers().values()
                      if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)]
@@ -221,10 +223,81 @@ def test_the_network_half_runs_without_a_project_and_finish_takes_what_it_fetche
     names = [name for name, _seconds in out.timings]
     assert names[0] == "Kaartbeelden" and "Relief uit DHMV" in names and names[-1] == "PDF-export"
     assert out.pdf is not None and out.failures == []
-    lay = project.layoutManager().layoutByName(layout.LAYOUT_NAME)
+    lay = project.layoutManager().layoutByName(layout.layout_name("Testproject"))
     texts = [item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel)]
     assert not any(layout.MISSING_MAP_NOTE in text for text in texts)
     assert any(layer.name().endswith("(kaartbeeld)") for layer in project.mapLayers().values())
+
+
+def test_two_studies_live_side_by_side_and_only_a_same_named_one_replaces(project, core_result, offline_shell,
+                                                                        tmp_path, no_pdf):
+    """Beslissing: dezelfde studienaam vervangt. Gent en Antwerpen in één project blijven dus allebei
+    staan - elk hun eigen groep, layout en rapportkopieën - en Gent nog eens vervangt alleen Gent."""
+    import collections
+
+    from desktopstudie.core.report_content import ReportMeta
+    from desktopstudie.qgis import layers, layout, pipeline
+
+    gent = _meta()
+    antwerpen = ReportMeta(project="Antwerpen", author="A. Tester", company="Testbureau")
+
+    pipeline.finish(project, core_result, gent, tmp_path / "a", _log(), legends=False)
+    pipeline.finish(project, core_result, antwerpen, tmp_path / "b", _log(), legends=False)
+    pipeline.finish(project, core_result, gent, tmp_path / "c", _log(), legends=False)
+
+    root = project.layerTreeRoot()
+    assert sorted(group.name() for group in root.findGroups()) == sorted(
+        [pipeline.study_group_name("Testproject"), pipeline.study_group_name("Antwerpen")])
+    assert sorted(item.name() for item in project.layoutManager().printLayouts()) == sorted(
+        [layout.layout_name("Testproject"), layout.layout_name("Antwerpen")])
+    for name in ("Testproject", "Antwerpen"):
+        study = root.findGroup(pipeline.study_group_name(name))
+        assert [group.name() for group in study.findGroups()] == \
+            list(pipeline.CHAPTER_GROUPS.values()) + [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP]
+    owners = collections.Counter(layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)
+                                 for layer in project.mapLayers().values()
+                                 if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG))
+    assert set(owners) == {"Testproject", "Antwerpen"} and owners["Testproject"] == owners["Antwerpen"]
+
+
+def test_a_cancel_during_the_layers_phase_stops_before_the_next_layer(project, core_result, offline_shell,
+                                                                     tmp_path, monkeypatch, no_pdf):
+    """Annuleren wordt in elke fase binnen seconden gehoord - ook in de lagenfase, waar elke
+    WMS-laag een netwerkronde is: na de laag die bezig was stopt de run, niet na alle."""
+    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.qgis import layers, pipeline
+
+    built = []
+    stand_in = layers.wms_layer
+
+    def counted(entry):
+        built.append(entry.id)
+        return stand_in(entry)
+
+    monkeypatch.setattr(layers, "wms_layer", counted)
+
+    with pytest.raises(StudyCancelled):
+        pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                        should_cancel=lambda: len(built) >= 1)
+
+    assert len(built) == 1, built
+
+
+def test_the_study_group_opens_with_only_the_base_map_checked_and_the_chapters_collapsed(
+        project, core_result, offline_shell, tmp_path, no_pdf):
+    """Vijftien WMS-lagen tegelijk aan zetten het canvas aan het laden; alleen de GRB-basiskaart
+    staat aan, de andere kaarten staan klaar maar uit, en de hoofdstukgroepen zijn ingeklapt."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import pipeline
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    study = project.layerTreeRoot().findGroup(pipeline.study_group_name("Testproject"))
+    chapters = [study.findGroup(title) for title in pipeline.CHAPTER_GROUPS.values()]
+    assert chapters and not any(group.isExpanded() for group in chapters)
+    checked = [node.layer().name() for group in chapters for node in group.findLayers()
+               if node.itemVisibilityChecked()]
+    assert checked == [catalogue.by_id(pipeline.BASE_MAP_ID).title]
 
 
 def test_the_report_maps_label_only_the_investigations_with_a_figure(project, core_result, offline_shell,
