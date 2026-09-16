@@ -5,16 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-
-class _Click:
-    def __init__(self, button, pos):
-        self._button, self._pos = button, pos
-
-    def button(self):
-        return self._button
-
-    def pos(self):
-        return self._pos
+from tests.qgis.conftest import Click as _Click
 
 
 def _canvas():
