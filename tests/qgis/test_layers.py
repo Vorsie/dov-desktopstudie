@@ -448,6 +448,24 @@ def test_the_standalone_project_reuses_the_wms_layers_it_is_given(qgs_app, gent_
     assert all(layer is not ready for layer in project.mapLayers().values())
 
 
+def test_an_unchosen_map_is_not_in_the_standalone_project(qgs_app, gent_zone, tmp_path, offline_wms):
+    """Een kaart die niet gekozen is, krijgt geen laag - ook niet in `studie.qgz`.
+
+    Het projectbestand is het tweede product van de studie; een kaart die de gebruiker uitvinkte
+    hoort daar net zo min in te staan als in het rapport, en ze hoort ook niet opgehaald te
+    worden."""
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+
+    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
+                                        only=["grb", "ortho"])
+
+    assert sorted(offline_wms) == ["grb", "ortho"], offline_wms
+    names = [layer.name() for layer in project.mapLayers().values()]
+    assert "Topografische kaart NGI (CartoWeb)" not in names, names
+
+
 def test_only_the_investigations_with_a_figure_are_labelled_on_the_overlay(qgs_app):
     """Tweehonderd nummers over elkaar maken de overzichtskaart onleesbaar. Alleen de proeven die
     ook een figuur in het rapport hebben, krijgen een label; in QGIS blijven alle labels staan."""
