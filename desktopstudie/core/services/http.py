@@ -22,10 +22,12 @@ CACHE_MODES = ("use", "refresh", "off")
 RETRYABLE_STATUSES = (408, 429)
 # The longest path the sources table can print whole. A URL carries no spaces, so the table has
 # nothing to wrap on and cuts it off mid-word instead: the watertoets service (125 characters)
-# ends on the sheet as "...overstromingsgev", which is the address of nothing. About eighty
-# characters fit that column on the rendered page; a path longer than this is folded rather than
-# given a wider column at the cost of the three next to it.
-MAX_PATH_CHARS = 70
+# ends on the sheet as "...overstromingsgev", which is the address of nothing.
+# Sixty, measured rather than guessed: the URL column of the sources table gets 80,4 mm
+# (`layout.column_widths` over the real provenance of the Gent study, 2026-09-16), and a folded
+# URL of 67 characters asks 83,5 mm - which is how "...22010_png" came out as "...22010_pn". Sixty
+# leaves room for the day a source name grows and squeezes the column further.
+MAX_PATH_CHARS = 60
 # Where a folded segment may start: the tail is cut back to one of these, so a name never begins
 # halfway through a word ("OV_Quartair_..." reads like a typo, "Quartair_..." reads like a name).
 SEGMENT_BOUNDARIES = "._-"
