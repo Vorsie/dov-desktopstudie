@@ -160,7 +160,7 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     assert top == [pipeline.study_group_name("Testproject")]
     study = project.layerTreeRoot().findGroup(top[0])
     assert [group.name() for group in study.findGroups()] == \
-        list(pipeline.CHAPTER_GROUPS.values()) + ["4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+        list(pipeline.CHAPTER_GROUPS.values()) + ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
     assert project.layoutManager().layoutByName(layout.layout_name("Testproject")) is not None
 
 
