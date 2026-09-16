@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Sequence, Set
+from typing import Callable, List, Optional, Sequence, Set
 
 from qgis.core import (
     Qgis,
@@ -46,6 +46,7 @@ from qgis.core import (
     QgsProperty,
 )
 
+from ..core.study import StudyCancelled
 from .compat import enum_name
 
 PAGE_STEM = "pagina"  # QGIS writes pagina.png, pagina_2.png, pagina_3.png, ...
@@ -140,7 +141,9 @@ class _PageRuns(QgsAbstractLayoutIterator):
     the layout leaves the export as it entered it.
     """
 
-    def __init__(self, layout: QgsLayout, exported: Sequence[int], pages_per_run: int):
+    def __init__(self, layout: QgsLayout, exported: Sequence[int], pages_per_run: int,
+                 should_cancel: Optional[Callable[[], bool]] = None,
+                 progress: Optional[Callable[[int, int], None]] = None):
         super().__init__()
         self._layout = layout
         self._exported = set(exported)
@@ -148,6 +151,12 @@ class _PageRuns(QgsAbstractLayoutIterator):
                       for start in range(0, len(exported), pages_per_run)]
         self._shown: Set[int] = set(exported)
         self._index = -1
+        self._should_cancel = should_cancel or (lambda: False)
+        self._progress = progress
+        self._done = 0
+        # Set here and read by `export_pdf` afterwards: `next()` is called from C++, and an
+        # exception raised inside it would not reach the caller as one.
+        self.cancelled = False
 
     def layout(self):
         return self._layout
@@ -166,8 +175,17 @@ class _PageRuns(QgsAbstractLayoutIterator):
         return base_path
 
     def next(self) -> bool:
+        """Between two runs: the moment the export says how far it is, and the one moment it can
+        be stopped. `False` ends the export with the runs done so far."""
+        if self._index >= 0:
+            self._done += len(self._runs[self._index])
+            if self._progress is not None:
+                self._progress(self._done, len(self._exported))
         self._index += 1
         if self._index >= len(self._runs):
+            return False
+        if self._should_cancel():
+            self.cancelled = True
             return False
         self._show(self._runs[self._index])
         return True
@@ -197,8 +215,15 @@ def _page_number(path: Path) -> int:
 
 
 def export_pdf(layout: QgsPrintLayout, path, dpi: int = PDF_DPI,
-               pages_per_run: int = PDF_PAGES_PER_RUN) -> Path:
+               pages_per_run: int = PDF_PAGES_PER_RUN,
+               should_cancel: Optional[Callable[[], bool]] = None,
+               progress: Optional[Callable[[int, int], None]] = None) -> Path:
     """Write the whole layout to one PDF and return its path.
+
+    `should_cancel` is polled between two runs: the export stops within the run it is in, and a
+    stopped export leaves no file - a PDF of forty sheets that says nothing about the other
+    seventy would pass for a report. `progress(sheets_done, sheets_total)` is called after every
+    run.
 
     `rasterizeWholeImage` stays off: rasterising the sheet would turn every label and table into
     pixels, and a report nobody can select text in is a report nobody can quote from. Individual
@@ -221,9 +246,13 @@ def export_pdf(layout: QgsPrintLayout, path, dpi: int = PDF_DPI,
     with _frozen_exclusions(layout) as exported:
         if not exported:
             raise RuntimeError(f"PDF-export mislukt: geen enkel blad om te exporteren: {path}")
-        runs = _PageRuns(layout, exported, max(1, pages_per_run))
+        runs = _PageRuns(layout, exported, max(1, pages_per_run), should_cancel, progress)
         with _quiet_gdal():
             result, _error = QgsLayoutExporter.exportToPdf(runs, str(path), settings)
+    if runs.cancelled:
+        if path.exists():
+            path.unlink()
+        raise StudyCancelled("afgebroken door de gebruiker")
     _check(result, "PDF-export", path)
     return path
 
