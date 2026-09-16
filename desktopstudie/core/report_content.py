@@ -164,14 +164,6 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
     return out
 
 
-def _fact_table_for(entry: catalogue.MapEntry, result: StudyResult) -> TablePage:
-    rows_src = _fact_rows(entry, result)
-    cols = list(entry.fact_fields)
-    headers = [entry.field_labels.get(col, col) for col in cols]
-    rows = [_cells(entry, row, cols) for row in rows_src or []]
-    return TablePage(f"{entry.title} - eenheden in de zone", headers, rows, _rows_note(rows_src))
-
-
 # --- reading guide and zone legend ----------------------------------------------------------------
 
 # A row of the quartair map carries the URL of the drawing of its profile type; the 1/200 000 map
@@ -209,9 +201,13 @@ def _guide_page(entry: catalogue.MapEntry, rows: Sequence[Dict[str, Any]]) -> Li
 # service knows about the polygon it was found in. Maps that are not listed fall back to their own
 # fact fields, which for a map of three columns is the same thing.
 ZONE_LEGEND_COLUMNS: Dict[str, Tuple[Tuple[str, str], ...]] = {
+    # "Gegeneraliseerde_legende" ("Antropogeen") says something no other column says, so it comes
+    # along now that the fact table is gone; the texture and drainage CODES only spell out the
+    # column beside them and are left out.
     "bodemkaart": (("Bodemtype", "Bodemtype"), ("Bodemserie", "Serie"),
                    ("Beknopte_omschrijving_bodemserie", "Omschrijving"),
-                   ("Textuurklasse", "Textuur"), ("Drainageklasse", "Drainage")),
+                   ("Textuurklasse", "Textuur"), ("Drainageklasse", "Drainage"),
+                   ("Gegeneraliseerde_legende", "Legende")),
     "tertiair": (("code", "Code"), ("formatie", "Formatie"), ("lid", "Lid"),
                  ("beschrijving", "Beschrijving")),
     # No quartair entry: that legend is not built from fact fields at all but from the code, its
@@ -354,8 +350,13 @@ def _chapter_historisch() -> Chapter:
 
 
 def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -> Chapter:
-    """Per map: the map, what lies in the zone, how to read those codes, and the legend of the
-    classes that are actually there - in the order the reader needs them."""
+    """Per map: the map, how to read its codes, and the classes that lie in the zone.
+
+    One table per map, not two. The fact table and the zone legend used to say the same thing -
+    the same soil type on two sheets, and for the quartair map a column of download links no
+    reader can use - so the legend, which is the deduplicated one with the drawings, replaced it.
+    `MapFact.rows` in studie.json still carry every row exactly as the service gave them.
+    """
     geo = Chapter(3, "Geologie en bodem")
     for entry in catalogue.entries("geologie"):
         geo.pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
@@ -363,9 +364,7 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
         if entry.fact_mode is None:
             geo.pages.extend(_guide_page(entry, []))
             continue
-        rows = _fact_rows(entry, result) or []
-        geo.pages.append(_fact_table_for(entry, result))
-        geo.pages.extend(_guide_page(entry, rows))
+        geo.pages.extend(_guide_page(entry, _fact_rows(entry, result) or []))
         geo.pages.append(_zone_legend_for(entry, result, zone_legend_images))
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
