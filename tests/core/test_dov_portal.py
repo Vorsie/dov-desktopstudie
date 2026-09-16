@@ -45,6 +45,6 @@ def test_van_twee_bestanden_wint_de_link_bij_de_juiste_naam():
     wanted = ("https://datasets-services.omgeving.vlaanderen.be/server/api/core/bitstreams/"
               "22222222-2222-4222-8222-222222222222/content")
     page = (f'<html>{other}"_name":"DOV_Quartair_50000_99999.png"'
-            f'{wanted}"_name":"DOV_Quartair_50000_22010.png"</html>').encode("utf-8")
+            f'{wanted}"_name":"DOV_Quartair_50000_22010.png"</html>').encode()
 
     assert content_link(page, URL_22010) == wanted
