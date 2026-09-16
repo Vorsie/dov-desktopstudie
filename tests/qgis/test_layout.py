@@ -474,7 +474,9 @@ def test_the_legend_url_asks_for_the_style_and_the_column_layout():
     url = layout.wms_legend_url(entry, entry.legend_options)
 
     assert "REQUEST=GetLegendGraphic" in url and "VERSION=1.3.0" in url
-    assert "LAYER=gxg%3Aghg_mmv_main" in url or "LAYER=gxg:ghg_mmv_main" in url
+    # the workspace service, on which the layer goes by its bare name; the style keeps its prefix
+    assert url.startswith("https://www.dov.vlaanderen.be/geoserver/gxg/wms?")
+    assert "LAYER=ghg_mmv_main&" in url
     assert "STYLE=gxg%3Agxg" in url or "STYLE=gxg:gxg" in url
     assert "LEGEND_OPTIONS=" in url and "columns" in url
     assert "LEGEND_OPTIONS" not in layout.wms_legend_url(entry, "")
