@@ -469,14 +469,16 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
   herbekijken zodra een gebruiker een mislukte studie wil doorsturen zonder QGIS open te hebben:
   `Log`-sink die ook naar `<runmap>/log.txt` schrijft (de `Log` neemt al een `sink`, dus een
   tweede sink is het hele werk).
-- **De DSpace-omweg voor de profieltypetekeningen zit niet in de code** / het DOV-documentportaal
-  antwoordt op de `_png`-downloadlink soms met zijn webpagina (HTTP 200); `layout._drawing_bytes`
-  controleert de PNG-magie, probeert één keer met `cache_mode="refresh"` en meldt de tekening dan
-  als mislukte bron. Het bestand staat wél op de REST-API van het portaal (zoekopdracht -> item ->
-  bundles -> bitstream -> content, live geverifieerd 2026-09-16), maar dat zijn drie extra
-  oproepen per profieltype en een koppeling aan de REST-vorm van DSpace / herbekijken zodra het
-  portaal de directe link structureel niet meer bedient, of zodra de tekeningen in de smoke-run
-  vaker ontbreken dan binnenkomen (op 2026-09-16 ontbraken ze allebei).
+- **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** / het DOV-documentportaal
+  antwoordt op de `_png`-downloadlink soms met zijn eigen webpagina (HTTP 200).
+  `layout._drawing_bytes` controleert de PNG-magie, gooit een niet-PNG uit de cache
+  (`HttpClient.forget`) en leest met `core/services/dov_portal.content_link` de directe
+  bitstream-link uit die pagina - die staat er letterlijk in, mét de bestandsnaam, dus dat kost geen
+  extra oproep. Live geverifieerd 2026-09-16: de pagina die de smoke-run deed mislukken levert langs
+  die weg de juiste tekening (66 412 bytes PNG). De échte DSpace-omweg (zoekopdracht -> item ->
+  bundles -> bitstream) blijft eruit: drie extra oproepen per profieltype en een koppeling aan de
+  REST-vorm van DSpace / herbekijken zodra het portaal ook die link in de pagina niet meer zet, of
+  zodra de tekeningen vaker ontbreken dan binnenkomen.
 - **De historische NGI-reeks (1873-1989) is een uitgeschakelde catalogusentry** (`ngi_hist`) / het
   NGI biedt er geen open WMS voor, alleen het Cartesius-portaal / herbekijken zodra het NGI een
   WMS publiceert of Cartesius onder een open licentie komt: `wms_url` en `wms_layer` invullen,
