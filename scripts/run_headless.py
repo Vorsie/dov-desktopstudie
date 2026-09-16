@@ -85,7 +85,11 @@ def run(args: argparse.Namespace, log: Log) -> int:
     outcome = pipeline.finish(QgsProject.instance(), result, meta, out, log,
                               progress=pipeline.part_of(_print_progress, pipeline.CORE_SHARE, 1.0),
                               legends=not args.geen_legendas, client=client, cache_mode=args.cache,
-                              pngs=args.paginas)
+                              pngs=args.paginas,
+                              # Niemand kijkt hier ooit naar het geopende QgsProject: de kaartlagen
+                              # daarin bouwen kost een GetCapabilities per kaart en levert niets
+                              # op. Het geleverde studie.qgz krijgt ze wel.
+                              study_groups=False)
     finished = time.monotonic()
 
     failed = [p.source for p in outcome.result.provenance if not p.ok]
