@@ -34,10 +34,14 @@ QUIT_DELAY_MS = 1500
 
 
 def _root() -> Path:
-    """The checkout: `__file__` is not set under --code, but the path is on the command line."""
-    argv = sys.argv
-    if "--code" in argv:
-        return Path(argv[argv.index("--code") + 1]).resolve().parents[1]
+    """The checkout: `__file__` is not set under --code, but the path is on the command line.
+    QGIS keeps its own arguments (`QgsApplication.arguments()`) and hands Python a bare
+    `sys.argv`, so the command line is read from the application, `sys.argv` as a fallback.
+    (Same helper in zip_check.py: a --code script cannot import a sibling before it knows where
+    the checkout is.)"""
+    for argv in (list(QgsApplication.arguments()), sys.argv):
+        if "--code" in argv:
+            return Path(argv[argv.index("--code") + 1]).resolve().parents[1]
     return Path.cwd()
 
 
