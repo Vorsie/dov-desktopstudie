@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from qgis.core import (
     Qgis,
@@ -124,6 +124,14 @@ TABLE_FONT_PT = 7.0
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
+# The coverage probe: one small GetMap per map without facts. 64 px is enough to tell a drawn tile
+# from an empty one and costs the service almost nothing; a short breath, because a probe that
+# cannot answer simply leaves the page as it was.
+COVERAGE_PX = 64
+COVERAGE_TIMEOUT_S = 10.0
+COVERAGE_RETRIES = 0
+DEFAULT_EXTENT_FACTOR = 3.0
+NO_COVERAGE_NOTE = "Deze bron levert geen kaartbeeld op deze locatie (geen dekking)."
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
@@ -564,6 +572,126 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     return images
 
 
+def map_extent(zone_ring: Sequence, scale: int, extent_factor: float,
+               extra_layers: Sequence[QgsMapLayer] = ()) -> QgsRectangle:
+    """The extent the map item gets: wide enough for the target scale, for `extent_factor`
+    zones, and for everything the page asked to draw on top.
+
+    `MapPage.scale` is a target, not a promise. Drawing a 100 m zone at 1:25000 is fine - the
+    zone is simply small on the sheet - but drawing a 2 km zone at 1:2500 would crop it. The
+    same holds for the overlays: a page that shows the ground investigations while cutting the
+    search radius in half tells the reader nothing was looked for out there.
+
+    Widening for the overlays is the one case where the scale is nobody's choice: it falls out
+    of how far the search radius happens to reach, and the info box then reads "1:6 104". So
+    that width goes back through the 1-2-5 ladder and the extent is rebuilt from the rounded
+    scale. The catalogue scale and the zone factor are deliberate framings and stay as they
+    are - and since the ladder only rounds up, nothing that had to fit stops fitting.
+    """
+    minx, miny, maxx, maxy = geometry.bbox(zone_ring)
+    zone_w, zone_h = maxx - minx, maxy - miny
+    for layer in extra_layers:
+        extent = layer.extent()
+        if extent.isEmpty():
+            continue
+        minx, miny = min(minx, extent.xMinimum()), min(miny, extent.yMinimum())
+        maxx, maxy = max(maxx, extent.xMaximum()), max(maxy, extent.yMaximum())
+    ratio = MAP_H / MAP_W
+    cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
+    width_at_scale = MAP_W / 1000.0 * scale  # metres across the paper width at 1:scale
+    width_for_zone = max(zone_w, zone_h / ratio) * max(extent_factor, 1.0)
+    width_for_overlays = max(maxx - minx, (maxy - miny) / ratio)
+    width = max(width_at_scale, width_for_zone)
+    if width_for_overlays > width:
+        width = MAP_W / 1000.0 * _round_scale(width_for_overlays / (MAP_W / 1000.0))
+    height = width * ratio
+    return QgsRectangle(cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
+
+
+# --- does this service draw anything here? ---------------------------------------------------------
+
+def wms_map_url(entry: MapEntry, extent: QgsRectangle, pixels: int = COVERAGE_PX) -> str:
+    """A GetMap for one small square of the page's extent.
+
+    WMS 1.1.1 on purpose: 1.3.0 orders the BBOX by the axis order of the CRS, and getting that
+    wrong for EPSG:31370 yields a picture of somewhere else - which would read as "no coverage".
+    1.1.1 is always minx,miny,maxx,maxy, and every service in the catalogue answers it (checked
+    live 2026-09-16 on geopunt, DOV, waterinfo and NGI).
+    """
+    params = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap", "LAYERS": entry.wms_layer,
+              "STYLES": entry.wms_style, "SRS": CRS_AUTHID, "FORMAT": entry.image_format,
+              "TRANSPARENT": "TRUE", "WIDTH": pixels, "HEIGHT": pixels,
+              "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
+                      f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
+    return build_url(entry.wms_url, params)
+
+
+def _is_empty(image: QImage) -> bool:
+    """True when every pixel is the same, or every pixel is fully transparent.
+
+    That is what a mosaic without a sheet for this place answers: HTTP 200 and nothing drawn.
+    """
+    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
+    buffer = rgba.constBits()
+    buffer.setsize(rgba.height() * rgba.bytesPerLine())
+    data, stride, row_bytes = bytes(buffer), rgba.bytesPerLine(), rgba.width() * 4
+    pixels = b"".join(data[y * stride:y * stride + row_bytes] for y in range(rgba.height()))
+    if not pixels:
+        return True
+    first = pixels[:4]
+    return (all(pixels[i:i + 4] == first for i in range(0, len(pixels), 4))
+            or all(pixels[i + 3] == 0 for i in range(0, len(pixels), 4)))
+
+
+def probe_coverage(entry: MapEntry, extent: QgsRectangle, client: HttpClient,
+                   log=None) -> Optional[bool]:
+    """Does this service draw anything at this location? True / False / None when it cannot be told.
+
+    None is not False. A probe that times out or answers something that is not an image says
+    nothing about coverage, and declaring a working map empty would put an untruth on the sheet -
+    so the page is then rendered exactly as before, with a WARNING in the log.
+    """
+    url = wms_map_url(entry, extent)
+    try:
+        data = client.get(url, timeout=COVERAGE_TIMEOUT_S, retries=COVERAGE_RETRIES)
+    except HttpError as exc:
+        if log:
+            log.warning(f"Dekking van {entry.id} niet te bepalen: {exc}")
+        return None
+    image = QImage()
+    if not data or not image.loadFromData(data):
+        if log:
+            log.warning(f"Dekking van {entry.id} niet te bepalen: antwoord is geen afbeelding "
+                        f"({len(data)} bytes)")
+        return None
+    return not _is_empty(image)
+
+
+def prepare_coverage(entries: Sequence[MapEntry], zone_ring: Sequence, client: HttpClient,
+                     log=None, should_cancel: Optional[Callable[[], bool]] = None) -> Set[str]:
+    """The ids of the maps that draw nothing at this location.
+
+    Only maps WITHOUT facts are asked. An empty tile means "no sheet here" only when there is no
+    other evidence: the watertoets answers Gent with a fully transparent tile because no flood
+    zone lies there - that is data, and its own table already says so - while the Popp mosaic
+    answers the same tile because it has no sheet for the city at all (both measured live
+    2026-09-16). Asking a map that has facts could only produce a wrong sentence.
+    """
+    wanted = [entry for entry in entries if entry.fact_mode is None and entry.wms_url]
+    missing: Set[str] = set()
+
+    def probe(entry: MapEntry) -> None:
+        if probe_coverage(entry, map_extent(zone_ring, entry.scale, DEFAULT_EXTENT_FACTOR),
+                          client, log) is False:
+            missing.add(entry.id)
+
+    parallel.load_each(wanted, probe, "dekkingsproef", LEGEND_WORKERS, log, should_cancel)
+    if log:
+        log.info(f"Dekking bevraagd voor {len(wanted)} kaarten; geen kaartbeeld op deze locatie "
+                 f"voor: {', '.join(sorted(missing)) or 'geen'}")
+    return missing
+
+
 def _blank_rows(image: QImage) -> List[bool]:
     """One flag per pixel row: True where the row is entirely white or entirely transparent.
 
@@ -640,15 +768,18 @@ class LayoutBuilder:
                  layers_by_map: Dict[str, List[QgsMapLayer]],
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
-                 log=None, should_cancel: Optional[Callable[[], bool]] = None):
+                 log=None, should_cancel: Optional[Callable[[], bool]] = None,
+                 no_coverage: Optional[Set[str]] = None):
         """layers_by_map: map_id -> [QgsMapLayer, ...] to draw (WMS + basemap); overlays: keys
         'zone', 'investigations', 'section' -> the memory layers a page may ask to draw on top;
-        legend_images: map_id -> legend PNG, as `prepare_legends` returns them."""
+        legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
+        map ids whose service draws nothing here, as `prepare_coverage` found them."""
         self.project, self.report = project, report
         self.layers_by_map, self.overlays = layers_by_map, overlays
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
         self.legend_images = dict(legend_images or {})
+        self.no_coverage = set(no_coverage or ())
         self.log = log
         self.should_cancel = should_cancel or (lambda: False)
         self.layout = QgsPrintLayout(project)
@@ -750,38 +881,8 @@ class LayoutBuilder:
 
     def map_extent(self, scale: int, extent_factor: float,
                    extra_layers: Sequence[QgsMapLayer] = ()) -> QgsRectangle:
-        """The extent the map item gets: wide enough for the target scale, for `extent_factor`
-        zones, and for everything the page asked to draw on top.
-
-        `MapPage.scale` is a target, not a promise. Drawing a 100 m zone at 1:25000 is fine - the
-        zone is simply small on the sheet - but drawing a 2 km zone at 1:2500 would crop it. The
-        same holds for the overlays: a page that shows the ground investigations while cutting the
-        search radius in half tells the reader nothing was looked for out there.
-
-        Widening for the overlays is the one case where the scale is nobody's choice: it falls out
-        of how far the search radius happens to reach, and the info box then reads "1:6 104". So
-        that width goes back through the 1-2-5 ladder and the extent is rebuilt from the rounded
-        scale. The catalogue scale and the zone factor are deliberate framings and stay as they
-        are - and since the ladder only rounds up, nothing that had to fit stops fitting.
-        """
-        minx, miny, maxx, maxy = geometry.bbox(self.zone_ring)
-        zone_w, zone_h = maxx - minx, maxy - miny
-        for layer in extra_layers:
-            extent = layer.extent()
-            if extent.isEmpty():
-                continue
-            minx, miny = min(minx, extent.xMinimum()), min(miny, extent.yMinimum())
-            maxx, maxy = max(maxx, extent.xMaximum()), max(maxy, extent.yMaximum())
-        ratio = MAP_H / MAP_W
-        cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
-        width_at_scale = MAP_W / 1000.0 * scale  # metres across the paper width at 1:scale
-        width_for_zone = max(zone_w, zone_h / ratio) * max(extent_factor, 1.0)
-        width_for_overlays = max(maxx - minx, (maxy - miny) / ratio)
-        width = max(width_at_scale, width_for_zone)
-        if width_for_overlays > width:
-            width = MAP_W / 1000.0 * _round_scale(width_for_overlays / (MAP_W / 1000.0))
-        height = width * ratio
-        return QgsRectangle(cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
+        """The extent of this page's map; see the module-level `map_extent`."""
+        return map_extent(self.zone_ring, scale, extent_factor, extra_layers)
 
     def _page_overlays(self, page: MapPage) -> List[QgsMapLayer]:
         """The overlays this page asked for, zone excluded - the zone is the ring we start from."""
@@ -844,10 +945,14 @@ class LayoutBuilder:
         arrow.attemptMove(point_mm(*ARROW_XY), page=index)
         arrow.attemptResize(size_mm(ARROW_WH, ARROW_WH))
         self._scale_bar(map_item, real_scale, index)
-        if page.note:
-            self.label(page.note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
+        # The map stays on the sheet even without coverage - the zone circle is what the reader
+        # came for - but the note says why the background is empty.
+        empty = page.map_id in self.no_coverage
+        note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "") if part)
+        if note:
+            self.label(note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
         self.footer(index)
-        if page.legend and self.legends:
+        if page.legend and self.legends and not empty:
             self.legend_pages(chapter, page)
 
     def zone_legend_page(self, chapter: Chapter, page: LegendPage) -> None:
@@ -1092,7 +1197,8 @@ class LayoutBuilder:
 def build_layout(project: QgsProject, report: Report, layers_by_map: Dict[str, List[QgsMapLayer]],
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
                  legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
-                 should_cancel: Optional[Callable[[], bool]] = None) -> QgsPrintLayout:
+                 should_cancel: Optional[Callable[[], bool]] = None,
+                 no_coverage: Optional[Set[str]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, layers_by_map, overlays, out_dir, zone_ring, meta,
-                         legends, legend_images, log, should_cancel).build()
+                         legends, legend_images, log, should_cancel, no_coverage).build()
