@@ -29,9 +29,10 @@ still works weeks later, on another machine, without this session.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from qgis.core import QgsMapLayer, QgsProject
 
@@ -81,6 +82,9 @@ class PipelineResult:
     geopackage: Optional[Path]
     page_pngs: List[Path]
     failures: List[str] = field(default_factory=list)
+    # (phase, seconds) in the order they ran. A study of half an hour has to be able to say WHERE
+    # the time went; the plugin's progress bar needs the same split.
+    timings: List[Tuple[str, float]] = field(default_factory=list)
 
 
 def make_client(out_dir, log: Log, cache_mode: str = "use") -> HttpClient:
@@ -116,6 +120,41 @@ def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
             result.provenance[index] = entry
             return
     result.provenance.append(entry)
+
+
+class PhaseClock:
+    """Wall clock per phase of a run, in the order the phases happened.
+
+    It replaces the bare progress callback: every phase announces itself exactly once, and the
+    announcement is also the moment the previous phase is closed. "It was slow" is not a diagnosis,
+    and a table of seconds per phase is the difference between guessing and knowing.
+    """
+
+    def __init__(self, progress: Callable[[float, str], None], log: Log):
+        self._progress, self._log = progress, log
+        self.timings: List[Tuple[str, float]] = []
+        self._name: Optional[str] = None
+        self._started = 0.0
+
+    def begin(self, fraction: float, name: str) -> None:
+        self.close()
+        self._name, self._started = name, time.monotonic()
+        self._progress(fraction, name)
+
+    def close(self) -> None:
+        if self._name is not None:
+            self.timings.append((self._name, time.monotonic() - self._started))
+            self._name = None
+
+    def report(self) -> None:
+        """Log the table, slowest phase named last so it is the line that stays on screen."""
+        if not self.timings:
+            return
+        total = sum(seconds for _name, seconds in self.timings)
+        for name, seconds in self.timings:
+            self._log.info(f"fase {name}: {seconds:.1f} s")
+        slowest, worst = max(self.timings, key=lambda item: item[1])
+        self._log.info(f"fase totaal: {total:.1f} s; traagste fase {slowest} ({worst:.1f} s)")
 
 
 def _stop_if_cancelled(should_cancel: Optional[Callable[[], bool]]) -> None:
@@ -322,7 +361,8 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     report a second time for a product nobody asked for.
     """
     out_dir = Path(out_dir)
-    report_progress = progress or (lambda fraction, message: None)
+    clock = PhaseClock(progress or (lambda fraction, message: None), log)
+    report_progress = clock.begin
     compat.ensure_font_dir(log)
     failures: List[str] = []
 
@@ -414,13 +454,16 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         page_pngs = _guarded("PNG-export", failures, log,
                                     lambda: export.export_pages_png(lay, out_dir / PAGES_DIR,
                                                                     PAGE_PNG_DPI)) or []
-    report_progress(1.0, "Klaar")
+    clock.close()
+    clock.report()
+    (progress or (lambda fraction, message: None))(1.0, "Klaar")
     products = [name for name in (json_path.name, written.name if written else None,
                                   project_file.name if project_file else None,
                                   pdf.name if pdf else None) if name]
     log.info(f"Klaar: {', '.join(products)} in {out_dir}"
              + (f" ({len(failures)} mislukt)" if failures else ""))
-    return PipelineResult(result, report, pdf, project_file, written, page_pngs, failures)
+    return PipelineResult(result, report, pdf, project_file, written, page_pngs, failures,
+                          clock.timings)
 
 
 def part_of(progress: Optional[Callable[[float, str], None]], low: float, high: float):
