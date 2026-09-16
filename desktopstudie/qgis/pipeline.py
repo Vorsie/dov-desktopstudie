@@ -29,6 +29,11 @@ doorprik points) are carried over, because nothing in the data can rebuild them.
 *The open project is not the deliverable.* The study's groups go into the project the user has
 open, but the `.qgz` next to the PDF is a FRESH project built from the GeoPackage, so the file
 still works weeks later, on another machine, without this session.
+
+*The study name is the key.* Everything a run leaves in the open project - one top-level group
+with the chapters inside, the layout, the styled copies the layout draws with - carries the
+study's name, and a second run replaces only what carries the same name: Gent and Antwerpen in
+one project keep each other intact.
 """
 from __future__ import annotations
 
@@ -54,6 +59,11 @@ from . import layout as layout_mod
 # chapters so the layer panel reads in the same order as the PDF.
 CHAPTER_GROUPS = {"ligging": "1 Ligging en topografie", "historisch": "2 Historische kaarten",
                   "geologie": "3 Geologie en bodem"}
+STUDY_GROUP = "DOV Desktopstudie"
+# The one catalogue map that opens checked in the project: a base map to see the zone on. The
+# other fourteen sit ready but unchecked - fifteen WMS layers rendering at once is a canvas that
+# loads for a minute and a user who cannot tell the zone from the noise.
+BASE_MAP_ID = "grb"
 PDF_NAME = "rapport.pdf"
 PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
@@ -90,11 +100,21 @@ class PipelineResult:
     timings: List[Tuple[str, float]] = field(default_factory=list)
 
 
-def make_client(out_dir, log: Log, cache_mode: str = "use") -> HttpClient:
-    """The HTTP client for one study: one disk cache per output directory, so a second phase (the
-    legends) re-uses what the first phase already fetched and a re-run costs nothing."""
-    return HttpClient(cache_dir=Path(out_dir) / DATA_DIR / CACHE_DIR, log=log.child("http"),
-                      cache_mode=cache_mode)
+def make_client(out_dir, log: Log, cache_mode: str = "use", cache_dir=None) -> HttpClient:
+    """The HTTP client for one study: one disk cache, so a second phase (the legends) re-uses what
+    the first phase already fetched and a re-run costs nothing.
+
+    The cache sits in `cache_dir` when given - the plugin puts it next to its run folders, shared
+    by every run under the same output folder, because a run folder is fresh every time - and
+    inside the output directory otherwise (the headless script keeps one folder per study).
+    """
+    return HttpClient(cache_dir=Path(cache_dir) if cache_dir else Path(out_dir) / DATA_DIR / CACHE_DIR,
+                      log=log.child("http"), cache_mode=cache_mode)
+
+
+def study_group_name(project: str) -> str:
+    """The top-level group a study gets in the open project, named after the study."""
+    return f"{STUDY_GROUP} - {project}" if project else STUDY_GROUP
 
 
 def run_core(zone: StudyZone, settings: Settings, out_dir: Path, log: Log, progress=None,
@@ -202,14 +222,15 @@ def _study_overlays(result: StudyResult) -> Dict[str, List[QgsMapLayer]]:
                                layers.circle_layer(result.zone)]}
 
 
-def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
-                     ) -> Dict[str, List[QgsMapLayer]]:
+def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]],
+                     owner: str) -> Dict[str, List[QgsMapLayer]]:
     """The same layers again, styled for paper: only the investigations with a figure are labelled.
 
     Copies rather than a restyle of the originals, because the user's own layers keep every number
     - on screen you can zoom, on paper two hundred labels are a grey smudge. The copies are
     registered in the project without a tree node: invisible in the layer panel, but part of the
-    project, so a layout saved with that project still finds the layers its maps point at.
+    project, so a layout saved with that project still finds the layers its maps point at. Each
+    copy is flagged with the study's name (`owner`), so a later run of THAT study cleans them up.
     """
     report: Dict[str, List[QgsMapLayer]] = {}
     for key, group in overlays.items():
@@ -217,7 +238,7 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
         for layer in group:
             copy = layer.clone()
             copy.setName(layer.name())
-            copy.setCustomProperty(REPORT_OVERLAY_FLAG, True)
+            copy.setCustomProperty(REPORT_OVERLAY_FLAG, owner)
             kind = next((k for k, title in layers.POINT_NAMES.items() if title == layer.name()), None)
             if kind is not None:
                 layers.style_points_layer(copy, kind, label_only_figured=True)
@@ -227,37 +248,41 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
     return report
 
 
-def drop_previous_run(project: QgsProject, keep=()) -> None:
-    """Remove what an earlier study in this session left behind: its layout and the copies its
-    maps drew with.
+def drop_previous_run(project: QgsProject, keep=(), owner: str = "") -> None:
+    """Remove what an earlier run of the SAME study (`owner`) left behind in this project: its
+    layout and the copies its maps drew with. Another study's leftovers are not touched.
 
     In that order. The copies live outside the layer tree, so nobody can remove them by hand, and
     removing them while the old layout still points at them would leave a layout referring to
     layers that are gone. `keep` is what THIS run has already built and is about to draw with.
     """
     manager = project.layoutManager()
-    existing = manager.layoutByName(layout_mod.LAYOUT_NAME)
+    existing = manager.layoutByName(layout_mod.layout_name(owner))
     if existing is not None:
         manager.removeLayout(existing)
     spared = {layer.id() for layer in keep}
     stale = [layer.id() for layer in project.mapLayers().values()
-             if layer.customProperty(REPORT_OVERLAY_FLAG) and layer.id() not in spared]
+             if layer.customProperty(REPORT_OVERLAY_FLAG) == owner and layer.id() not in spared]
     if stale:
         project.removeMapLayers(stale)
 
 
-def _map_layers_into_groups(project: QgsProject, result: StudyResult,
-                            log: Log) -> Dict[str, List[QgsMapLayer]]:
-    """Load every catalogue map as a WMS layer, group it in the project and index it by map id.
+def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, study,
+                            should_cancel) -> Dict[str, List[QgsMapLayer]]:
+    """Load every catalogue map as a WMS layer, group it under the study's group and index it by
+    map id.
 
     A layer that does not come back valid (an unreachable service) costs its own map page, not the
-    report: it is left out, logged, and recorded as a failed source so the report names it.
+    report: it is left out, logged, and recorded as a failed source so the report names it. Every
+    layer is a network round trip, so the cancel flag is looked at before each one. The chapter
+    groups land collapsed with only the base map checked - see BASE_MAP_ID.
     """
     layers_by_map: Dict[str, List[QgsMapLayer]] = {}
     for chapter, title in CHAPTER_GROUPS.items():
         group_layers: List[QgsMapLayer] = []
         entries = catalogue.entries(chapter)
         for entry in entries:
+            _stop_if_cancelled(should_cancel)
             layer = layers.wms_layer(entry)
             if not layer.isValid():
                 log.warning(f"WMS-laag niet geldig: {entry.id} ({entry.wms_url})")
@@ -267,7 +292,11 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult,
             record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, True)
             layers_by_map[entry.id] = [layer]
             group_layers.append(layer)
-        layers.add_group(project, title, group_layers, visible=False)
+        group = layers.add_group(project, title, group_layers, visible=False, parent=study)
+        group.setExpanded(False)
+        base = layers_by_map.get(BASE_MAP_ID)
+        if base is not None and group.findLayer(base[0].id()) is not None:
+            group.findLayer(base[0].id()).setItemVisibilityChecked(True)
         log.info(f"{title}: {len(group_layers)} van {len(entries)} kaarten geladen")
     return layers_by_map
 
@@ -334,16 +363,17 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
 
 
 def _snapshot_layers(project: QgsProject, requests: List[layout_mod.MapRequest],
-                     images: Dict[str, Path]) -> Dict[str, QgsMapLayer]:
+                     images: Dict[str, Path], owner: str) -> Dict[str, QgsMapLayer]:
     """The fetched images as raster layers the layout draws, registered in `project` without a
-    tree node and flagged so a later run can clean them up. Main-thread work: layers and project."""
+    tree node and flagged with the study's name so a later run of that study can clean them up.
+    Main-thread work: layers and project."""
     snapshots: Dict[str, QgsMapLayer] = {}
     for request in requests:
         path = images.get(request.key)
         if path is None:
             continue
         layer = layers.snapshot_layer(path, f"{catalogue.by_id(request.map_id).title} (kaartbeeld)")
-        layer.setCustomProperty(REPORT_OVERLAY_FLAG, True)
+        layer.setCustomProperty(REPORT_OVERLAY_FLAG, owner)
         project.addMapLayer(layer, False)
         snapshots[request.key] = layer
     return snapshots
@@ -482,11 +512,15 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
 
     _stop_if_cancelled(should_cancel)
     report_progress(0.30, "Lagen")
-    layers_by_map = _map_layers_into_groups(project, result, log) if study_groups else {}
-    layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"])
-    layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"])
-    report_overlays = _report_overlays(project, overlays)
-    map_images = _snapshot_layers(project, prepared.requests, prepared.map_images)
+    # One group per study, named after it; adding it replaces the previous run of THIS study,
+    # layers and all, and leaves any other study in the project alone.
+    owner = meta.project
+    study = layers.add_group(project, study_group_name(owner), [])
+    layers_by_map = _map_layers_into_groups(project, result, log, study, should_cancel) if study_groups else {}
+    layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"], parent=study)
+    layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"], parent=study)
+    report_overlays = _report_overlays(project, overlays, owner)
+    map_images = _snapshot_layers(project, prepared.requests, prepared.map_images, owner)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
@@ -508,6 +542,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         project.transformContext()) or gpkg)
     project_file = None
     if written is not None:
+        _stop_if_cancelled(should_cancel)  # fifteen clones and a write: seconds, and stoppable
         standalone = layers.standalone_project(
             gpkg, CHAPTER_GROUPS, log,
             {map_id: group[0] for map_id, group in layers_by_map.items()})
@@ -521,14 +556,15 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # Everything THIS run has already put in the project - the styled copies and the map images -
     # is spared; they were made minutes ago and the layout below is about to draw with them.
     drop_previous_run(project, keep=list(map_images.values())
-                      + [layer for group in report_overlays.values() for layer in group])
+                      + [layer for group in report_overlays.values() for layer in group], owner=owner)
     # The same boxes the images were planned on, so every page finds the image fetched for it.
     lay = layout_mod.build_layout(project, report, report_overlays,
                                   out_dir, result.zone.ring, report.meta, legends=legends,
                                   legend_images=prepared.legend_images, log=log.child("layout"),
                                   should_cancel=should_cancel, no_coverage=prepared.no_coverage,
                                   map_images=map_images,
-                                  overlay_boxes=layout_mod.overlay_boxes(result))
+                                  overlay_boxes=layout_mod.overlay_boxes(result),
+                                  name=layout_mod.layout_name(owner))
     _install_layout(project, lay, log)
     log.info(f"Layout: {lay.pageCollection().pageCount()} bladen")
 
