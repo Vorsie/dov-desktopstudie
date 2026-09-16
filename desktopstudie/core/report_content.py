@@ -3,10 +3,11 @@ shell turns MapPage/FigurePage/TablePage/TextPage into layout pages.
 
 A coded map carries more than one page. The fact table says WHAT lies in the zone, the
 "Leeswijzer" says how to read those codes (`MapEntry.reading_guide`), and "Legenda voor de zone"
-is the legend the reader actually needs: the handful of classes inside the zone instead of the
-hundreds on the full sheet. The quartair map adds a drawing per profile type - that drawing IS its
-legend - but this module fetches nothing: the shell hands the files it already downloaded in
-through `build_report(..., zone_legend_images=...)`, keyed by the URL the row carried.
+is the legend the reader actually needs: the handful of classes inside the zone instead of the hundreds
+on the full sheet, and it is the ONLY table for that map. The quartair map adds the drawings DOV
+publishes - those drawings ARE its legend - but this module fetches nothing: the shell hands the
+files it already downloaded in through `build_report(..., zone_legend_images=...)`, keyed by
+`profieltype:<code>` and `kaartblad:<nn>`.
 """
 from __future__ import annotations
 
@@ -128,7 +129,7 @@ def _map_pages(chapter: str, **kw) -> List[Page]:
     for entry in catalogue.entries(chapter):
         pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                              note=entry.note, **kw))
-        pages.extend(_guide_page(entry, []))
+        pages.extend(_guide_page(entry))
     return pages
 
 
@@ -166,34 +167,24 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
 
 # --- reading guide and zone legend ----------------------------------------------------------------
 
-# A row of the quartair map carries the URL of the drawing of its profile type; the 1/200 000 map
-# carries the PDF of the whole legend. Where a row knows a better address than the fixed DOV page
-# in the guide, the guide points there instead.
-ROW_LEGEND_FIELDS = ("uitgebreide_legende", "legende")
 LINK = re.compile(r"https?://\S+")
 
 
-def _guide_html(entry: catalogue.MapEntry, rows: Sequence[Dict[str, Any]]) -> str:
+def _guide_html(entry: catalogue.MapEntry) -> str:
     """The reading guide as one paragraph, with its URL made clickable.
 
-    The guide is a fixed text per map, but a row can know a more precise address than the page the
-    text names (the `uitgebreide_legende` PDF of the quartair sheets). When it does, that address
-    replaces the one in the text: two links in three sentences is one too many, and the row's link
-    is the more specific of the two.
+    The URL lives in the guide text itself (one field per map, `MapEntry.reading_guide`) and points
+    at the DOV page that carries the whole legend - all four were checked live on 2026-09-16.
     """
-    text = entry.reading_guide
-    row_link = next((str(row[key]) for row in rows for key in ROW_LEGEND_FIELDS
-                     if row.get(key) and str(row[key]).lower().endswith(".pdf")), "")
-    if row_link:
-        text = LINK.sub(row_link, text)
-    return "<p>" + LINK.sub(lambda m: f'<a href="{m.group(0)}">{m.group(0)}</a>', text) + "</p>"
+    return "<p>" + LINK.sub(lambda m: f'<a href="{m.group(0)}">{m.group(0)}</a>',
+                            entry.reading_guide) + "</p>"
 
 
-def _guide_page(entry: catalogue.MapEntry, rows: Sequence[Dict[str, Any]]) -> List[Page]:
+def _guide_page(entry: catalogue.MapEntry) -> List[Page]:
     """Zero or one TextPage: a map without a guide gets no empty sheet."""
     if not entry.reading_guide:
         return []
-    return [TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry, rows))]
+    return [TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry))]
 
 
 # What "Legenda voor de zone" shows per map: (field, header). Not the fact fields, because the
@@ -362,9 +353,9 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
         geo.pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                                  note=entry.note))
         if entry.fact_mode is None:
-            geo.pages.extend(_guide_page(entry, []))
+            geo.pages.extend(_guide_page(entry))
             continue
-        geo.pages.extend(_guide_page(entry, _fact_rows(entry, result) or []))
+        geo.pages.extend(_guide_page(entry))
         geo.pages.append(_zone_legend_for(entry, result, zone_legend_images))
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
@@ -482,9 +473,10 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
 
 def build_report(result: StudyResult, meta: ReportMeta,
                  zone_legend_images: Optional[Dict[str, str]] = None) -> Report:
-    """The whole report tree. `zone_legend_images` maps the legend URL of a quartair row to the
-    image the shell fetched for it, as a path relative to the output directory (the same shape as
-    `StudyResult.figures`); without it those figure pages are simply left out."""
+    """The whole report tree. `zone_legend_images` maps `profieltype:<code>` to the header strip
+    and `kaartblad:<nn>` to the units table the shell fetched, as paths relative to the output
+    directory (the same shape as `StudyResult.figures`); without it the legend page keeps its
+    lines but shows no drawings."""
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
