@@ -159,14 +159,20 @@ QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgevi
                    "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
 
 
-def _with_quartair(result):
+def _with_quartair(result, codes=("22026", "22010", "22026", "22098")):
     """De quartairrijen zoals de WFS ze levert: een rij per kaartvlak, dus hetzelfde profieltype
-    kan twee keer in de zone liggen."""
+    kan twee keer in de zone liggen. De eerste twee cijfers van de code zijn het kaartblad."""
     result.map_facts.append(MapFact("quartair", "Quartairgeologische kaart 1/50 000 (samengesteld)", [
-        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
-        {"profieltype": "22010", "legende": QUARTAIR_LEGEND.format(code="22010")},
-        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")}]))
+        {"profieltype": code, "legende": QUARTAIR_LEGEND.format(code=code)} for code in codes]))
     return result
+
+
+def _profile_images(*codes, sheets=("22",)):
+    """Wat de schil aanlevert: een kopstrook per profieltype en een eenhedentabel per kaartblad."""
+    images = {rc.profile_image_key(code): f"legendas/quartair_{code}_kop.png" for code in codes}
+    images.update({rc.sheet_image_key(sheet): f"legendas/quartair_kaartblad_{sheet}.png"
+                   for sheet in sheets})
+    return images
 
 
 def _geologie(result, zone_legend_images=None):
@@ -200,33 +206,70 @@ def test_the_reading_guide_stands_between_the_facts_and_the_zone_legend(gent_rin
     assert '<a href="https://www.dov.vlaanderen.be/page/' in page.html, "de link hoort klikbaar te zijn"
 
 
-def test_the_quartair_zone_legend_keeps_one_row_per_profile_type(gent_ring):
-    """Twee kaartvlakken van hetzelfde profieltype zijn één legenda-eenheid: de legenda van de zone
-    telt profieltypes, geen kaartvlakken."""
+def test_the_quartair_zone_legend_names_the_sheet_and_points_at_the_drawing(gent_ring):
+    """Twee kaartvlakken van hetzelfde profieltype zijn een legenda-eenheid: de legenda telt
+    profieltypes, geen kaartvlakken. En een URL van 145 tekens zegt een lezer niets - de tekening
+    zelf staat erachter, dus de tabel verwijst ernaar en noemt het kaartblad waarop dat type is
+    gekarteerd."""
     geo = _geologie(_with_quartair(_result(gent_ring)))
 
     legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
-    assert legend.columns == ["Profieltype", "Legenda (URL)"]
-    assert [row[0] for row in legend.rows] == ["22026", "22010"]
-    assert all(row[1].startswith("https://datasets.omgeving.vlaanderen.be/") for row in legend.rows)
+    assert legend.columns == ["Profieltype", "Kaartblad", "Omschrijving"]
+    assert legend.rows == [["22026", "22", "zie profieltekening hierna"],
+                           ["22010", "22", "zie profieltekening hierna"],
+                           ["22098", "22", "zie profieltekening hierna"]]
+    assert not any("http" in cell for row in legend.rows for cell in row), legend.rows
 
 
-def test_a_fetched_profile_type_drawing_becomes_a_figure_behind_the_zone_legend(gent_ring):
-    """De tekening bij een profieltype is de eigenlijke legenda van de Quartairkaart. De kern haalt
-    niets op; kreeg ze van de schil een pad voor die URL, dan komt de tekening als figuur achter de
-    legendatabel te staan - en anders staat er niets, geen belofte van een plaatje dat er niet is."""
+def test_every_profile_type_gets_its_header_and_the_sheet_its_units_once(gent_ring):
+    """De tekening van DOV bestaat uit twee delen: bovenaan het profieltype zelf (kleurvlak, code
+    en een regel uitleg) en daaronder de eenhedentabel van het kaartblad, die voor elk profieltype
+    van dat blad dezelfde is. Dus een kopstrook per profieltype, en de eenhedentabel een keer."""
     result = _with_quartair(_result(gent_ring))
-    images = {QUARTAIR_LEGEND.format(code="22026"): "legendas/quartair_22026.png"}
 
-    geo = _geologie(result, zone_legend_images=images)
+    geo = _geologie(result, zone_legend_images=_profile_images("22026", "22010", "22098"))
 
+    figures = [p for p in geo.pages if isinstance(p, rc.FigurePage)]
+    assert [(f.title, f.image_path) for f in figures] == [
+        ("Profieltype 22026", "legendas/quartair_22026_kop.png"),
+        ("Profieltype 22010", "legendas/quartair_22010_kop.png"),
+        ("Profieltype 22098", "legendas/quartair_22098_kop.png"),
+        ("Eenheden op kaartblad 22", "legendas/quartair_kaartblad_22.png")]
     titles = [p.title for p in geo.pages]
-    figure = geo.pages[titles.index("Profieltype 22026")]
-    assert isinstance(figure, rc.FigurePage) and figure.image_path == "legendas/quartair_22026.png"
     assert titles.index("Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)") < \
         titles.index("Profieltype 22026")
-    assert "Profieltype 22010" not in titles, "zonder afbeelding geen figuurpagina"
-    assert [p.title for p in _geologie(result).pages].count("Profieltype 22026") == 0
+
+
+def test_a_header_strip_is_drawn_at_its_own_size_and_the_units_table_fills_the_page(gent_ring):
+    """De kopstrook is een reepje van enkele centimeters hoog: over een blad uitgerekt wordt ze een
+    wazige banner. De eenhedentabel is wel een volle tekening en mag het blad vullen."""
+    geo = _geologie(_with_quartair(_result(gent_ring)),
+                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+
+    figures = {p.title: p for p in geo.pages if isinstance(p, rc.FigurePage)}
+    assert figures["Profieltype 22026"].fit == "natural"
+    assert figures["Eenheden op kaartblad 22"].fit == "zoom"
+    assert rc.FigurePage("t", "p").fit == "zoom", "zoom blijft de standaard voor elke andere figuur"
+
+
+def test_a_profile_type_without_a_drawing_gets_no_page(gent_ring):
+    """De kern haalt niets op. Kreeg ze geen pad voor een profieltype, dan staat er niets - geen
+    belofte van een tekening die er niet is."""
+    result = _with_quartair(_result(gent_ring))
+
+    geo = _geologie(result, zone_legend_images=_profile_images("22026"))
+
+    titles = [p.title for p in geo.pages]
+    assert "Profieltype 22026" in titles
+    assert "Profieltype 22010" not in titles and "Profieltype 22098" not in titles
+    assert "Eenheden op kaartblad 22" in titles
+    assert not any(p.title.startswith("Profieltype") for p in _geologie(result).pages)
+
+
+def test_a_profile_type_code_names_its_map_sheet():
+    """Het kaartblad is de eerste twee cijfers van de code: 22010 ligt op kaartblad 22."""
+    assert rc.quartair_sheet("22010") == "22"
+    assert rc.quartair_sheet("3a") == "3a", "een korte code is zelf het blad, niet de helft ervan"
 
 
 def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent_ring):
@@ -255,15 +298,20 @@ def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
     assert "Leeswijzer - Ferrariskaart (1777)" not in [p.title for p in report.chapters[1].pages]
 
 
-def test_the_zone_legend_prints_a_url_that_fits_a_column(gent_ring):
+def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
     """Een URL draagt geen spaties, dus een tabel kan ze niet afbreken: ze past of ze wordt midden
-    in een woord afgekapt. De tekening-URL van een profieltype is 145 tekens lang en werd op het
-    blad "...DOV_Quartair_5000" - de legenda toont daarom de ingekorte vorm, met de bestandsnaam
-    die de twee tekeningen uit elkaar houdt."""
-    geo = _geologie(_with_quartair(_result(gent_ring)))
+    in een woord afgekapt. Waar een legenda voor de zone een link toont - de PFAS-maatregelen -
+    staat daarom de ingekorte vorm."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("pfas_no_regret", "PFAS - no-regretmaatregelen", [
+        {"pfasdossiernr": "93685", "gemeente": "Zwijndrecht", "straat": "Gavers",
+         "nrm_status_zone": "Locatiespecifiek vastgesteld", "zone_geldig_vanaf": "2022-05-03",
+         "no_regret_maatregelen": "https://www.vlaanderen.be/pfas-vervuiling/beveren-kruibeke-"
+                                  "zwijndrecht-no-regret-maatregelen#sb-no-regret-maatregelen-"
+                                  "kwartier-brosius-cf0a2df6-d1a5-4da4-a9bd-573932286d4b"}]))
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
-    urls = [row[1] for row in legend.rows]
-    assert [url.endswith(f"DOV_Quartair_50000_{code}_png") for url, code in zip(urls, ["22026", "22010"])]
-    assert all(url.startswith("https://datasets.omgeving.vlaanderen.be/...") for url in urls), urls
-    assert all(len(url) < 80 for url in urls), urls
+    geo = _geologie(result)
+
+    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - PFAS"))
+    link = legend.rows[0][-1]
+    assert link.startswith("https://www.vlaanderen.be/...") and len(link) < 80, link
