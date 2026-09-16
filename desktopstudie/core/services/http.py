@@ -169,6 +169,22 @@ class HttpClient:
     def _retryable(self, exc: HttpError) -> bool:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
+    def forget(self, url: str, params: Optional[Dict[str, Any]] = None) -> bool:
+        """Gooi het bewaarde antwoord voor deze URL weg; `True` als er iets weg was.
+
+        De cache kan niet zien dat een antwoord verkeerd is - HTTP 200 is HTTP 200 - maar de beller
+        soms wel: een webpagina waar een PNG hoorde te staan bijvoorbeeld. Zonder dit zou die pagina
+        er bij elke volgende run zonder netwerk weer uitkomen en dezelfde fout opleveren.
+        """
+        path = self._cache_path(build_url(url, params))
+        if not path or not path.exists():
+            return False
+        try:
+            path.unlink()
+        except OSError:  # een cache die niet wil wijken mag de studie niet breken
+            return False
+        return True
+
     def get(self, url: str, params: Optional[Dict[str, Any]] = None, timeout: Optional[float] = None,
             retries: Optional[int] = None, cache_mode: Optional[str] = None) -> bytes:
         """Fetch one URL, through the disk cache when there is one.
