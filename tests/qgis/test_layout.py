@@ -939,6 +939,10 @@ def test_a_legend_page_that_is_full_continues_on_the_next_sheet(project, gent_zo
     headers = [item.text() for index in range(1, lay.pageCollection().pageCount())
                for item in _items_of(lay, index, QgsLayoutItemLabel)]
     assert any("(vervolg)" in text for text in headers), headers
+    # Elk blad draagt zijn voettekst, ook het eerste: het paginanummer hoort niet pas op het
+    # vervolgblad te beginnen.
+    for index in range(1, lay.pageCollection().pageCount()):
+        assert _footers_on(lay, index), f"blad {index} zonder voettekst"
 
 
 def test_an_empty_legend_page_prints_its_note(project, gent_zone, tmp_path):
