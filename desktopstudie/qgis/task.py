@@ -172,10 +172,21 @@ class StudyRunner(QObject):
         self._cancelled = False
         self._item = None
         self._progress_bar: Optional[QProgressBar] = None
+        self._message = ""
 
     @property
     def running(self) -> bool:
         return self._request is not None
+
+    @property
+    def request(self) -> Optional[StudyRequest]:
+        """The study under way, None between studies."""
+        return self._request
+
+    @property
+    def progress_message(self) -> str:
+        """The phase the progress item last showed."""
+        return self._message
 
     def start(self, request: StudyRequest) -> None:
         if self.running:
@@ -297,6 +308,7 @@ class StudyRunner(QObject):
         bar.pushWidget(self._item, Qgis.MessageLevel.Info, 0)
 
     def _show_progress(self, fraction: Optional[float], message: str) -> None:
+        self._message = message
         if self._item is None:
             return
         if fraction is not None and self._progress_bar is not None:
