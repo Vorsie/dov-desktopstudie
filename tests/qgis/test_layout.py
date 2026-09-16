@@ -1135,16 +1135,43 @@ def _drawn_png(path, width=64, height=64):
     return path
 
 
-def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout):
+def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout, gent_zone):
     """De kaart blijft staan - de zonecirkel hoort zichtbaar te zijn - maar het blad zegt dat de
     bron hier geen beeld levert, en een legenda bij een leeg beeld is een belofte te veel."""
     from qgis.core import QgsLayoutItemLabel
 
-    lay = make_layout(no_coverage={MAP_ID})
+    from desktopstudie.qgis import layout
+
+    empty = layout.map_image_key(MAP_ID, layout.map_extent(gent_zone.ring, 2500, 3.0))
+    lay = make_layout(no_coverage={empty})
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert layout_module().NO_COVERAGE_NOTE in texts
     assert lay.pageCollection().pageCount() == 1 + 4, "geen legendapagina bij een leeg beeld"
+
+
+def test_an_empty_framing_leaves_the_other_framings_of_that_map_alone(make_layout, gent_zone):
+    """Geen dekking hoort bij een kader, niet bij een kaart.
+
+    Dezelfde kaart staat op meer dan een blad, elk op zijn eigen uitsnede. Levert de dienst op het
+    ene kader een lege tegel, dan zegt dat niets over het andere - en een tweede blad dat ten
+    onrechte "geen dekking" draagt, laat de lezer denken dat de kaart daar niet bestaat.
+    """
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout
+
+    pages = [MapPage(MAP_ID, "Ligging", legend=False, scale=2500, extent_factor=3.0),
+             MapPage(MAP_ID, "Overzicht", legend=False, scale=5000, extent_factor=1.0)]
+    empty = layout.map_image_key(MAP_ID, layout.map_extent(gent_zone.ring, 2500, 3.0))
+
+    lay = make_layout(pages=pages, no_coverage={empty})
+
+    first = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    second = " ".join(item.text() for item in _items_of(lay, 2, QgsLayoutItemLabel))
+    assert layout.NO_COVERAGE_NOTE in first
+    assert layout.NO_COVERAGE_NOTE not in second, second
 
 
 def test_a_map_with_coverage_is_unchanged(make_layout):
@@ -1321,7 +1348,35 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
 
     _images, empty = layout.prepare_map_images(requests, tmp_path, _Client(cache_dir=None))
 
-    assert empty == {"popp"}
+    assert empty == {requests[0].key}, "per kader, niet per kaart"
+
+
+def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
+    """Dezelfde kaartaanvraag krijgt altijd dezelfde bestandsnaam.
+
+    `hash()` op een str is per proces anders (PYTHONHASHSEED); een headless run die dezelfde
+    `--out` hergebruikt liet daarmee bij elke run nieuwe weesbestanden achter, en twee kaders van
+    dezelfde kaart konden op dezelfde naam uitkomen. De naam staat hier voluit: wie het schema
+    verandert, verandert deze test bewust mee.
+    """
+    from qgis.core import QgsRectangle
+
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return blob
+
+    extent = QgsRectangle(104226.0, 192406.0, 104426.0, 192606.0)
+    request = layout.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
+
+    images, _empty = layout.prepare_map_images([request], tmp_path, _Client(cache_dir=None))
+
+    assert request.key == "grb:104226:192406:104426:192606"
+    assert images[request.key].name == "grb_84a197c3.png"
 
 
 def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, gent_zone, tmp_path):
