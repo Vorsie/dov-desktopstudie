@@ -87,6 +87,21 @@ een kaart toevoegen = één entry, geen code.
   Quartair 50000 <code>&dsoType=item` -> item-uuid -> `/core/items/<uuid>/bundles` -> bitstream ->
   `/core/bitstreams/<uuid>/content` (live geverifieerd 2026-09-16). Die omweg zit bewust NIET in de
   code: drie extra oproepen per profieltype en koppeling aan de REST-vorm van DSpace.
+- **Kaartbeelden worden vooraf opgehaald, niet tijdens het renderen.** De QGIS-WMS-provider haalt
+  tegel na tegel op TERWIJL een blad tekent, en het rapport wacht daarop: dat was 312 s van de
+  607 s die een studie voor Gent kostte (gemeten 2026-09-16 met de fasetabel). `layout.
+  plan_map_images` leidt uit de rapportboom af welke uitsnedes nodig zijn - één per (kaart, kader),
+  dus vier GRB-bladen delen wat ze kunnen delen - en `prepare_map_images` haalt ze met acht
+  werkers op als één GetMap per blad, op de pixelmaat waarop het blad ze afdrukt (`MAP_IMAGE_DPI`
+  = de export-dpi, geplafonneerd op 4096 px). Ze landen als PNG + wereldbestand in
+  `data/kaarten/` en de layout tekent die lokale rasters (`layers.snapshot_layer`, CRS expliciet
+  gezet - een PNG zegt niet waar hij ligt). De live WMS-lagen blijven voor het QGIS-project; de
+  layout raakt ze niet meer aan. Elk kaartbeeld is een eigen bron, en of de tegel leeg is, valt
+  gratis af te lezen - de aparte dekkingsproef is daarmee verdwenen.
+- **Een WMS-laag bouwen kost een GetCapabilities.** Tegen DOV is dat 2,6 s per kaart, en de studie
+  deed het twee keer: eens voor het geopende project, eens (via `clone()`) voor het projectbestand.
+  `finish(study_groups=False)` slaat de eerste over - headless kijkt niemand naar dat geopende
+  project - en scheelt 42 s. De `.qgz` krijgt ze hoe dan ook.
 - **Een dienst die hier niets tekent, zegt dat.** De Popp-kaart is in Gent een wit blad: het
   mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes met een lege tegel. Elke
   kaart **zonder feiten** krijgt daarom een GetMap van 64 px op de extent van haar blad
@@ -121,6 +136,10 @@ een kaart toevoegen = één entry, geen code.
   2 x `cellMargin()` per kolom min `(n+1) x gridStrokeWidth()` - vergeet je die laatste twee, dan
   steekt `totalWidth()` er 2,5 mm overheen. Een tabel van >= 7 kolommen en een figuur dat breder is
   dan hoog krijgen een **liggend** blad; alle maten komen uit `layout._page_metrics(orientation)`.
+- **De fasen van een run worden geklokt** (`pipeline.PhaseClock`): elke fase meldt zich één keer,
+  dat sluit meteen de vorige af, en `PipelineResult.timings` plus een INFO-tabel zeggen waar de
+  tijd heen ging. De voortgangsbalk van de plugin leest dezelfde indeling. Meten voor je iets
+  versnelt: de PDF-export bleek 312 s van de 607 s, de dekkingsproef 0,0 s.
 - **`QgsLayoutExporter` gooit niet, het geeft een code terug.** Een oproeper die de code negeert,
   overhandigt de gebruiker een rapport dat er niet is. Elke export controleert de code en noemt
   ze bij naam via `compat.enum_name` ("FileError", niet "3"). Let op: een oude unscoped C++-enum
