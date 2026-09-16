@@ -224,20 +224,21 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
     return report
 
 
-def drop_previous_run(project: QgsProject) -> None:
+def drop_previous_run(project: QgsProject, keep=()) -> None:
     """Remove what an earlier study in this session left behind: its layout and the copies its
     maps drew with.
 
     In that order. The copies live outside the layer tree, so nobody can remove them by hand, and
     removing them while the old layout still points at them would leave a layout referring to
-    layers that are gone.
+    layers that are gone. `keep` is what THIS run has already built and is about to draw with.
     """
     manager = project.layoutManager()
     existing = manager.layoutByName(layout_mod.LAYOUT_NAME)
     if existing is not None:
         manager.removeLayout(existing)
+    spared = {layer.id() for layer in keep}
     stale = [layer.id() for layer in project.mapLayers().values()
-             if layer.customProperty(REPORT_OVERLAY_FLAG)]
+             if layer.customProperty(REPORT_OVERLAY_FLAG) and layer.id() not in spared]
     if stale:
         project.removeMapLayers(stale)
 
@@ -303,21 +304,39 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
-def _probe_coverage(result: StudyResult, loaded: Dict[str, List[QgsMapLayer]], client: HttpClient,
-                    log: Log, should_cancel) -> Set[str]:
-    """Which of the loaded maps draw nothing here, and say so in the sources chapter.
+MAP_IMAGE_SOURCE = "Kaartbeeld"
 
-    The source stays `ok`: the service answered, it simply has no sheet for this place. That is a
-    different thing from a service that is down, and the reader has to be able to tell them apart -
-    "geen dekking" next to "ok" says the map is empty on purpose.
+
+def _fetch_map_images(result: StudyResult, report: Report, zone_ring, overlays: Dict[str, List[QgsMapLayer]],
+                      project: QgsProject, out_dir: Path, client: HttpClient, log: Log,
+                      should_cancel) -> Tuple[Dict[str, QgsMapLayer], Set[str]]:
+    """Every map page's background, fetched up front and turned into layers the layout can draw.
+
+    One GetMap per distinct box, all of them in flight together, instead of the WMS provider
+    pulling tiles while each of ninety sheets renders. Each image is a source of its own, and an
+    image that is empty answers the coverage question for free - for maps without facts, where an
+    empty tile really does mean "no sheet here".
     """
-    missing = layout_mod.prepare_coverage([catalogue.by_id(map_id) for map_id in loaded],
-                                          result.zone.ring, client, log.child("dekking"),
-                                          should_cancel)
-    for map_id in missing:
-        entry = catalogue.by_id(map_id)
-        record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, True, NO_COVERAGE_MESSAGE)
-    return missing
+    requests = layout_mod.plan_map_images(report, zone_ring, overlays)
+    images, empty = layout_mod.prepare_map_images(requests, out_dir, client, log.child("kaarten"),
+                                                  should_cancel)
+    snapshots: Dict[str, QgsMapLayer] = {}
+    for request in requests:
+        entry = catalogue.by_id(request.map_id)
+        path = images.get(request.key)
+        found = path is not None
+        message = ("" if request.map_id not in empty else NO_COVERAGE_MESSAGE) if found else \
+            "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
+        record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
+                      layout_mod.wms_map_url(entry, request.extent, request.width, request.height),
+                      found, message)
+        if not found:
+            continue
+        layer = layers.snapshot_layer(path, f"{entry.title} (kaartbeeld)")
+        layer.setCustomProperty(REPORT_OVERLAY_FLAG, True)
+        project.addMapLayer(layer, False)
+        snapshots[request.key] = layer
+    return snapshots, empty
 
 
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
@@ -397,12 +416,16 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
 
-    # Before the rules run: a map that draws nothing here is a fact about this study, and the
-    # sources chapter has to carry it.
     _stop_if_cancelled(should_cancel)
-    report_progress(0.29, "Dekking van de kaarten")
+    report_progress(0.29, "Kaartbeelden")
     client = client or make_client(out_dir, log, cache_mode)
-    no_coverage = _probe_coverage(result, layers_by_map, client, log, should_cancel)
+    report_overlays = _report_overlays(project, overlays)
+    # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
+    # zone - not from the signaleringen. So the tree is built once here to be read, and once below
+    # to be printed, with every source of this study in it. Building it is pure Python.
+    planned = build_report(result, meta, zone_legend_images)
+    map_images, no_coverage = _fetch_map_images(result, planned, result.zone.ring, report_overlays,
+                                                project, out_dir, client, log, should_cancel)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
@@ -434,11 +457,15 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
 
     _stop_if_cancelled(should_cancel)
     report_progress(0.38, "Layout")
-    drop_previous_run(project)
-    lay = layout_mod.build_layout(project, report, layers_by_map, _report_overlays(project, overlays),
+    # Everything THIS run has already put in the project - the styled copies and the map images -
+    # is spared; they were made minutes ago and the layout below is about to draw with them.
+    drop_previous_run(project, keep=list(map_images.values())
+                      + [layer for group in report_overlays.values() for layer in group])
+    lay = layout_mod.build_layout(project, report, layers_by_map, report_overlays,
                                   out_dir, result.zone.ring, report.meta, legends=legends,
                                   legend_images=legend_images, log=log.child("layout"),
-                                  should_cancel=should_cancel, no_coverage=no_coverage)
+                                  should_cancel=should_cancel, no_coverage=no_coverage,
+                                  map_images=map_images)
     _install_layout(project, lay, log)
     log.info(f"Layout: {lay.pageCollection().pageCount()} bladen")
 
