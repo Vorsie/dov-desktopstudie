@@ -42,6 +42,20 @@ class StudyZone:
     def representative_point(self) -> Point:
         return geometry.representative_point(self.ring)
 
+    @classmethod
+    def around_point(cls, x: float, y: float, buffer_m: float, radius_m: float,
+                     address: Optional[str] = None) -> StudyZone:
+        """The circular zone of `buffer_m` around a point, named after the address when there is
+        one and after the coordinate otherwise. The one constructor behind the plugin's address and
+        X/Y modes and the scripts' --adres and --x/--y."""
+        return cls(ring=geometry.buffer_point(x, y, buffer_m), name=address or point_name(x, y),
+                   radius_m=radius_m, address=address)
+
+
+def point_name(x: float, y: float) -> str:
+    """A coordinate as a name, to the metre: "104326/192506"."""
+    return f"{x:.0f}/{y:.0f}"
+
 
 def now_iso() -> str:
     """The moment a source was consulted, to the second, with the local offset.
