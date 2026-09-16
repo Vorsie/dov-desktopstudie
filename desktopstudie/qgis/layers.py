@@ -282,31 +282,38 @@ def points_layer(kind: str, items: Iterable[Investigation],
 
 # --- project tree and GeoPackage -----------------------------------------------------------------
 
-def drop_group(project: QgsProject, title: str) -> int:
-    """Remove the group called `title` and its layers from the project; returns how many layers
-    went. Nothing happens when there is no such group."""
-    root = project.layerTreeRoot()
+def drop_group(project: QgsProject, title: str,
+               parent: Optional[QgsLayerTreeGroup] = None) -> int:
+    """Remove the group called `title` under `parent` (the root by default) and its layers from
+    the project; returns how many layers went. Nothing happens when there is no such group.
+
+    Looked up under `parent` only: two studies in one project both hold a "1 Ligging", and the
+    one being rebuilt must replace its own, not its neighbour's.
+    """
+    root = parent if parent is not None else project.layerTreeRoot()
     group = root.findGroup(title)
     if group is None:
         return 0
     ids = group.findLayerIds()
-    root.removeChildNode(group)
+    group.parent().removeChildNode(group)
     if ids:
         project.removeMapLayers(ids)
     return len(ids)
 
 
 def add_group(project: QgsProject, title: str, group_layers: Sequence[QgsMapLayer],
-              visible: bool = True) -> QgsLayerTreeGroup:
-    """Add the layers to the project under one group, in the given order. They are registered
-    without a tree node (`addMapLayer(layer, False)`) so they appear inside the group only.
+              visible: bool = True, parent: Optional[QgsLayerTreeGroup] = None) -> QgsLayerTreeGroup:
+    """Add the layers to the project under one group, in the given order, at the root or under
+    `parent`. They are registered without a tree node (`addMapLayer(layer, False)`) so they
+    appear inside the group only.
 
-    A group of the same name from an earlier run is replaced, its layers removed from the
+    A group of the same name under the same parent is replaced, its layers removed from the
     project first: a study run three times in one session must not leave three copies of
     "5 Grondonderzoek DOV" in the layer panel, two of them stale.
     """
-    drop_group(project, title)
-    group = project.layerTreeRoot().addGroup(title)
+    drop_group(project, title, parent)
+    root = parent if parent is not None else project.layerTreeRoot()
+    group = root.addGroup(title)
     for layer in group_layers:
         project.addMapLayer(layer, False)
         group.addLayer(layer).setItemVisibilityChecked(visible)
