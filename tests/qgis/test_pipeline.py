@@ -219,7 +219,7 @@ def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
     aan `build_report` door; daar wordt ze een figuurpagina achter de legenda van de zone. Een
     tekening die niet binnenkwam, staat als mislukte bron in de provenance - niet stil weg."""
     from desktopstudie.core.model import MapFact
-    from desktopstudie.core.report_content import FigurePage
+    from desktopstudie.core.report_content import FigurePage, LegendPage
     from desktopstudie.core.services.http import HttpClient, HttpError
     from desktopstudie.qgis import pipeline
 
@@ -237,10 +237,14 @@ def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
                           client=_Client(cache_dir=None))
 
-    figures = [page for page in out.report.chapters[2].pages if isinstance(page, FigurePage)]
-    # De kopstrook per profieltype, en de eenhedentabel een keer voor het kaartblad.
+    # De kopstrook staat op de legendapagina zelf; alleen de eenhedentabel van het kaartblad
+    # krijgt een eigen blad.
+    pages = out.report.chapters[2].pages
+    legend = next(page for page in pages if isinstance(page, LegendPage))
+    assert [(entry.code, entry.image_path) for entry in legend.entries] == [
+        ("22026", "legendas/quartair_22026_kop.png"), ("22098", "")]
+    figures = [page for page in pages if isinstance(page, FigurePage)]
     assert [(page.title, page.image_path) for page in figures] == [
-        ("Profieltype 22026", "legendas/quartair_22026_kop.png"),
         ("Eenheden op kaartblad 22", "legendas/quartair_kaartblad_22.png")]
     assert (tmp_path / "legendas" / "quartair_22026_kop.png").exists()
     assert (tmp_path / "legendas" / "quartair_kaartblad_22.png").exists()
