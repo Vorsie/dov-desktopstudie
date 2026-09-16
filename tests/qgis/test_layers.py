@@ -282,7 +282,7 @@ def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
 
-    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"})
+    project, _dropped = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"})
 
     names = [group.name() for group in project.layerTreeRoot().findGroups()]
     assert names == ["1 Ligging en topografie", "4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
@@ -304,7 +304,7 @@ def test_the_standalone_layers_keep_the_house_style(qgs_app, gent_zone, tmp_path
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
 
-    project = layers.standalone_project(gpkg, {})
+    project, _dropped = layers.standalone_project(gpkg, {})
 
     found = {layer.name(): layer for layer in project.mapLayers().values()}
     cpt_symbol = found["Sonderingen"].renderer().symbol()
@@ -328,7 +328,7 @@ def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, ge
     layers.write_geopackage([layers.zone_layer(gent_zone)], gpkg)
     lines = []
 
-    project = layers.standalone_project(gpkg, {}, log=Log("layers", lines.append, scope="qgis"))
+    project, _dropped = layers.standalone_project(gpkg, {}, log=Log("layers", lines.append, scope="qgis"))
 
     assert [layer.name() for layer in project.mapLayers().values()] == ["Onderzoekszone"]
     warnings = [line for line in lines if "WARNING" in line]
@@ -345,7 +345,7 @@ def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone,
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
     path = tmp_path / "studie.qgz"
-    assert layers.standalone_project(gpkg, {}).write(str(path))
+    assert layers.standalone_project(gpkg, {})[0].write(str(path))
 
     reread = QgsProject()
     assert reread.read(str(path)), reread.error()
@@ -437,8 +437,8 @@ def test_the_standalone_project_reuses_the_wms_layers_it_is_given(qgs_app, gent_
     ready = layers.zone_layer(gent_zone)
     ready.setName("GRB-basiskaart")
 
-    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
-                                        wms_layers={"grb": ready})
+    project, _dropped = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
+                                                 wms_layers={"grb": ready})
 
     assert "grb" not in offline_wms, "grb stond klaar en is toch opnieuw gebouwd"
     assert "ortho" in offline_wms, "de rest hoort wel gebouwd te worden"
@@ -458,8 +458,8 @@ def test_an_unchosen_map_is_not_in_the_standalone_project(qgs_app, gent_zone, tm
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
 
-    project = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
-                                        only=["grb", "ortho"])
+    project, _dropped = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"},
+                                                 only=["grb", "ortho"])
 
     assert sorted(offline_wms) == ["grb", "ortho"], offline_wms
     names = [layer.name() for layer in project.mapLayers().values()]
