@@ -56,7 +56,7 @@ from ..core.report_content import (
     quartair_sheet,
     sheet_image_key,
 )
-from ..core.services.http import HttpClient
+from ..core.services.http import DATA_DIR, HttpClient, study_client
 from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
 from ..core.study import run as run_study
 from . import compat, dem, export, layers
@@ -76,8 +76,6 @@ PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
 GPKG_NAME = "studie.gpkg"
 JSON_NAME = "studie.json"
-DATA_DIR = "data"
-CACHE_DIR = "cache"
 RELIEF_SOURCE = "DHMV II relief"
 # Marks the copies the report maps draw with. They live outside the layer tree, so nobody can
 # remove them by hand; the flag lets a second run clean up after the first.
@@ -107,16 +105,11 @@ class PipelineResult:
     timings: List[Tuple[str, float]] = field(default_factory=list)
 
 
-def make_client(out_dir, log: Log, cache_mode: str = "use", cache_dir=None) -> HttpClient:
-    """The HTTP client for one study: one disk cache, so a second phase (the legends) re-uses what
-    the first phase already fetched and a re-run costs nothing.
-
-    The cache sits in `cache_dir` when given - the plugin puts it next to its run folders, shared
-    by every run under the same output folder, because a run folder is fresh every time - and
-    inside the output directory otherwise (the headless script keeps one folder per study).
-    """
-    return HttpClient(cache_dir=Path(cache_dir) if cache_dir else Path(out_dir) / DATA_DIR / CACHE_DIR,
-                      log=log.child("http"), cache_mode=cache_mode)
+# The client for one study, with its disk cache in `<out>/data/cache` unless the caller names
+# another folder. The factory itself lives in the core (`http.study_client`), because the scripts
+# that never touch QGIS need exactly the same client; the shell has always asked the pipeline for
+# it, so the name stays here.
+make_client = study_client
 
 
 def study_group_name(project: str) -> str:
