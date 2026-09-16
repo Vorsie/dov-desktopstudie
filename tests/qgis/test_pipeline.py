@@ -517,3 +517,40 @@ def test_the_phase_table_is_logged_and_names_the_slowest(project, core_result, o
 
     table = [line for line in lines if "fase" in line or " s " in line]
     assert any("Layout" in line for line in table), lines[-12:]
+
+
+def test_a_run_without_project_groups_builds_the_wms_layers_once(project, core_result,
+                                                                 offline_shell, tmp_path,
+                                                                 monkeypatch, no_pdf):
+    """Een WMS-laag bouwen kost een GetCapabilities, en tegen DOV is dat 2,6 s per kaart - twee
+    keer dertig ronden voor niets. Headless kijkt niemand naar het geopende project: dan worden de
+    lagen één keer gebouwd, voor het projectbestand dat wél geleverd wordt."""
+    from desktopstudie.qgis import layers, pipeline
+
+    built = []
+    real = layers.wms_layer
+
+    def counted(entry):
+        built.append(entry.id)
+        return real(entry)
+
+    monkeypatch.setattr(layers, "wms_layer", counted)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
+                          study_groups=False)
+
+    assert len(built) == len(set(built)), built
+    assert out.project_file is not None and out.project_file.exists()
+    titles = [group.name() for group in project.layerTreeRoot().findGroups()]
+    assert titles == [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP], titles
+
+
+def test_a_run_with_project_groups_still_fills_the_open_project(project, core_result, offline_shell,
+                                                                tmp_path, no_pdf):
+    """In de plugin is dat geopende project juist de plek waar de gebruiker verder werkt."""
+    from desktopstudie.qgis import pipeline
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    titles = [group.name() for group in project.layerTreeRoot().findGroups()]
+    assert list(pipeline.CHAPTER_GROUPS.values())[0] in titles
