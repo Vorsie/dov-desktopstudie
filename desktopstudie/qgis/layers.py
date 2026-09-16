@@ -380,14 +380,18 @@ def gpkg_layer(gpkg: Path, name: str) -> QgsVectorLayer:
 
 def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
                        wms_layers: Optional[Dict[str, QgsMapLayer]] = None,
-                       only: Optional[Iterable[str]] = None) -> QgsProject:
-    """A fresh project holding the whole study: the catalogue maps as WMS layers and the study's
+                       only: Optional[Iterable[str]] = None) -> Tuple[QgsProject, List[MapEntry]]:
+    """(project, the entries it had to drop): the catalogue maps as WMS layers and the study's
     own layers read back from `gpkg`.
 
     This is the deliverable the user opens weeks later, without the plugin and without the
     session that made it - so nothing here may point at a memory layer. `QgsProject.addMapLayer`
     drops an invalid layer, which is exactly right for a WMS that was unreachable while the study
-    ran: the project keeps the maps that work instead of failing to open. Every drop is logged.
+    ran: the project keeps the maps that work instead of failing to open.
+
+    A drop is logged AND handed back, because a log line is not a report: headless the layers are
+    built here and nowhere else, so without the list a map can be missing from `studie.qgz` with
+    nothing in the sources chapter saying which one or why.
 
     `wms_layers` (map id -> layer) hands over what the caller has already built; each one is
     CLONED, because a project owns its layers and the caller's belong to its own project. Building
@@ -398,6 +402,7 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     """
     gpkg = Path(gpkg)
     ready = dict(wms_layers or {})
+    dropped: List[MapEntry] = []
     project = QgsProject()
     project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
     for chapter, title in chapter_groups.items():
@@ -408,6 +413,7 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
             if not layer.isValid():
                 if log:
                     log.warning(f"WMS-laag niet geldig, niet in het project: {entry.id}")
+                dropped.append(entry)
                 continue
             rasters.append(layer)
         add_group(project, title, rasters, visible=False)
@@ -423,4 +429,4 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
                 continue
             group_layers.append(style_by_name(layer, log))
         add_group(project, title, group_layers)
-    return project
+    return project, dropped
