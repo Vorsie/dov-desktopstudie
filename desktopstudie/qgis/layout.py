@@ -868,9 +868,9 @@ class LayoutBuilder:
                              if image is not None else (0.0, 0.0))
             needed = LEGEND_LABEL_H + height + LEGEND_GAP
             if y + needed > CONTENT_TOP + CONTENT_H:
+                self.footer(index)  # the sheet being left, not the one being started
                 index = self.new_page()
                 self.header(chapter, f"{page.title} (vervolg)", index)
-                self.footer(index)
                 y = CONTENT_TOP
             self.label(f"Profieltype {entry.code} - kaartblad {entry.sheet}", MARGIN, y, CONTENT_W,
                        LEGEND_LABEL_H, index, size=9, bold=True)
