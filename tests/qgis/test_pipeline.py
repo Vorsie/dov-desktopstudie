@@ -73,6 +73,7 @@ def offline_shell(monkeypatch, gent_zone):
     """
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import dem, layers
+    from desktopstudie.qgis import layout as layout_mod
 
     def fake_wms(entry):
         layer = layers.zone_layer(gent_zone)
@@ -87,6 +88,20 @@ def offline_shell(monkeypatch, gent_zone):
     monkeypatch.setattr(layers, "wms_layer", fake_wms)
     monkeypatch.setattr(dem, "relief_of_zone",
                         lambda zone_layer, log=None, should_cancel=None: RELIEF)
+
+    def fake_map_images(requests, out_dir, client, log=None, should_cancel=None):
+        """Elk kaartbeeld als een klein plaatje op schijf, zonder een dienst aan te raken."""
+        from desktopstudie.qgis import layout
+
+        images = {}
+        for request in requests:
+            path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
+            write_png(path, 60, 60)
+            layout._write_world_file(path.with_suffix(".pgw"), request)
+            images[request.key] = path
+        return images, set()
+
+    monkeypatch.setattr(layout_mod, "prepare_map_images", fake_map_images)
     return RELIEF
 
 
@@ -156,9 +171,14 @@ def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core
 
     layouts = [item.name() for item in project.layoutManager().printLayouts()]
     assert layouts.count(layout.LAYOUT_NAME) == 1
+    # De zes gestileerde kopieën van de tweede run plus haar kaartbeelden - en niets van de eerste.
     report_copies = [layer for layer in project.mapLayers().values()
                      if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)]
-    assert len(report_copies) == 6, [layer.name() for layer in report_copies]
+    names = sorted(layer.name() for layer in report_copies)
+    assert sum(1 for name in names if not name.endswith("(kaartbeeld)")) == 6, names
+    snapshots = [name for name in names if name.endswith("(kaartbeeld)")]
+    assert snapshots and len(snapshots) == len(set(id(layer) for layer in report_copies
+                                                   if layer.name().endswith("(kaartbeeld)")))
 
 
 def test_the_report_maps_label_only_the_investigations_with_a_figure(project, core_result, offline_shell,
@@ -452,17 +472,21 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
     de bron blijft "ok" - met de reden erbij, zodat het witte blad verklaard is."""
     from desktopstudie.qgis import layout, pipeline
 
-    def no_popp(entries, zone_ring, client, log=None, should_cancel=None):
-        return {"ferraris"}
+    real = layout.prepare_map_images
 
-    monkeypatch.setattr(layout, "prepare_coverage", no_popp)
+    def empty_ferraris(requests, out_dir, client, log=None, should_cancel=None):
+        images, _empty = real(requests, out_dir, client, log, should_cancel)
+        return images, {"ferraris"}
+
+    monkeypatch.setattr(layout, "prepare_map_images", empty_ferraris)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
-    kaartlaag = next(p for p in out.result.provenance if p.source.startswith("Kaartlaag Ferraris"))
-    assert kaartlaag.ok is True
-    assert kaartlaag.message == pipeline.NO_COVERAGE_MESSAGE
-    others = [p for p in out.result.provenance if p.source.startswith("Kaartlaag") and p is not kaartlaag]
+    beeld = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Ferraris"))
+    assert beeld.ok is True
+    assert beeld.message == pipeline.NO_COVERAGE_MESSAGE
+    others = [p for p in out.result.provenance
+              if p.source.startswith("Kaartbeeld") and p is not beeld]
     assert all(p.message == "" for p in others), [p.source for p in others]
 
 
@@ -475,8 +499,8 @@ def test_finish_reports_how_long_every_phase_took(project, core_result, offline_
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
     names = [name for name, _seconds in out.timings]
-    assert names == ["Relief uit DHMV", "Lagen", "Dekking van de kaarten",
-                     "Signaleringen en rapport", "GeoPackage en projectbestand", "Layout",
+    assert names == ["Relief uit DHMV", "Lagen", "Kaartbeelden", "Signaleringen en rapport",
+                     "GeoPackage en projectbestand", "Layout",
                      "PDF-export (niet onderbreekbaar)"], names
     assert all(seconds >= 0.0 for _name, seconds in out.timings)
     assert sum(seconds for _name, seconds in out.timings) > 0.0
