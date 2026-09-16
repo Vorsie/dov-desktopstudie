@@ -36,7 +36,7 @@ class FixtureClient:
         self.routes.append((substring, target))
         return self
 
-    def get(self, url: str, params=None, timeout=None, retries=None) -> bytes:
+    def get(self, url: str, params=None, timeout=None, retries=None, cache_mode=None) -> bytes:
         from desktopstudie.core.services.http import build_url
 
         full = build_url(url, params)
