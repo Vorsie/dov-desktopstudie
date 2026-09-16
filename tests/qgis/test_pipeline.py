@@ -238,9 +238,12 @@ def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
                           client=_Client(cache_dir=None))
 
     figures = [page for page in out.report.chapters[2].pages if isinstance(page, FigurePage)]
+    # De kopstrook per profieltype, en de eenhedentabel een keer voor het kaartblad.
     assert [(page.title, page.image_path) for page in figures] == [
-        ("Profieltype 22026", "legendas/quartair_22026.png")]
-    assert (tmp_path / "legendas" / "quartair_22026.png").exists()
+        ("Profieltype 22026", "legendas/quartair_22026_kop.png"),
+        ("Eenheden op kaartblad 22", "legendas/quartair_kaartblad_22.png")]
+    assert (tmp_path / "legendas" / "quartair_22026_kop.png").exists()
+    assert (tmp_path / "legendas" / "quartair_kaartblad_22.png").exists()
     provenance = {p.source: p.ok for p in core_result.provenance}
     assert provenance["Legenda profieltype 22026"] is True
     assert provenance["Legenda profieltype 22098"] is False
