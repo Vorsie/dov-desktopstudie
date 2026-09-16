@@ -1,9 +1,13 @@
 """Drive the plugin inside a real QGIS, unattended: enable it, open the dialog, fill the address
 mode, start the study, wait for it, write a status file and quit.
 
-  "C:\\Program Files\\QGIS 3.40.15\\bin\\qgis-ltr-bin.exe" --code scripts\\smoke_plugin.py
+  "C:\\Program Files\\QGIS 3.40.15\\bin\\qgis-ltr-bin.exe"
+      --profile smoke --nologo --noversioncheck --code scripts\\smoke_plugin.py
 
-Needs the junction from scripts/dev_link.cmd. Everything here is event-driven (QTimer): under
+A profile of its own (`--profile smoke`): the run enables the plugin and saves settings (bedrijf,
+auteur, uitvoermap) in whatever profile it runs in, and the developer's own profile is not the
+place for that. The junction has to exist in that profile (`scripts/dev_link.cmd smoke`).
+Everything here is event-driven (QTimer): under
 `--code` the script runs before the event loop, so it may only schedule work. The status lands in
 uitvoer/plugin_gent/smoke_status.json, a log next to it; both are what a reader checks afterwards,
 because the QGIS window closes itself at the end.
@@ -16,7 +20,7 @@ import time
 import traceback
 from pathlib import Path
 
-from qgis.core import QgsProject, QgsSettings
+from qgis.core import QgsApplication, QgsProject, QgsSettings
 from qgis.PyQt.QtCore import QTimer
 from qgis.utils import iface, loadPlugin, plugins, startPlugin
 
@@ -118,29 +122,32 @@ def step_enable():
 
 
 def step_start(plugin, dialog):
-    if not dialog._hits:
+    if not dialog.hits:
         fail("geen adreskandidaat gevonden")
         return
-    note(f"kandidaat: {dialog._hits[0].address}")
+    note(f"kandidaat: {dialog.hits[0].address}")
     runner = plugin.runner
     runner.finished.connect(lambda result: step_finished(runner, dialog, result))
     progress = {"last": ""}
+    # How often the canvas starts a render while the study runs: every WMS layer added to the
+    # open project can trigger one, and each of those pulls tiles on the main thread.
+    iface.mapCanvas().renderStarting.connect(
+        lambda: state.__setitem__("renders", state.get("renders", 0) + 1))
 
     def log_progress():
         if state["done"]:
             return
-        item = runner._item
-        text = item.text() if item is not None else ""
+        text = runner.progress_message
         if text != progress["last"]:
             progress["last"] = text
-            note(f"voortgang: {text}")
+            note(f"voortgang: {text} (canvas renders tot nu: {state.get('renders', 0)})")
         QTimer.singleShot(2000, log_progress)
 
     dialog.start()
     if not runner.running:
         fail("de studie is niet gestart (zie de berichtenbalk / het logpaneel)")
         return
-    note(f"studie gestart, uitvoer {runner._request.out_dir}")
+    note(f"studie gestart, uitvoer {runner.request.out_dir}")
     QTimer.singleShot(2000, log_progress)
     wait_for(lambda: state["done"], STUDY_TIMEOUT_S, lambda: None, "studie")
 
@@ -162,7 +169,8 @@ def step_finished(runner, dialog, result):
         write_status(ok=result.pdf is not None and not result.failures, pdf=result.pdf,
                      project_file=result.project_file, geopackage=result.geopackage, pages=pages,
                      failures=result.failures, failed_sources=failed, timings=result.timings,
-                     groups=groups, layouts=layouts, start_enabled=dialog.start_button.isEnabled())
+                     groups=groups, layouts=layouts, start_enabled=dialog.start_button.isEnabled(),
+                     canvas_renders=state.get("renders", 0), profile=QgsApplication.qgisSettingsDirPath())
     quit_qgis()
 
 
