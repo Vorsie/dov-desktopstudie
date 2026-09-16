@@ -206,64 +206,62 @@ def test_the_reading_guide_stands_between_the_facts_and_the_zone_legend(gent_rin
     assert '<a href="https://www.dov.vlaanderen.be/page/' in page.html, "de link hoort klikbaar te zijn"
 
 
-def test_the_quartair_zone_legend_names_the_sheet_and_points_at_the_drawing(gent_ring):
-    """Twee kaartvlakken van hetzelfde profieltype zijn een legenda-eenheid: de legenda telt
-    profieltypes, geen kaartvlakken. En een URL van 145 tekens zegt een lezer niets - de tekening
-    zelf staat erachter, dus de tabel verwijst ernaar en noemt het kaartblad waarop dat type is
-    gekarteerd."""
-    geo = _geologie(_with_quartair(_result(gent_ring)))
-
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
-    assert legend.columns == ["Profieltype", "Kaartblad", "Omschrijving"]
-    assert legend.rows == [["22026", "22", "zie profieltekening hierna"],
-                           ["22010", "22", "zie profieltekening hierna"],
-                           ["22098", "22", "zie profieltekening hierna"]]
-    assert not any("http" in cell for row in legend.rows for cell in row), legend.rows
-
-
-def test_every_profile_type_gets_its_header_and_the_sheet_its_units_once(gent_ring):
-    """De tekening van DOV bestaat uit twee delen: bovenaan het profieltype zelf (kleurvlak, code
-    en een regel uitleg) en daaronder de eenhedentabel van het kaartblad, die voor elk profieltype
-    van dat blad dezelfde is. Dus een kopstrook per profieltype, en de eenhedentabel een keer."""
-    result = _with_quartair(_result(gent_ring))
-
-    geo = _geologie(result, zone_legend_images=_profile_images("22026", "22010", "22098"))
-
-    figures = [p for p in geo.pages if isinstance(p, rc.FigurePage)]
-    assert [(f.title, f.image_path) for f in figures] == [
-        ("Profieltype 22026", "legendas/quartair_22026_kop.png"),
-        ("Profieltype 22010", "legendas/quartair_22010_kop.png"),
-        ("Profieltype 22098", "legendas/quartair_22098_kop.png"),
-        ("Eenheden op kaartblad 22", "legendas/quartair_kaartblad_22.png")]
-    titles = [p.title for p in geo.pages]
-    assert titles.index("Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)") < \
-        titles.index("Profieltype 22026")
-
-
-def test_a_header_strip_is_drawn_at_its_own_size_and_the_units_table_fills_the_page(gent_ring):
-    """De kopstrook is een reepje van enkele centimeters hoog: over een blad uitgerekt wordt ze een
-    wazige banner. De eenhedentabel is wel een volle tekening en mag het blad vullen."""
+def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
+    """Twee kaartvlakken van hetzelfde profieltype zijn een legenda-eenheid. En wat een lezer nodig
+    heeft is de tekening zelf - kleurvlak, lettercode, omschrijving - niet een URL van 145 tekens en
+    niet "zie hierna": de kopstrook van DOV staat op de legendapagina zelf, met code en kaartblad
+    ernaast."""
     geo = _geologie(_with_quartair(_result(gent_ring)),
                     zone_legend_images=_profile_images("22026", "22010", "22098"))
 
-    figures = {p.title: p for p in geo.pages if isinstance(p, rc.FigurePage)}
-    assert figures["Profieltype 22026"].fit == "natural"
-    assert figures["Eenheden op kaartblad 22"].fit == "zoom"
-    assert rc.FigurePage("t", "p").fit == "zoom", "zoom blijft de standaard voor elke andere figuur"
+    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    assert isinstance(legend, rc.LegendPage)
+    assert [(e.code, e.sheet, e.image_path) for e in legend.entries] == [
+        ("22026", "22", "legendas/quartair_22026_kop.png"),
+        ("22010", "22", "legendas/quartair_22010_kop.png"),
+        ("22098", "22", "legendas/quartair_22098_kop.png")]
+    assert legend.note == ""
 
 
-def test_a_profile_type_without_a_drawing_gets_no_page(gent_ring):
-    """De kern haalt niets op. Kreeg ze geen pad voor een profieltype, dan staat er niets - geen
-    belofte van een tekening die er niet is."""
-    result = _with_quartair(_result(gent_ring))
+def test_a_profile_type_whose_drawing_failed_keeps_its_line(gent_ring):
+    """De kern haalt niets op. Kreeg ze geen pad voor een profieltype, dan blijft de regel staan -
+    code en kaartblad kloppen nog - alleen de tekening ontbreekt, en de bronnenlijst zegt waarom."""
+    geo = _geologie(_with_quartair(_result(gent_ring)), zone_legend_images=_profile_images("22026"))
 
-    geo = _geologie(result, zone_legend_images=_profile_images("22026"))
+    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    assert [(e.code, e.image_path) for e in legend.entries] == [
+        ("22026", "legendas/quartair_22026_kop.png"), ("22010", ""), ("22098", "")]
+
+
+def test_the_quartair_block_is_two_pages_not_four(gent_ring):
+    """Vier bladen voor twee profieltypes - een tabel met "zie hierna", twee bijna lege strookjes en
+    de eenhedentabel - is er twee te veel. De strookjes horen op de legendapagina; wat overblijft is
+    die pagina plus de eenhedentabel van het kaartblad."""
+    geo = _geologie(_with_quartair(_result(gent_ring)),
+                    zone_legend_images=_profile_images("22026", "22010", "22098"))
 
     titles = [p.title for p in geo.pages]
-    assert "Profieltype 22026" in titles
-    assert "Profieltype 22010" not in titles and "Profieltype 22098" not in titles
-    assert "Eenheden op kaartblad 22" in titles
-    assert not any(p.title.startswith("Profieltype") for p in _geologie(result).pages)
+    assert not any(title.startswith("Profieltype ") for title in titles), titles
+    quartair = [title for title in titles if "1/50 000 (samengesteld)" in title
+                or title.startswith("Eenheden op kaartblad")]
+    assert quartair == ["Quartairgeologische kaart 1/50 000 (samengesteld)",
+                        "Quartairgeologische kaart 1/50 000 (samengesteld) - eenheden in de zone",
+                        "Leeswijzer - Quartairgeologische kaart 1/50 000 (samengesteld)",
+                        "Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)",
+                        "Eenheden op kaartblad 22"]
+
+
+def test_the_sheet_units_page_names_what_it_is_valid_for(gent_ring):
+    """De eenhedentabel geldt voor elk profieltype van dat blad; dat hoort onder de tekening te
+    staan, anders leest ze als de tabel van het profieltype dat er toevallig boven stond."""
+    geo = _geologie(_with_quartair(_result(gent_ring)),
+                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+
+    units = next(p for p in geo.pages if p.title == "Eenheden op kaartblad 22")
+    assert isinstance(units, rc.FigurePage)
+    assert units.image_path == "legendas/quartair_kaartblad_22.png"
+    assert units.caption == ("Eenheden van kaartblad 22, geldig voor elk profieltype van dat "
+                             "blad - DOV")
 
 
 def test_a_profile_type_code_names_its_map_sheet():
