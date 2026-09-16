@@ -470,7 +470,8 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
     assert "grb" in built and "ferraris" not in built, built
     assert not any(request.map_id == "ferraris" for request in prepared.requests)
     ferraris = catalogue.by_id("ferraris").title
-    assert not any(ferraris in p.source for p in core_result.provenance),         [p.source for p in core_result.provenance]
+    sources = [p.source for p in core_result.provenance]
+    assert not any(ferraris in source for source in sources), sources
     assert not any(isinstance(page, MapPage) and page.map_id == "ferraris"
                    for chapter in out.report.chapters for page in chapter.pages)
 
