@@ -42,3 +42,8 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   `scripts/_cli.py` deelt de locatie-opties met `run_core.py`.
 - CI draait de schiltests in `qgis/qgis:release-3_34` en `qgis/qgis:latest`, plus een losse
   live-studie voor Gent waarvan de bladen als artefact bewaard worden.
+- Sneller: elk kaartbeeld wordt vooraf in één GetMap per blad opgehaald (acht tegelijk) en als
+  lokale raster getekend, in plaats van tegel na tegel tijdens het renderen; een headless run
+  bouwt de WMS-lagen nog één keer in plaats van twee. Voor Gent ging de schil daarmee van 607 s
+  naar 374 s inclusief PNG-export, met de PDF-export van 312 s naar 111 s (gemeten 2026-09-16 op
+  dezelfde warme cache). Elke run drukt nu een tabel met de duur per fase af.
