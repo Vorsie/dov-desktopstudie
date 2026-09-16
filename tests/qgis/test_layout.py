@@ -1465,3 +1465,36 @@ def test_the_layout_is_named_after_its_study(project, gent_zone, tmp_path):
     lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, _meta(),
                               name=layout.layout_name("Gent"))
     assert lay.name() == "DOV Desktopstudie - Gent"
+
+
+def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path, gent_zone):
+    """Stuurt het portaal zijn eigen webpagina in plaats van de tekening, dan wijst die pagina zelf
+    naar het bestand: die link wordt gevolgd. En de pagina blijft niet in de cache staan, want dan
+    kwam ze er bij elke volgende run zonder netwerk weer uit."""
+    from desktopstudie.core.report_content import profile_image_key
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    link = ("https://datasets-services.omgeving.vlaanderen.be/server/api/core/bitstreams/"
+            "0082d459-f86d-4a5b-9508-bbb98ae38e88/content")
+    page = ('<html>' + link + '"_name":"DOV_Quartair_50000_22026.png"</html>').encode()
+    asked, forgotten = [], []
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            asked.append(url)
+            return blob if url == link else page
+
+        def forget(self, url, params=None):
+            forgotten.append(url)
+            return True
+
+    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+                                               _Client(cache_dir=None))
+
+    assert profile_image_key("22026") in images, (
+        "de tekening hoort er via de link uit de pagina te zijn")
+    assert link in asked, "de link uit de pagina is niet gevolgd"
+    assert any(url.endswith("_png") for url in forgotten), (
+        "de webpagina hoort uit de cache gegooid te worden")
