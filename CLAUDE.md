@@ -161,8 +161,9 @@ een kaart toevoegen = één entry, geen code.
   `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
 - **De pijplijn valt in twee helften uiteen.** `pipeline.run_core` raakt geen QGIS aan (draait dus
   op een werkthread / QgsTask), `pipeline.finish` doet alles wat de hoofdthread vereist: reliëf,
-  regels, rapport, lagen, layout, exports. `run_pipeline` is de twee samen voor een oproeper zonder
-  threads (het headless script). Beide helften delen één `HttpClient`, dus één schijfcache.
+  regels, rapport, lagen, layout, exports. `run_pipeline` is de twee samen voor wie de hele studie in
+  één oproep wil; `scripts/run_headless.py` roept de helften zelf aan, want het meldt hoelang elk
+  van de twee duurde. Beide helften delen één `HttpClient`, dus één schijfcache.
 - **Na `relief` draaien de signaleringsregels opnieuw** (`checks.run_all`), want de reliëfregel kan
   pas dan aanslaan. De twee signaleringen die alleen de orchestrator kan kennen - een afgekapte
   WFS-lijst en mislukte doorprik-punten - laten geen spoor in de data na en worden daarom
