@@ -7,7 +7,7 @@ geopunt. Ontwerp: `docs/superpowers/specs/2026-09-15-dov-desktopstudie-design.md
 Onafhankelijk, open-source project (GPL-2.0-or-later). Clean room: kopieer geen code uit andere
 lokale projecten; alleen publiek gedocumenteerde service-eigenaardigheden mogen worden hergebruikt.
 
-## Architectuur in één alinea
+## Architectuur
 
 `desktopstudie/core/` is **pure Python** (stdlib + numpy + matplotlib, GEEN `qgis`- of
 `PyQt`-import) en bevat catalogus, geometrie, datamodel, services (geocoder, DOV WFS, DOV XML,
@@ -19,17 +19,55 @@ CPT/boring/peilput binnen de corridor), figuren
 rapportinhoud (`report_content.py`: bouwt de hoofdstuk/pagina-boom - `Chapter` met `MapPage` /
 `FigurePage` / `TablePage` / `TextPage` - uit een `StudyResult`; rendert zelf niets, dat doet de
 schil) en de orchestrator `study.py`.
-`desktopstudie/qgis/` is de dunne schil: lagen (`layers.py`), DEM, layout, export, de pijplijn
-(`pipeline.py`: `run_core` / `prepare` / `finish`) en de plugin zelf - `plugin.py` (actie en menu),
-`dialog.py` (het formulier, in code gebouwd), `zone_input.py` (pure functies: adres, X/Y, getekende
-ring of geselecteerd object -> `StudyZone` in Lambert 72; doorsnedelijn; uitvoermap per run),
-`map_tools.py` (polygoon/lijn tekenen), `task.py` (`StudyTask` op de werkthread, `StudyRunner` op
-de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan uitsluitend in
-`core/catalogue.py`: één entry per kaart; een kaart toevoegen = één entry, geen code.
+`desktopstudie/qgis/` is de dunne schil: lagen (`layers.py`), reliëf (`dem.py`), layout
+(`layout.py`), export (`export.py`), versieshims (`compat.py`), de pijplijn (`pipeline.py`:
+`run_core` / `prepare` / `finish`, `run_pipeline` als alles-in-één) en de plugin zelf - `plugin.py`
+(actie en menu), `dialog.py` (het formulier, in code gebouwd), `zone_input.py` (pure functies:
+adres, X/Y, getekende ring of geselecteerd object -> `StudyZone` in Lambert 72; doorsnedelijn;
+uitvoermap per run), `map_tools.py` (polygoon/lijn tekenen), `task.py` (`StudyTask`, `StudyRunner`,
+het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan uitsluitend in `core/catalogue.py`:
+één entry per kaart; een kaart toevoegen = één entry, geen code.
+
+**De stroom van Start tot rapport, in de plugin.** De dialoog leest haar widgets tot een
+`StudyRequest` (zone, `Settings`, `ReportMeta`, runmap `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>`
+uit `zone_input.run_folder`, cachemodus, legendakeuze en `cache_dir=<uitvoermap>/cache`) en geeft
+die aan `StudyRunner.start`. De runner zet een voortgangsitem met Annuleren in de berichtenbalk en
+start een `StudyTask` (`QgsTask`). Op de **werkthread** draaien `pipeline.run_core` (de kern:
+geocoder, WFS/XML, virtuele boring, watertoets, figuren) en `pipeline.prepare` (legenda's,
+profieltypetekeningen, kaartbeelden - gepland op `layout.overlay_boxes`, zonder één laag), met één
+`HttpClient` en dus één schijfcache; de werker krijgt `QgsTask.isCanceled` als `should_cancel`.
+`StudyTask.finished()` draait op de hoofdthread in de slot van de taakbeheerder, die de taak daarna
+verwijdert: de uitkomst verlaat de taak als data (`WorkerOutcome`), de taak laat callback en
+connecties los, en de runner plant `_assemble` met `QTimer.singleShot(0, ...)` op zichzelf. Daar
+bevriest ze het canvas en roept ze `pipeline.finish(project, result, meta, out_dir, prepared=...)`
+op de **hoofdthread**: reliëf (WCS + zonale statistiek op de zonelaag, bewust niet in de werker),
+lagen (één groep "DOV Desktopstudie - <project>" met de hoofdstukgroepen erin, ingeklapt, alleen
+GRB aan), signaleringen + `studie.json` + rapportboom, GeoPackage + `studie.qgz`, de layout
+"DOV Desktopstudie - <project>", PDF-export in runs van tien bladen. `finish` pollt `should_cancel`
+tussen fasen, vóór elke WMS-laag, tussen bladen van de layout en tussen exportruns; de
+`should_cancel` van de runner roept eerst `QCoreApplication.processEvents()` aan, zodat de balk
+beweegt en Annuleren gehoord wordt, en een afgebroken export laat geen halve PDF achter. Alles wat
+een run in het geopende project achterlaat draagt de studienaam (`pipeline.study_group_name`,
+`layout.layout_name`, `REPORT_OVERLAY_FLAG`); een tweede run met dezelfde naam vervangt precies dat
+(`layers.add_group(parent=)` vervangt binnen zijn ouder, `drop_previous_run(owner=)` alleen de
+layout en kopieën van die naam) en een andere studie in hetzelfde project blijft staan. De plugin
+werkt in het geopende project: geen `newProject()`, geen vraag. Aan het einde: canvas vrij en één
+keer ververst, zoom naar de zone, succesmelding met "Open PDF", mislukte producten en bronnen bij
+naam als waarschuwing, een omgevallen kern als kritieke melding, en `finished(result|None)` zodat
+de dialoog Start weer vrijgeeft. Wat de dialoog onthoudt staat onder `desktopstudie/` in
+`QgsSettings` (`settings.PluginSettings`): `bedrijf`, `auteur`, `logo`, `straal`, `uitvoermap`,
+`cache`, `legendas`. Headless (`scripts/run_headless.py`) roept `run_core` en `finish` zelf aan -
+zonder `prepared` doet `finish` eerst `prepare` op de eigen thread - met `study_groups=False` (het
+geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 
 ## Harde regels
 
 - **Geen qgis-import in `core/`.** Bewaakt door `tests/core/test_no_qgis_imports.py`.
+- **Schil-tests draaien alleen in QGIS-Python; CI in de containers.** `tests/qgis` importeert
+  `qgis.core` en slaat zichzelf in een gewone venv over (`importorskip` in de conftest). Lokaal:
+  `python-qgis-ltr.bat -m pytest tests/qgis`; in CI in `qgis/qgis:release-3_34` en
+  `qgis/qgis:latest` (`ci-qgis.yml`). Geen stubs of mocks van `qgis.core` in de venv: een
+  4.x-API-breuk hoort in een echte QGIS zichtbaar te worden, niet in een namaak.
 - **Compatibel met QGIS 3.34 t/m 4.x.** `qgisMinimumVersion=3.34`, `supportsQt6=True`. Alleen
   API's die in 3.34 bestaan. Imports via `qgis.PyQt`. Qt-enums altijd scoped
   (`Qt.AlignmentFlag.AlignRight`, `QDialog.DialogCode.Accepted`). Python-syntaxis ≥ 3.9: geen
@@ -230,14 +268,9 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   ondersteunt het `{*}naam`-namespace-jokerteken NIET (dat werkt alleen in de ElementPath-syntax
   van `find`/`findall`/`iterfind`); gebruik dus `root.findall(".//{*}tag")`, nooit
   `root.iter("{*}tag")` — anders levert de parser stilzwijgend een lege lijst op.
-- **De pijplijn valt in drie delen uiteen.** `pipeline.run_core` raakt geen QGIS aan en
-  `pipeline.prepare` evenmin - legenda's, quartairtekeningen en kaartbeelden, gepland op dozen uit
-  de studie zelf (`layout.overlay_boxes`), zonder één laag - dus allebei draaien in de plugin op de
-  werkthread (`task.StudyTask`). `pipeline.finish` doet alles wat de hoofdthread vereist: reliëf
-  (WCS + zonale statistiek op de zonelaag, bewust niet in de werker), lagen, regels, rapport,
-  GeoPackage, layout, exports; zonder `prepared` doet het `prepare` eerst zelf (headless).
-  `run_pipeline` is alles in één oproep; `scripts/run_headless.py` roept de delen zelf aan, want
-  het meldt hoelang elk duurde. Alle delen delen één `HttpClient`, dus één schijfcache.
+- **`run_core` en `prepare` raken geen QGIS aan - en dat moet zo blijven.** Ze draaien in de plugin
+  op de werkthread (zie de stroom hierboven); wie er een laag, een `QgsProject` of een widget in
+  zet, laat de plugin crashen zonder traceback. Alles wat de hoofdthread vereist hoort in `finish`.
 - **De kaartpagina en het geplande kaartbeeld lezen dezelfde dozen.** `plan_map_images` (werker)
   en `LayoutBuilder` (hoofdthread) moeten op de meter dezelfde extent vinden, anders zoekt het blad
   zijn beeld onder een sleutel die er niet is. Daarom rekenen beide met `overlay_boxes(result)` -
@@ -245,34 +278,21 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   `layer.extent()` (de GEOS-buffer van de zoekstraal is in pure Python niet te reproduceren).
   `map_extent` leest een kale bbox precies zoals een laag; `build_layout(overlay_boxes=...)` geeft
   ze door.
-- **De hoofdthread ademt via `should_cancel`.** `finish` pollt het tussen fasen, tussen bladen van
-  de layout en tussen runs van de PDF-exporter (`export_pdf(should_cancel=, progress=)`; een
-  afgebroken export laat geen halve PDF achter). De `should_cancel` van de plugin
-  (`StudyRunner._should_cancel`) roept eerst `QCoreApplication.processEvents()` aan, zodat de
-  voortgangsbalk beweegt en Annuleren gehoord wordt; de werker krijgt `QgsTask.isCanceled`.
-  `QgsTask.finished()` draait in de slot van de taakbeheerder, die de taak daarna verwijdert: de
-  uitkomst verlaat de taak als data (`WorkerOutcome`), de taak laat zijn callback en connecties
-  los, en de runner plant `finish` met `QTimer.singleShot(0, ...)` op zichzelf.
-- **De studienaam is de sleutel in het geopende project.** Alles wat een run daar achterlaat
-  draagt `meta.project`: één groep "DOV Desktopstudie - <project>" (`pipeline.study_group_name`)
-  met de hoofdstukgroepen erin, de layout "DOV Desktopstudie - <project>" (`layout.layout_name`)
-  en de rapportkopieën (`REPORT_OVERLAY_FLAG` = de studienaam). Een tweede run met dezelfde naam
-  vervangt precies dat - `layers.add_group(parent=...)` vervangt binnen zijn ouder,
-  `drop_previous_run(owner=...)` alleen de layout en kopieën van die naam - en Gent en Antwerpen
-  in één project laten elkaar heel. Elke run schrijft in een eigen map
-  `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>` (`zone_input.run_folder`), zodat het GeoPackage van
-  de vorige run nooit vergrendeld of overschreven is; de schijfcache staat daarnaast in
-  `<uitvoermap>/cache` (`StudyRequest.cache_dir` -> `make_client(cache_dir=)`), gedeeld door alle
-  runs, want een cache in de runmap zelf wordt nooit twee keer geraakt. Headless blijft de cache
-  in `<out>/data/cache`. De plugin werkt in het geopende project: geen `newProject()`, geen vraag.
-- **Lagen in het geopende project: bevroren canvas, alleen de basiskaart aan.** `StudyRunner`
-  bevriest het canvas voor de hele hoofdthread-helft en ververst één keer aan het einde (elke laag
-  die in het project landt kan anders een render starten die tegels trekt); de hoofdstukgroepen
-  landen ingeklapt met alleen `BASE_MAP_ID` (GRB) aangevinkt, de andere kaarten staan klaar maar
-  uit. De lagenfase pollt `should_cancel` vóór elke WMS-laag en vóór het projectbestand.
-- **Instellingen onder `desktopstudie/`** (`settings.PluginSettings`): `bedrijf`, `auteur`, `logo`,
-  `straal`, `uitvoermap`, `cache`, `legendas`; elke lezing valt terug op haar standaard. De opslag
-  is injecteerbaar - tests schrijven in een eigen ini, nooit in het profiel.
+- **Elke fase van `finish` pollt `should_cancel`, en een nieuwe fase ook.** Tussen fasen, vóór elke
+  WMS-laag, tussen bladen van de layout en tussen exportruns (`export_pdf(should_cancel=,
+  progress=)`). Een fase die minuten kan duren en niet pollt, maakt Annuleren een leugen.
+- **Een run schrijft in een eigen map, de cache staat ernaast.** `<uitvoermap>/<project>_<yyyymmdd>_
+  <HHMM>` (`zone_input.run_folder`), zodat het GeoPackage van de vorige run - misschien nog open in
+  deze QGIS - nooit vergrendeld of overschreven is; de schijfcache in `<uitvoermap>/cache`
+  (`StudyRequest.cache_dir` -> `make_client(cache_dir=)`), want een cache in de runmap zelf wordt
+  nooit twee keer geraakt.
+- **Lagen in het geopende project: bevroren canvas, alleen de basiskaart aan.** Elke laag die in
+  het project landt kan anders een render starten die tegels trekt op de hoofdthread (gemeten:
+  3 renders -> 0, lagenfase 11,4 -> 7,9 s); de hoofdstukgroepen landen ingeklapt met alleen
+  `BASE_MAP_ID` (GRB) aangevinkt, de andere kaarten staan klaar maar uit.
+- **Instellingen: elke lezing valt terug op haar standaard** (een handmatig bewerkt profiel mag de
+  dialoog niet onderuit halen) en de opslag van `PluginSettings` is injecteerbaar - tests schrijven
+  in een eigen ini, nooit in het profiel.
 - **Logregels van de plugin gaan naar het logpaneel** (tab "DOV Desktopstudie") via
   `task.plugin_log`; het niveau volgt het voorvoegsel (`WARNING` geel, `ERROR` rood), DEBUG blijft
   weg. Mislukte producten en bronnen (afsluitcode 3 headless) komen als `pushWarning` bij naam in
@@ -332,7 +352,8 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
-- **Git**: Conventional Commits, één bestand per commit, `main` is de werkbranch tot v0.1.
+- **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
+  `main` draagt de releases (tag `vX.Y.Z`, de zip uit `build_zip.py` als release-asset).
 
 ## Ontwikkelomgeving
 
@@ -400,7 +421,21 @@ de hoofdthread, het logpaneel) en `settings.py` (`QgsSettings`). Kaarten staan u
   --noversioncheck --code scripts\smoke_plugin.py` (adresmodus voor Gent; status in
   `uitvoer/plugin_gent/smoke_status.json` met de fasetabel en het aantal canvas-renders, log
   ernaast; QGIS sluit zichzelf). Zip voor "Installeren uit ZIP": `python scripts/build_zip.py`
-  -> `dist/desktopstudie-<versie uit metadata.txt>.zip`, met LICENSE en README.md in het pakket.
+  -> `dist/desktopstudie-<versie uit metadata.txt>.zip`, met LICENSE en README.md in het pakket
+  (42 bestanden in 0.1.0, geen `__pycache__`, geen tests). Installatie uit die zip in een schoon
+  profiel: `qgis-ltr-bin.exe --profile zipcheck --nologo --noversioncheck --code
+  <absoluut pad van scripts\zip_check.py>` installeert via `pyplugin_installer.instance().installFromZipFile`, laadt
+  de plugin, opent de dialoog één keer en schrijft `uitvoer/zip_check/zip_status.json`
+  (`installed`, `loaded`, `version`, `dialog_opened`, `method`, `plugin_path`); het script weigert
+  elk profiel dat niet `zipcheck` heet, dus `default` en `smoke` blijven onaangeraakt. De pluginmap
+  van een profiel is `<profiel>/python/plugins` (`qgis.utils.HOME_PLUGIN_PATH`; die naam is al
+  eens verhuisd, dus het script leidt ze af uit `QgsApplication.qgisSettingsDirPath()`). Drie
+  dingen die QGIS onder `--code` doet: `sys.argv` is `['']` (de commandoregel staat in
+  `QgsApplication.arguments()`), de werkmap staat op `sys.path` (een QGIS gestart uit de checkout
+  importeert anders de checkout in plaats van het profiel; het script haalt die entry er eerst af
+  en meldt dat als `removed_from_sys_path`), en een relatief `--code`-pad liep onder Git Bash
+  niet (QGIS sloot normaal af zonder één logregel) - geef het absoluut op. Geverifieerd
+  2026-09-16: `installFromZipFile` in 4,0 s, plugin geladen uit het profiel, dialoog open.
 - **Een exception in een Qt-slot breekt het testproces af (0xC0000409).** Onder pytest staat de
   standaard `sys.excepthook`, en dan roept PyQt bij een onafgevangen exception in een slot `qFatal`
   aan - geen traceback, alleen een dode proces. In QGIS zelf vangt de eigen excepthook het op. Dus:
@@ -426,9 +461,36 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
   is niet als open XSD gevonden / herbekijken zodra een collega de codes in het rapport onleesbaar
   vindt: vertaaltabel in de presentatielaag toevoegen, raw code als tooltip behouden.
 - **Geen rapport zonder QGIS** / kaartpagina's en PDF komen uit QGIS-layouts; `run_core.py` levert
-  alleen data, figuren en JSON / herbekijken als collega's zonder QGIS de studie willen draaien:
-  "lite"-CLI met matplotlib-kaarten via WMS GetMap.
+  alleen data, figuren en JSON, `run_headless.py` heeft de QGIS-Python nodig / herbekijken als
+  collega's zonder QGIS de studie willen draaien: "lite"-CLI met matplotlib-kaarten uit de
+  kaartbeelden die `prepare` toch al ophaalt (PNG + wereldbestand) en een PDF via matplotlib.
 - **Geen `log.txt` in de uitvoermap (ontwerp §8), ook headless niet** / de plugin logt naar het
   logpaneel van QGIS en het script naar stdout; een bestand ernaast is nog niet geschreven /
   herbekijken zodra een gebruiker een mislukte studie wil doorsturen zonder QGIS open te hebben:
-  `Log`-sink die ook naar `<runmap>/log.txt` schrijft.
+  `Log`-sink die ook naar `<runmap>/log.txt` schrijft (de `Log` neemt al een `sink`, dus een
+  tweede sink is het hele werk).
+- **De DSpace-omweg voor de profieltypetekeningen zit niet in de code** / het DOV-documentportaal
+  antwoordt op de `_png`-downloadlink soms met zijn webpagina (HTTP 200); `layout._drawing_bytes`
+  controleert de PNG-magie, probeert één keer met `cache_mode="refresh"` en meldt de tekening dan
+  als mislukte bron. Het bestand staat wél op de REST-API van het portaal (zoekopdracht -> item ->
+  bundles -> bitstream -> content, live geverifieerd 2026-09-16), maar dat zijn drie extra
+  oproepen per profieltype en een koppeling aan de REST-vorm van DSpace / herbekijken zodra het
+  portaal de directe link structureel niet meer bedient, of zodra de tekeningen in de smoke-run
+  vaker ontbreken dan binnenkomen (op 2026-09-16 ontbraken ze allebei).
+- **De historische NGI-reeks (1873-1989) is een uitgeschakelde catalogusentry** (`ngi_hist`) / het
+  NGI biedt er geen open WMS voor, alleen het Cartesius-portaal / herbekijken zodra het NGI een
+  WMS publiceert of Cartesius onder een open licentie komt: `wms_url` en `wms_layer` invullen,
+  `enabled=True`, en de laagnaam live verifiëren zoals de huisregel vraagt.
+- **De bommenkaart is een uitgeschakelde entry met een vaste manuele-controletekst**
+  (`bommenkaart`, `report_content`) / bommenkaart.be (Bom-Be BV) is geen open data en heeft geen
+  WMS/WFS / herbekijken zodra Bom-Be een dienst of licentie aanbiedt, of zodra een gebruiker met
+  eigen toegang een WMS-URL wil opgeven: dan wordt `wms_url` per installatie configureerbaar in
+  plaats van een catalogusconstante.
+- **De WMS-lagen worden op de hoofdthread gebouwd, circa 8 s per studie** / de lagenfase kost in
+  de plugin 7,9 s (koude cache, 2026-09-16) tegen circa 1 s headless: elke laag die in het
+  geopende project landt kost werk in het lagenpaneel (legendaknopen, signalen), en de canvas-
+  bevriezing haalt daar alleen de renders uit. Verder terugbrengen betekent de `QgsRasterLayer`s
+  in de werker construeren of ze in één keer aan de boom hangen; buiten v0.1 gelaten omdat de
+  PDF-export nog altijd domineert / herbekijken zodra een studie op warme cache onder de 30 s
+  zit en die 8 s de langste fase op de hoofdthread is, of zodra een gebruiker de bevroren GUI in
+  die fase opmerkt.
