@@ -533,15 +533,33 @@ def _quartair_result(gent_zone, codes):
     return result
 
 
+def _profile_drawing(path, width=980, header_h=103, gap_h=14, body_h=586):
+    """Een profieltypetekening zoals DOV ze levert: bovenaan het profieltype zelf (kleurvlak, code
+    en een regel uitleg), dan een witte tussenruimte, dan de eenhedentabel van het kaartblad."""
+    from qgis.PyQt.QtGui import QColor, QImage, QPainter
+
+    image = QImage(width, header_h + gap_h + body_h, QImage.Format.Format_ARGB32)
+    image.fill(QColor(255, 255, 255))
+    painter = QPainter(image)
+    painter.fillRect(0, 0, 120, 24, QColor(0, 0, 0))            # "Profieltype"
+    painter.fillRect(0, 34, 130, header_h - 34, QColor(200, 198, 170))  # kleurvlak + omschrijving
+    painter.fillRect(0, header_h + gap_h, width, body_h, QColor(40, 40, 40))  # eenhedentabel
+    painter.end()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
 def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, gent_zone):
     """De echte legenda van de Quartairkaart is een tekening per profieltype. Twee kaartvlakken van
-    hetzelfde type vragen om één tekening, en een tekening die de dienst niet levert, levert geen
+    hetzelfde type vragen om een tekening, en een tekening die de dienst niet levert, levert geen
     bestand op - een lege figuurpagina belooft de lezer een legenda die er niet is."""
     from desktopstudie.core.logging_util import Log
+    from desktopstudie.core.report_content import profile_image_key, sheet_image_key
     from desktopstudie.core.services.http import HttpClient, HttpError
     from desktopstudie.qgis import layout
 
-    blob = _png(tmp_path / "bron.png").read_bytes()
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
     asked = []
 
     class _Client(HttpClient):
@@ -557,14 +575,44 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     images = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
                                                Log("layout", lines.append, scope="qgis"))
 
-    assert set(images) == {QUARTAIR_LEGEND.format(code="22026"), QUARTAIR_LEGEND.format(code="22010")}
-    assert sorted(path.name for path in images.values()) == ["quartair_22010.png", "quartair_22026.png"]
-    assert images[QUARTAIR_LEGEND.format(code="22026")].read_bytes() == blob
+    # Een kopstrook per profieltype, en de eenhedentabel een keer voor het hele kaartblad.
+    assert set(images) == {profile_image_key("22026"), profile_image_key("22010"),
+                           sheet_image_key("22")}
+    assert images[profile_image_key("22026")].name == "quartair_22026_kop.png"
+    assert images[sheet_image_key("22")].name == "quartair_kaartblad_22.png"
+    assert images[sheet_image_key("22")].read_bytes() == blob, "het kaartblad houdt de hele tekening"
     assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
     # Dezelfde korte adem als een gewone legenda: een dienst die plat ligt mag het rapport geen
     # drie volle minuten kosten.
     assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
     assert any("WARNING" in line for line in lines), lines
+
+
+def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_zone):
+    """De kopstrook is het deel dat per profieltype verschilt; de eenhedentabel eronder is voor elk
+    type van hetzelfde kaartblad dezelfde. De snede valt in de witte band ertussen, dus de strook
+    is korter dan de tekening en breder dan hoog."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.core.report_content import profile_image_key
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+
+    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None):
+            return blob
+
+    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+                                               _Client(cache_dir=None))
+
+    header = QImage(str(images[profile_image_key("22026")]))
+    whole = QImage(str(tmp_path / "bron.png"))
+    assert header.width() == whole.width()
+    assert header.height() < whole.height() / 2, "de eenhedentabel hoort er niet meer op te staan"
+    assert header.height() > 60, "het kleurvlak en de omschrijving horen er wel op te staan"
+    assert header.width() > header.height()
 
 
 def test_an_answer_that_is_no_image_is_not_saved_as_one(qgs_app, tmp_path, gent_zone):
@@ -764,6 +812,41 @@ def test_a_figure_wider_than_tall_gets_a_landscape_sheet(project, gent_zone, tmp
 
     sheet = lay.pageCollection().page(1)
     assert sheet.pageSize().width() > sheet.pageSize().height()
+
+
+def test_a_figure_that_asks_for_its_own_size_is_not_blown_up(project, gent_zone, tmp_path):
+    """Een kopstrook van 980 x 103 px is een reepje van 26 x 3 cm. Paginavullend getekend wordt ze
+    een wazige banner over het hele blad, dus ze wordt op ware grootte gezet: pixels gedeeld door
+    96 dpi."""
+    from qgis.core import QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import NATURAL, FigurePage
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "kop.png", 980, 103)
+    page = FigurePage("Profieltype 22026", "legendas/kop.png", fit=NATURAL)
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    picture = _items_of(lay, 1, QgsLayoutItemPicture)[0]
+    size = picture.sizeWithUnits()
+    assert size.width() == pytest.approx(980 * layout.MM_PER_PX, abs=0.5)
+    assert size.height() == pytest.approx(103 * layout.MM_PER_PX, abs=0.5)
+
+
+def test_a_figure_at_its_own_size_never_grows_past_the_sheet(project, gent_zone, tmp_path):
+    """Ware grootte is een bovengrens, geen belofte: een tekening die breder is dan het blad wordt
+    alsnog ingepast."""
+    from qgis.core import QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import NATURAL, FigurePage
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "breed.png", 4000, 400)
+    page = FigurePage("Brede tekening", "legendas/breed.png", fit=NATURAL)
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    picture = _items_of(lay, 1, QgsLayoutItemPicture)[0]
+    assert picture.sizeWithUnits().width() <= layout._page_metrics(layout.LANDSCAPE).content_w + 0.01
 
 
 def test_a_tall_figure_stays_on_a_portrait_sheet(project, gent_zone, tmp_path):
