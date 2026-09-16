@@ -20,7 +20,8 @@ stale the moment a table overruns, and the next report page lands on top of the 
 `build_layout(..., legends=False)` is the real legend switch: those pages are never created, so
 the page numbers stay continuous. The layout variable `legendas` is a convenience *inside QGIS* -
 set it to 0 and every legend page drops out of the next export - but the footer numbers then skip
-the pages that were left out, because the numbering belongs to the layout, not to the export.
+the pages that were left out, because the numbering belongs to the layout, not to the export: every
+footer carries "pagina n / N" as text, written when the layout is complete (`_number_footers`).
 """
 from __future__ import annotations
 
@@ -73,7 +74,7 @@ from ..core.report_content import (
 )
 from ..core.services.http import HttpClient, HttpError, build_url
 from .compat import point_mm, size_mm
-from .export import PDF_DPI
+from .export import PDF_DPI, refresh_data_defined
 
 CRS_AUTHID = "EPSG:31370"
 LAYOUT_NAME = "DOV Desktopstudie"
@@ -92,6 +93,7 @@ INFO_MARGIN_MM = 1.0
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 SCALE_BAR_Y = 232.0
 LEGEND_VARIABLE = "legendas"
+FOOTER_ID = "voettekst"
 LEGEND_DIR = "legendas"
 DATA_DIR = "data"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
@@ -966,9 +968,26 @@ class LayoutBuilder:
         self.label(title, MARGIN, 18, metrics.content_w, 7, page, size=10)
 
     def footer(self, page: int, metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
-        text = _joined(self.meta.get("company"), self.meta.get("project"),
-                       "pagina [% @layout_page %] / [% @layout_numpages %]")
-        self.label(text, MARGIN, metrics.footer_y, metrics.content_w, 6, page, size=7)
+        """The footer of one sheet; its page number is filled in by `_number_footers` at the end.
+
+        Not `@layout_page / @layout_numpages`: the export hands the layout to QGIS a few sheets at
+        a time, and inside such a run those variables count the run ("pagina 1 / 1"). The number
+        belongs to the sheet, so it is written as text once every sheet exists.
+        """
+        item = self.label(self._footer_text(0, 0), MARGIN, metrics.footer_y, metrics.content_w, 6,
+                          page, size=7)
+        item.setId(FOOTER_ID)
+
+    def _footer_text(self, number: int, total: int) -> str:
+        return _joined(self.meta.get("company"), self.meta.get("project"), f"pagina {number} / {total}")
+
+    def _number_footers(self) -> None:
+        """Write "pagina n / N" into every footer, now that N is known and every sheet has its
+        place - the sheets a table added while it ran on included."""
+        total = self.layout.pageCollection().pageCount()
+        for item in self.layout.items():
+            if isinstance(item, QgsLayoutItemLabel) and item.id() == FOOTER_ID:
+                item.setText(self._footer_text(item.page() + 1, total))
 
     def _date(self) -> str:
         """One date for the whole report: when the study ran, not when a page happened to be drawn.
@@ -1213,7 +1232,6 @@ class LayoutBuilder:
             column.setWidth(width)
             columns.append(column)
         table.setColumns(columns)
-        table.setContents(rows)
         table.setHeaderMode(QgsLayoutTable.HeaderMode.AllFrames)
         # A borehole table easily outgrows one sheet; truncating it silently would lose rows.
         table.setResizeMode(QgsLayoutMultiFrame.ResizeMode.ExtendToNextPage)
@@ -1222,13 +1240,15 @@ class LayoutBuilder:
         table.setWrapBehavior(QgsLayoutTable.WrapBehavior.WrapText)
         table.setContentTextFormat(_text_format(TABLE_FONT_PT))
         table.setHeaderTextFormat(_text_format(TABLE_FONT_PT, bold=True))
+        # The rows go in last: every setter above re-measures whatever the table holds, and a
+        # table of a hundred and thirty rows measured five times over is a second of nothing.
+        table.setContents(rows)
         frame = QgsLayoutFrame(self.layout, table)
         # Into the layout before it is moved: attemptMove resolves `page` via the page collection.
         self.layout.addLayoutItem(frame)
         frame.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
         frame.attemptResize(size_mm(metrics.content_w, metrics.content_h))
-        table.addFrame(frame)
-        table.recalculateFrameSizes()
+        table.addFrame(frame)  # recalculates the frame sizes itself
         last = self._fit_continuation_frames(table, metrics)
         if page.note:
             self.label(page.note, MARGIN, NOTE_Y, metrics.content_w, 5, index, size=7)
@@ -1283,23 +1303,32 @@ class LayoutBuilder:
         self.footer(index)
 
     def build(self) -> QgsPrintLayout:
-        self.title_page()
-        for chapter in self.report.chapters:
-            for page in chapter.pages:
-                self._raise_if_cancelled()
-                if isinstance(page, MapPage):
-                    self.map_page(chapter, page)
-                elif isinstance(page, FigurePage):
-                    self.figure_page(chapter, page)
-                elif isinstance(page, LegendPage):
-                    self.zone_legend_page(chapter, page)
-                elif isinstance(page, TablePage):
-                    self.table_page(chapter, page)
-                else:
-                    self.text_page(chapter, page)
+        # Nobody will ever undo the building of a report, but QGIS records a command for every
+        # page, frame and item added - each one a snapshot of the object as XML, before and after.
+        undo = self.layout.undoStack()
+        undo.blockCommands(True)
+        try:
+            self.title_page()
+            for chapter in self.report.chapters:
+                for page in chapter.pages:
+                    self._raise_if_cancelled()
+                    if isinstance(page, MapPage):
+                        self.map_page(chapter, page)
+                    elif isinstance(page, FigurePage):
+                        self.figure_page(chapter, page)
+                    elif isinstance(page, LegendPage):
+                        self.zone_legend_page(chapter, page)
+                    elif isinstance(page, TablePage):
+                        self.table_page(chapter, page)
+                    else:
+                        self.text_page(chapter, page)
+            self._number_footers()
+        finally:
+            undo.blockCommands(False)
         # Without this the data-defined properties - the legend switch above all - are still
-        # unevaluated, and the first export silently keeps every page.
-        self.layout.refresh()
+        # unevaluated, and the first export silently keeps every page. Only those: a full
+        # `refresh()` re-measures every label and costs seconds on a hundred sheets.
+        refresh_data_defined(self.layout)
         return self.layout
 
 
