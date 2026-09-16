@@ -76,7 +76,9 @@ def _items_of(lay, index, cls):
 def _footers_on(lay, index):
     from qgis.core import QgsLayoutItemLabel
 
-    return [lbl for lbl in _items_of(lay, index, QgsLayoutItemLabel) if "@layout_page" in lbl.text()]
+    from desktopstudie.qgis import layout
+
+    return [lbl for lbl in _items_of(lay, index, QgsLayoutItemLabel) if lbl.id() == layout.FOOTER_ID]
 
 
 # --- paginastructuur -------------------------------------------------------------------------
@@ -133,6 +135,22 @@ def _long_table_report():
                       [[f"laag {i}", f"{i}.00", f"{i + 1}.00"] for i in range(200)],
                       note="Tweehonderd rijen passen op geen enkel blad."),
             TextPage("Bronnen", "<p>Na de tabel.</p>")]
+
+
+def test_every_footer_carries_its_own_sheet_number_and_the_total_as_text(make_layout):
+    """"pagina 23 / 115" hoort letterlijk in de voettekst te staan, niet als expressie. De bladen
+    gaan in runs naar de exporter, en in een run telt QGIS' @layout_numpages alleen de bladen van
+    die run: "pagina 1 / 1" op elk blad. De nummering hoort bij de layout, niet bij de export, dus
+    ze wordt geschreven zodra de layout compleet is - ook op de vervolgbladen van een tabel."""
+    lay = make_layout(pages=_long_table_report())
+    total = lay.pageCollection().pageCount()
+
+    assert total > 3
+    for index in range(total):
+        footer = _footers_on(lay, index)
+        assert len(footer) == 1, f"blad {index + 1}"
+        assert footer[0].text().endswith(f"pagina {index + 1} / {total}"), footer[0].text()
+        assert "[%" not in footer[0].text(), "de voettekst hoort tekst te zijn, geen expressie"
 
 
 def test_a_table_that_runs_on_does_not_land_on_the_next_report_page(make_layout):
@@ -736,13 +754,12 @@ def test_the_title_page_names_the_report_and_lists_the_chapters(make_layout):
 
 def test_the_footer_leaves_out_what_the_study_does_not_know(project, gent_zone, tmp_path):
     """Een studie zonder bedrijfsnaam hoort geen voettekst te krijgen die met een streepje begint."""
-    from qgis.core import QgsLayoutItemLabel
 
     from desktopstudie.qgis import layout
 
     lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring,
                               {"project": "", "company": "", "created_at": "2026-09-15T10:00:00"})
-    footer = next(lbl for lbl in _items_of(lay, 0, QgsLayoutItemLabel) if "@layout_page" in lbl.text())
+    footer = _footers_on(lay, 0)[0]
     assert footer.text().startswith("pagina ")
 
 
