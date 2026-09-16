@@ -228,7 +228,13 @@ class StudyRunner(QObject):
 
     def _assemble(self) -> None:
         """The main-thread half, in a timer slot: whatever happens, `finished` fires at the end,
-        because the dialog's Start button waits on it."""
+        because the dialog's Start button waits on it.
+
+        A failure here can land AFTER the report is on disk - the zoom or the message bar itself -
+        and then the log panel is the only place that says so. Nobody opens that panel unprompted,
+        so the failure also goes to the message bar: a study that ends in silence reads as a study
+        that never ran.
+        """
         request, outcome = self._request, self._outcome
         result: Optional[PipelineResult] = None
         try:
@@ -244,8 +250,18 @@ class StudyRunner(QObject):
         except Exception as exc:  # noqa: BLE001 - a slot must not raise, and the study itself is done
             self.log.error(f"afronding van de studie mislukt: {type(exc).__name__}: {exc}")
             self.log.debug(traceback.format_exc())
+            self._push_safely(Qgis.MessageLevel.Critical,
+                              f"Afronding van de studie mislukt: {type(exc).__name__}: {exc}")
         finally:
             self.finished.emit(result)
+
+    def _push_safely(self, level, text: str) -> None:
+        """The last message of a run, on a bar that may itself be what broke. A message that
+        cannot be shown is logged; raising here would cost the `finished` signal."""
+        try:
+            self._push(level, text)
+        except Exception as exc:  # noqa: BLE001 - there is nowhere left to report this to
+            self.log.error(f"melding niet getoond: {type(exc).__name__}: {exc}")
 
     def _freeze_canvas(self, frozen: bool) -> None:
         """No render while the study fills the project: every layer that lands in the open project
