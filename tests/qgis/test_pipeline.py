@@ -209,24 +209,18 @@ def test_the_zone_layer_is_built_once_and_serves_both_the_relief_and_the_maps(
     assert sampled == zones, "het reliëf hoort op diezelfde laag te worden gemeten"
 
 
-QUARTAIR_LEGEND = ("https://datasets.omgeving.vlaanderen.be/be.vlaanderen.omgeving.distribution.geo."
-                   "e58c3358-e149-42b6-9229-c3a9ac88c3d4.DOV_Quartair_50000_{code}_png")
-
-
 def test_the_quartair_drawings_are_fetched_by_the_shell_and_land_in_the_report(
         project, core_result, offline_shell, tmp_path, no_pdf):
     """De kern kan niets ophalen, dus de schil haalt de tekening van elk profieltype op en geeft ze
     aan `build_report` door; daar wordt ze een figuurpagina achter de legenda van de zone. Een
     tekening die niet binnenkwam, staat als mislukte bron in de provenance - niet stil weg."""
-    from desktopstudie.core.model import MapFact
     from desktopstudie.core.report_content import FigurePage, LegendPage
     from desktopstudie.core.services.http import HttpClient, HttpError
     from desktopstudie.qgis import pipeline
+    from tests import quartair
 
     blob = write_png(tmp_path / "bron.png", 200, 300).read_bytes()
-    core_result.map_facts.append(MapFact("quartair", "Quartairgeologische kaart", [
-        {"profieltype": "22026", "legende": QUARTAIR_LEGEND.format(code="22026")},
-        {"profieltype": "22098", "legende": QUARTAIR_LEGEND.format(code="22098")}]))
+    core_result.map_facts.append(quartair.map_fact(["22026", "22098"]))
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
