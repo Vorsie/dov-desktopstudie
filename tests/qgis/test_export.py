@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import report_meta as _meta
 from tests.qgis.conftest import write_png
 
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
@@ -17,13 +18,6 @@ A4_HEIGHT_MM = 297.0
 # zwart (alleen de kern van de letters; de rest is antialiasing), zonder 20,2 % - de blokjes zijn
 # dicht. De grens ligt daartussen, dicht genoeg bij de echte waarde om de storing te vangen.
 BLACK_SHARE = 0.05
-
-
-def _meta():
-    return {"project": "Testproject", "project_number": "T-001", "author": "A. Tester",
-            "company": "Testbureau", "address": "Kortrijksesteenweg 100", "municipality": "Gent",
-            "zone_name": "Gent test", "created_at": "2026-09-15T10:00:00",
-            "disclaimer": "<p>Geen interpretatie.</p>", "logo_path": ""}
 
 
 def _pdf_pages(path):
