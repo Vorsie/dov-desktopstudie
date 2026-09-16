@@ -8,22 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from tests.qgis.conftest import Click as _Click
 from tests.qgis.conftest import FakeIface
 
 GENT = (104326.0, 192506.0)
-
-
-class _Click:
-    """What a DrawTool reads off a canvas event: the button and the pixel."""
-
-    def __init__(self, button, pos):
-        self._button, self._pos = button, pos
-
-    def button(self):
-        return self._button
-
-    def pos(self):
-        return self._pos
 
 
 def _moved(points, from_authid, to_authid):
