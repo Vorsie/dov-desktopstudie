@@ -22,6 +22,37 @@ def write_png(path, width=100, height=100):
     return path
 
 
+class FakeIface:
+    """What the runner and the dialog use of `iface`: a real message bar and a real canvas,
+    offscreen. `pushed` records (level, text, item) for every message the bar received."""
+
+    def __init__(self):
+        from qgis.gui import QgsMapCanvas, QgsMessageBar
+
+        self.bar = QgsMessageBar()
+        self.canvas = QgsMapCanvas()
+        self.pushed = []
+        self.bar.widgetAdded.connect(self._record)
+
+    def _record(self, widget):
+        # An item the bar made itself (pushMessage) arrives as a bare QWidget; cast it back. An
+        # exception in a slot would abort the process under pytest (PyQt calls qFatal).
+        from qgis.gui import QgsMessageBarItem
+        from qgis.PyQt import sip
+
+        item = sip.cast(widget, QgsMessageBarItem)
+        self.pushed.append((item.level(), item.text(), item))
+
+    def messageBar(self):
+        return self.bar
+
+    def mapCanvas(self):
+        return self.canvas
+
+    def mainWindow(self):
+        return None
+
+
 @pytest.fixture(scope="session")
 def qgs_app():
     """One standalone QgsApplication for the whole session: initQgis() loads the providers
