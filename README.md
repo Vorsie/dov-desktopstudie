@@ -19,7 +19,9 @@ op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
    Quartair, Tertiairgeologische kaart, HCOV, grondwaterkwetsbaarheid, GHG en GLG, watertoets
    (pluviaal en fluviaal), erosie, krimp-zwelgevoelige gronden, OVAM-uitspraken, gevoeligheid voor
    grondverschuivingen en gekarteerde grondverschuivingen, PFAS-no-regretzones.
-4. Virtuele boring (G3Dv3 en HCOV) op het zwaartepunt van de zone.
+4. Virtuele boring (G3Dv3 en HCOV) op het representatieve punt van de zone - het punt dat
+   gegarandeerd binnen de zone ligt, ook als die een hoefijzervorm heeft. Het rapport drukt
+   het zwaartepunt en het representatieve punt allebei af in de tabel Kerngegevens ligging.
 5. Bestaand grondonderzoek uit DOV binnen een instelbare straal: sonderingen (met qc-diagram),
    boringen (met lithologie), peilputten (met laatste peil).
 6. Geologische doorsnede uit virtuele boringen langs een automatische of zelfgetekende lijn.
@@ -188,15 +190,20 @@ vooraf in één GetMap per blad opgehaald, niet tegel na tegel tijdens het rende
 - **Geen berekeningen, geen interpretatie.** Draagkracht, zettingen, funderingsadvies: niet in deze
   plugin.
 - **Profieltypetekeningen van het Quartair**: het DOV-documentportaal antwoordt op dezelfde URL soms
-  met zijn webpagina in plaats van de PNG (HTTP 200). De plugin herkent dat, probeert het één keer
-  opnieuw zonder cache en meldt de tekening anders als mislukte bron in het hoofdstuk Bronnen; een
-  nieuwe run met *Opnieuw ophalen* haalt ze meestal alsnog binnen.
+  met zijn webpagina in plaats van de PNG (HTTP 200). De plugin herkent dat, haalt de directe link
+  naar het bestand uit die pagina en volgt die - meestal komt de tekening daar alsnog uit - en
+  probeert het anders nog één keer zonder cache. Blijft ze weg, dan staat ze als mislukte bron in
+  het hoofdstuk Bronnen en houdt het legendablad zijn regel met "tekening niet opgehaald".
 - **Geen `log.txt` in de uitvoermap.** De plugin logt naar het logpaneel van QGIS, het script naar
   de terminal.
 - **Kaarten zonder dekking**: een dienst die op de locatie niets tekent (de Popp-kaart heeft geen
   blad voor Gent) krijgt een blad met de regel "geen kaartbeeld op deze locatie" en staat in de
   bronnenlijst als "ok - geen dekking op deze locatie"; dat is geen fout van de dienst.
 - **Eén ring per zone.** Een multipolygoon wordt tot zijn grootste deel herleid, gaten vervallen.
+- **Gecodeerde lithologiecodes** (FZ, SI, SN, ...) staan rauw in de boringstabellen: de officiële
+  DOV-codelijst is niet als open bestand beschikbaar, dus er is niets om ze mee te vertalen.
+- **De lagenfase kost in de plugin circa 8 s** op de hoofdthread (het lagenpaneel bouwt per laag
+  zijn legendaknopen), tegen circa 1 s headless. Het kaartvenster staat in die seconden stil.
 
 ## Bronnen en licenties
 
