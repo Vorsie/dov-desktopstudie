@@ -1,10 +1,13 @@
-"""One study end to end: core run -> relief -> layers -> legends -> files -> report -> PDF.
+"""One study end to end: core run -> prefetches -> relief -> layers -> files -> report -> PDF.
 
-Split in two on purpose. `run_core` is everything that only needs Python and the network, so it
-can run on a worker thread (the plugin's QgsTask); `finish` is everything that touches QGIS map
-layers, a layout and a project, which has to happen on the main thread. `run_pipeline` is the two
-of them for a caller that wants the whole study in one call; the headless script drives the
-two halves itself, because it reports how long each took.
+Split in three on purpose. `run_core` is everything that only needs Python and the network;
+`prepare` is the shell's own share of that - the legend images, the quartair drawings and the map
+images, planned from the study without a single layer - so both run on a worker thread in the
+plugin (its QgsTask); `finish` is everything that touches QGIS map layers, a layout and a project,
+which has to happen on the main thread, and it runs `prepare` itself when nobody did. What stays on
+the main thread yields between phases, between pages of the layout and between runs of the
+exporter, through the `should_cancel` it is handed. `run_pipeline` is all of it in one call; the
+headless script drives the halves itself, because it reports how long each took.
 
 Four things are easy to get wrong here and are therefore done in one place.
 
@@ -307,36 +310,43 @@ NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 MAP_IMAGE_SOURCE = "Kaartbeeld"
 
 
-def _fetch_map_images(result: StudyResult, report: Report, zone_ring, overlays: Dict[str, List[QgsMapLayer]],
-                      project: QgsProject, out_dir: Path, client: HttpClient, log: Log,
-                      should_cancel) -> Tuple[Dict[str, QgsMapLayer], Set[str]]:
-    """Every map page's background, fetched up front and turned into layers the layout can draw.
+def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest], out_dir: Path,
+                      client: HttpClient, log: Log, should_cancel) -> Tuple[Dict[str, Path], Set[str]]:
+    """Every map page's background, fetched up front: {key -> PNG on disk}, and the maps that
+    drew nothing here.
 
     One GetMap per distinct box, all of them in flight together, instead of the WMS provider
     pulling tiles while each of ninety sheets renders. Each image is a source of its own, and an
     image that is empty answers the coverage question for free - for maps without facts, where an
-    empty tile really does mean "no sheet here".
+    empty tile really does mean "no sheet here". Pure HTTP and files: this is worker-thread work.
     """
-    requests = layout_mod.plan_map_images(report, zone_ring, overlays)
     images, empty = layout_mod.prepare_map_images(requests, out_dir, client, log.child("kaarten"),
                                                   should_cancel)
-    snapshots: Dict[str, QgsMapLayer] = {}
     for request in requests:
         entry = catalogue.by_id(request.map_id)
-        path = images.get(request.key)
-        found = path is not None
+        found = request.key in images
         message = ("" if request.map_id not in empty else NO_COVERAGE_MESSAGE) if found else \
             "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
         record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
                       layout_mod.wms_map_url(entry, request.extent, request.width, request.height),
                       found, message)
-        if not found:
+    return images, empty
+
+
+def _snapshot_layers(project: QgsProject, requests: List[layout_mod.MapRequest],
+                     images: Dict[str, Path]) -> Dict[str, QgsMapLayer]:
+    """The fetched images as raster layers the layout draws, registered in `project` without a
+    tree node and flagged so a later run can clean them up. Main-thread work: layers and project."""
+    snapshots: Dict[str, QgsMapLayer] = {}
+    for request in requests:
+        path = images.get(request.key)
+        if path is None:
             continue
-        layer = layers.snapshot_layer(path, f"{entry.title} (kaartbeeld)")
+        layer = layers.snapshot_layer(path, f"{catalogue.by_id(request.map_id).title} (kaartbeeld)")
         layer.setCustomProperty(REPORT_OVERLAY_FLAG, True)
         project.addMapLayer(layer, False)
         snapshots[request.key] = layer
-    return snapshots, empty
+    return snapshots
 
 
 def _install_layout(project: QgsProject, lay, log: Log) -> None:
@@ -368,12 +378,79 @@ def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]
         return None
 
 
+@dataclass
+class Prepared:
+    """What the shell fetched from the network for one study, before it touches QGIS. Every
+    field is plain Python or a file on disk, so it crosses from the worker thread to the main
+    thread as data."""
+    legend_images: Dict[str, Path]  # map id -> legend PNG
+    zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
+    map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
+    no_coverage: Set[str]  # map ids whose service drew nothing here
+    requests: List[layout_mod.MapRequest]  # what was asked for, in page order
+    timings: List[Tuple[str, float]]
+
+
+def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
+            progress: Optional[Callable[[float, str], None]] = None,
+            should_cancel: Optional[Callable[[], bool]] = None, client: Optional[HttpClient] = None,
+            cache_mode: str = "use", legends: bool = True) -> Prepared:
+    """The shell's network half: legends, the quartair drawings and the map images.
+
+    No project, no map layer, nothing that needs the GUI thread - the map images are planned on
+    boxes read from the study (`layout.overlay_boxes`), which is why the plugin can run this on
+    its worker right after `run_core`. Every fetch records its source on `result`, ok or not.
+
+    The quartair drawings are report content, not legend sheets, so they are fetched whatever
+    `legends` says: without them the quartair chapter has a table of numbers and nothing that
+    says what those numbers look like. A study whose zone holds no quartair rows asks nothing.
+    """
+    out_dir = Path(out_dir)
+    clock = PhaseClock(progress or (lambda fraction, message: None), log)
+
+    legend_images: Dict[str, Path] = {}
+    if legends:
+        _stop_if_cancelled(should_cancel)
+        clock.begin(0.02, "Legendas")
+        client = client or make_client(out_dir, log, cache_mode)
+        legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
+
+    zone_legend_images: Dict[str, str] = {}
+    targets = layout_mod.zone_legend_targets(result)
+    if targets:
+        _stop_if_cancelled(should_cancel)
+        clock.begin(0.12, "Tekeningen van de profieltypes")
+        client = client or make_client(out_dir, log, cache_mode)
+        zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
+
+    _stop_if_cancelled(should_cancel)
+    clock.begin(0.14, "Kaartbeelden")
+    client = client or make_client(out_dir, log, cache_mode)
+    # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
+    # zone - not from the signaleringen. So the tree is built once here to be read, and once in
+    # `finish` to be printed, with every source of this study in it. Building it is pure Python.
+    planned = build_report(result, meta, zone_legend_images)
+    requests = layout_mod.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
+    map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
+    clock.close()
+    return Prepared(legend_images, zone_legend_images, map_images, no_coverage, requests,
+                    clock.timings)
+
+
+# The PDF phase on the progress bar: from `PDF_START` to `PDF_END` the export reports per run.
+PDF_START, PDF_END = 0.50, 0.95
+
+
 def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, log: Log,
            progress: Optional[Callable[[float, str], None]] = None, legends: bool = True,
            should_cancel: Optional[Callable[[], bool]] = None, client: Optional[HttpClient] = None,
-           cache_mode: str = "use", pngs: bool = False,
-           study_groups: bool = True) -> PipelineResult:
-    """Main-thread part: relief, layers, legends, files, report, layout, exports.
+           cache_mode: str = "use", pngs: bool = False, study_groups: bool = True,
+           prepared: Optional[Prepared] = None) -> PipelineResult:
+    """Main-thread part: relief, layers, files, report, layout, exports - on what `prepare` fetched.
+
+    `prepared` is the network half, already done on a worker thread by the plugin; left None it is
+    done here first, on the calling thread (the headless script, `run_pipeline`). Either way the
+    phase table covers both halves.
 
     `project` is the project the layers and the layout go into - the one the user has open in the
     plugin, a fresh one headless. The standalone `.qgz` is built separately, from the GeoPackage.
@@ -386,63 +463,41 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     each against DOV, measured 2026-09-16). The deliverable `.qgz` gets them either way.
     """
     out_dir = Path(out_dir)
-    clock = PhaseClock(progress or (lambda fraction, message: None), log)
+    progress = progress or (lambda fraction, message: None)
+    clock = PhaseClock(progress, log)
     report_progress = clock.begin
     compat.ensure_font_dir(log)
     failures: List[str] = []
 
+    if prepared is None:
+        prepared = prepare(result, meta, out_dir, log, progress, should_cancel, client, cache_mode,
+                           legends)
+    clock.timings.extend(prepared.timings)
+
     _stop_if_cancelled(should_cancel)
-    report_progress(0.02, "Relief uit DHMV")
+    report_progress(0.28, "Relief uit DHMV")
     # The study's own layers first: the zone polygon among them is what the relief is measured on.
     overlays = _study_overlays(result)
     _measure_relief(result, overlays["zone"][0], log, should_cancel)
 
     _stop_if_cancelled(should_cancel)
-    report_progress(0.05, "Lagen")
+    report_progress(0.30, "Lagen")
     layers_by_map = _map_layers_into_groups(project, result, log) if study_groups else {}
     layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"])
     layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"])
-
-    _stop_if_cancelled(should_cancel)
-    legend_images: Dict[str, Path] = {}
-    if legends:
-        report_progress(0.20, "Legendas")
-        client = client or make_client(out_dir, log, cache_mode)
-        legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
-
-    # The quartair drawings are report content, not legend sheets, so they are fetched whatever
-    # `legends` says: without them the quartair chapter has a table of numbers and nothing that
-    # says what those numbers look like. A study whose zone holds no quartair rows asks nothing,
-    # and no HTTP client (hence no cache folder) is made for it.
-    _stop_if_cancelled(should_cancel)
-    zone_legend_images: Dict[str, str] = {}
-    targets = layout_mod.zone_legend_targets(result)
-    if targets:
-        report_progress(0.28, "Tekeningen van de profieltypes")
-        client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
-
-    _stop_if_cancelled(should_cancel)
-    report_progress(0.29, "Kaartbeelden")
-    client = client or make_client(out_dir, log, cache_mode)
     report_overlays = _report_overlays(project, overlays)
-    # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
-    # zone - not from the signaleringen. So the tree is built once here to be read, and once below
-    # to be printed, with every source of this study in it. Building it is pure Python.
-    planned = build_report(result, meta, zone_legend_images)
-    map_images, no_coverage = _fetch_map_images(result, planned, result.zone.ring, report_overlays,
-                                                project, out_dir, client, log, should_cancel)
+    map_images = _snapshot_layers(project, prepared.requests, prepared.map_images)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
     _stop_if_cancelled(should_cancel)
-    report_progress(0.30, "Signaleringen en rapport")
+    report_progress(0.31, "Signaleringen en rapport")
     # Every source the shell consulted is recorded by now, so the rules see the whole study.
     result.signaleringen = checks.validate(checks.run_all(result) + orchestrator_signals(result))
     json_path = out_dir / DATA_DIR / JSON_NAME
     json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
     record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
     result.write_json(json_path)
-    report = build_report(result, meta, zone_legend_images)
+    report = build_report(result, meta, prepared.zone_legend_images)
 
     report_progress(0.33, "GeoPackage en projectbestand")
     gpkg = out_dir / DATA_DIR / GPKG_NAME
@@ -467,29 +522,37 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # is spared; they were made minutes ago and the layout below is about to draw with them.
     drop_previous_run(project, keep=list(map_images.values())
                       + [layer for group in report_overlays.values() for layer in group])
+    # The same boxes the images were planned on, so every page finds the image fetched for it.
     lay = layout_mod.build_layout(project, report, report_overlays,
                                   out_dir, result.zone.ring, report.meta, legends=legends,
-                                  legend_images=legend_images, log=log.child("layout"),
-                                  should_cancel=should_cancel, no_coverage=no_coverage,
-                                  map_images=map_images)
+                                  legend_images=prepared.legend_images, log=log.child("layout"),
+                                  should_cancel=should_cancel, no_coverage=prepared.no_coverage,
+                                  map_images=map_images,
+                                  overlay_boxes=layout_mod.overlay_boxes(result))
     _install_layout(project, lay, log)
     log.info(f"Layout: {lay.pageCollection().pageCount()} bladen")
 
     _stop_if_cancelled(should_cancel)
-    # The one step that cannot be interrupted: QgsLayoutExporter takes no feedback object, so a
-    # cancel during the export is only honoured once it returns. The message says so.
-    report_progress(0.50, "PDF-export (niet onderbreekbaar)")
+    # Stoppable between two runs of the exporter, never inside one: QgsLayoutExporter takes no
+    # feedback object. A run is ten sheets, a few seconds.
+    report_progress(PDF_START, "PDF-export")
+
+    def pdf_progress(done: int, total: int) -> None:
+        progress(PDF_START + (PDF_END - PDF_START) * done / max(total, 1),
+                 f"PDF-export: {done}/{total} bladen")
+
     pdf = _guarded("PDF-export", failures, log,
-                          lambda: export.export_pdf(lay, out_dir / PDF_NAME))
+                   lambda: export.export_pdf(lay, out_dir / PDF_NAME, should_cancel=should_cancel,
+                                             progress=pdf_progress))
     page_pngs: List[Path] = []
     if pngs:
-        report_progress(0.95, "Pagina's als PNG")
+        report_progress(PDF_END, "Pagina's als PNG")
         page_pngs = _guarded("PNG-export", failures, log,
                                     lambda: export.export_pages_png(lay, out_dir / PAGES_DIR,
                                                                     PAGE_PNG_DPI)) or []
     clock.close()
     clock.report()
-    (progress or (lambda fraction, message: None))(1.0, "Klaar")
+    progress(1.0, "Klaar")
     products = [name for name in (json_path.name, written.name if written else None,
                                   project_file.name if project_file else None,
                                   pdf.name if pdf else None) if name]
