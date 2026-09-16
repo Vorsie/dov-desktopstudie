@@ -455,6 +455,18 @@ def _chapter_samenvatting(result: StudyResult) -> Chapter:
     return summary
 
 
+def _status(entry) -> str:
+    """What the sources table says about one source.
+
+    A source can answer perfectly well and still have nothing to show here - a historical mosaic
+    without a sheet for this town. That is "ok" with a reason, not a failure, and the reason has to
+    reach the page or the reader is left with a blank map and no explanation.
+    """
+    if not entry.ok:
+        return f"fout: {entry.message}"
+    return f"ok - {entry.message}" if entry.message else "ok"
+
+
 def _chapter_bronnen(result: StudyResult) -> Chapter:
     sources = Chapter(8, "Bronnen en licenties")
     # Short URL and date only: the stored provenance keeps the whole request (a DWITHIN filter
@@ -463,8 +475,7 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
     # service and the day are what it takes to find a source again.
     sources.pages.append(TablePage(
         "Geraadpleegde bronnen", ["Bron", "URL", "Opgehaald", "Status"],
-        [[p.source, short_url(p.url), p.retrieved_at[:10], "ok" if p.ok else f"fout: {p.message}"]
-         for p in result.provenance]))
+        [[p.source, short_url(p.url), p.retrieved_at[:10], _status(p)] for p in result.provenance]))
     sources.pages.append(TablePage(
         "Kaartbronnen en licenties", ["Kaart", "Bron", "Licentie"],
         [[e.title, e.attribution, e.licence] for e in catalogue.entries()]))
