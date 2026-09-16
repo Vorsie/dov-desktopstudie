@@ -123,10 +123,15 @@ def _s(value: Any, digits: Optional[int] = None) -> str:
     return str(value)
 
 
-def _map_pages(chapter: str, **kw) -> List[Page]:
-    """Every map of a chapter, each followed by its reading guide when it has one."""
+def _map_pages(chapter: str, only: Optional[List[str]] = None, **kw) -> List[Page]:
+    """Every CHOSEN map of a chapter, each followed by its reading guide when it has one.
+
+    `only` is `StudyResult.map_ids`: a map the user unchecked never got fetched, so a sheet for it
+    would print "Bron niet beschikbaar" - the same sentence a service that was down gets. It has
+    to be absent, not empty.
+    """
     pages: List[Page] = []
-    for entry in catalogue.entries(chapter):
+    for entry in catalogue.entries(chapter, only=only):
         pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                              note=entry.note, **kw))
         pages.extend(_guide_page(entry))
@@ -312,7 +317,8 @@ def _chapter_ligging(result: StudyResult) -> Chapter:
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
-    ligging = Chapter(1, "Ligging en topografie", _map_pages("ligging", show_investigations=False))
+    ligging = Chapter(1, "Ligging en topografie",
+                      _map_pages("ligging", result.map_ids, show_investigations=False))
     facts = [["Gemeente", _s(result.municipality)], ["Adres", _s(z.address)],
              ["Zwaartepunt (Lambert 72)", f"{cx:.1f} / {cy:.1f}"],
              ["Representatief punt (virtuele boring)", f"{rx:.1f} / {ry:.1f}"],
@@ -324,8 +330,13 @@ def _chapter_ligging(result: StudyResult) -> Chapter:
     return ligging
 
 
-def _chapter_historisch() -> Chapter:
-    hist = Chapter(2, "Historische kaarten", _map_pages("historisch"))
+def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
+    """The chosen historical maps, and after them the slots that are switched off in the catalogue.
+
+    Those last ones are not part of the choice: they cannot be checked in the dialog (the entry is
+    disabled), so the line that says why they are missing stays whatever the user picked.
+    """
+    hist = Chapter(2, "Historische kaarten", _map_pages("historisch", only))
     for e in catalogue.entries("historisch", enabled_only=False):
         if not e.enabled:
             hist.pages.append(TextPage(e.title, f"<p>Niet opgenomen: {e.note}</p>"))
@@ -349,7 +360,7 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
     `MapFact.rows` in studie.json still carry every row exactly as the service gave them.
     """
     geo = Chapter(3, "Geologie en bodem")
-    for entry in catalogue.entries("geologie"):
+    for entry in catalogue.entries("geologie", only=result.map_ids):
         geo.pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                                  note=entry.note))
         if entry.fact_mode is None:
@@ -478,7 +489,7 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
         [[p.source, short_url(p.url), p.retrieved_at[:10], _status(p)] for p in result.provenance]))
     sources.pages.append(TablePage(
         "Kaartbronnen en licenties", ["Kaart", "Bron", "Licentie"],
-        [[e.title, e.attribution, e.licence] for e in catalogue.entries()]))
+        [[e.title, e.attribution, e.licence] for e in catalogue.entries(only=result.map_ids)]))
     return sources
 
 
@@ -492,7 +503,7 @@ def build_report(result: StudyResult, meta: ReportMeta,
     cx, cy = z.centroid
     rx, ry = z.representative_point
     chapters = [
-        _chapter_ligging(result), _chapter_historisch(),
+        _chapter_ligging(result), _chapter_historisch(result.map_ids),
         _chapter_geologie(result, zone_legend_images or {}),
         _chapter_virtuele_boring(result), _chapter_grondonderzoek(result), _chapter_doorsnede(result),
         _chapter_samenvatting(result), _chapter_bronnen(result),
