@@ -74,6 +74,24 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `match`, geen geneste f-strings, `from __future__ import annotations` in elk bestand. QGIS
   3.34/3.40 op Windows leveren Python 3.12; de 3.9-syntaxisregel blijft als ondergrens en CI test
   ook op 3.9.
+- **Drie dingen die alleen in de containers stukgaan, en wat ze betekenen.** De schil-CI draait in
+  `qgis/qgis:release-3_34` en `qgis/qgis:latest`; wat daar rood wordt, is niet vanzelf een
+  testfout.
+  - **3.34 levert oude enums als `sip.enumtype`.** `QgsZonalStatistics.Result` is daar zo'n type:
+    `getattr` erop werkt, maar `dir()` geeft alleen de methodes van `int`, dus het type valt niet
+    te doorlopen. De leden staan op de klasse eromheen, en `__qualname__`/`__module__` van het type
+    wijzen die klasse aan - dat is wat `compat.enum_name` doet. Zonder die omweg leest het
+    logpaneel "DHMV zonale statistiek gaf 1". Lokaal na te doen op 3.40 met
+    `QgsLayoutExporter.ExportResult`, dat daar nog zo'n type is.
+  - **QGIS 4 percent-codeert een provider-URI.** `url=https%3A%2F%2F...`, `styles=gxg%3Agxg`. Een
+    test die `"url=https://..." in layer.source()` doet, is daar rood terwijl de laag klopt. Lees
+    de URI met `urllib.parse.parse_qs` (`keep_blank_values=True`, anders verdwijnt `styles=`);
+    `QgsDataSourceUri` ontleedt een raster-URI met &-scheiding NIET (geverifieerd op 3.40.15).
+  - **QGIS 4 zendt `messageReceived(message, tag, level)` niet meer uit.** Het signaal is afgekeurd;
+    `QgsMessageLog::emitMessage` doet `messageReceivedWithFormat(message, tag, level, format)` plus
+    `messageReceived(bool)`. De plugin merkt daar niets van - die schrijft met
+    `QgsMessageLog.logMessage` en het logpaneel luistert in C++ - maar wie in een test zelf
+    meeluistert, moet het nieuwe signaal nemen als het bestaat (op 3.34/3.40 bestaat het niet).
 - **Layout-maten altijd via `compat.point_mm`/`size_mm`** (nooit `QgsUnitTypes.LayoutMillimeters`);
   **WMS/WCS-URI's alleen met live geverifieerde laag-, stijl- en formaatnamen** (`gxg:gxg` en
   `pfas:no_regret_zones` zijn stijlen, WCS-formaat is `GeoTIFF`).
@@ -191,7 +209,12 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `ExtendToNextPage` maakt zelf pagina's bij, dus een eigen teller loopt achter en de volgende
   rapportpagina belandt bovenop de laatste tabelpagina. Vervolgframes van zo'n tabel beslaan het
   hele blad; trek ze in de contentband terug, anders lopen ze door kop en voettekst.
-- **Een tabel krijgt expliciete kolombreedtes; brede tabellen liggen.** QGIS verdeelt de frame-
+- **Een tabel krijgt expliciete kolombreedtes; brede tabellen liggen.** Let op de tweede helft van
+  die regel bij het testen: past zelfs de ondergrens van alle kolommen samen niet, dan krimpt
+  `column_widths` alles evenredig ("smal is beter dan onzichtbaar") en houdt een kolom haar langste
+  onbreekbare woord dus NIET meer. Een test die die eerste helft pint, moet haar breedte met
+  `_floor_width` meten in plaats van een getal uit de lettertypes van deze machine aannemen - in de
+  containers is dezelfde tekst breder en belandt dezelfde tabel in de andere helft. QGIS verdeelt de frame-
   breedte gelijk over de kolommen en KAPT af wat niet past - zo verdween de kolom "DOV-fiche" van
   het blad en werd elke uitvoerdersnaam gehalveerd. `layout.column_widths` meet per kolom de
   langste cel (kop als ondergrens, de rest naar rato) en zet die met `setWidth()`; `WrapText`
