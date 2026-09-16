@@ -193,6 +193,27 @@ def test_groups_and_geopackage(qgs_app, gent_zone, tmp_path):
         assert reopened.featureCount() == count, name
 
 
+def test_a_group_added_a_second_time_replaces_the_first(qgs_app, gent_zone):
+    """Een tweede studie in dezelfde sessie: de groep van de eerste hoort vervangen te worden, met
+    haar lagen uit het project, niet ernaast gezet - anders staan er na drie runs drie keer
+    "5 Grondonderzoek DOV" in het lagenpaneel en kiest de gebruiker blind."""
+    from qgis.core import QgsProject
+
+    from desktopstudie.qgis import layers
+
+    project = QgsProject()
+    first, second = layers.zone_layer(gent_zone), layers.zone_layer(gent_zone)
+    layers.add_group(project, "4 Onderzoekszone", [first])
+    first_id = first.id()  # the project owns the layer and deletes it with the group
+
+    layers.add_group(project, "4 Onderzoekszone", [second])
+
+    groups = [group.name() for group in project.layerTreeRoot().findGroups()]
+    assert groups == ["4 Onderzoekszone"]
+    assert second.id() in project.mapLayers() and first_id not in project.mapLayers()
+    assert project.layerTreeRoot().findGroup("4 Onderzoekszone").findLayerIds() == [second.id()]
+
+
 def _study_gpkg(gent_zone, tmp_path):
     """Het GeoPackage zoals de pijplijn het achterlaat: zone, doorsnedelijn, de drie proefsoorten
     en de zoekstraal."""
