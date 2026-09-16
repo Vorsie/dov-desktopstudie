@@ -13,7 +13,6 @@ from __future__ import annotations
 import argparse
 from typing import Optional, Tuple
 
-from desktopstudie.core import geometry
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import StudyZone
 from desktopstudie.core.services.geocoder import geocode
@@ -66,5 +65,4 @@ def locate(args: argparse.Namespace, client: HttpClient,
 
 def zone_of(args: argparse.Namespace, x: float, y: float, address: Optional[str]) -> StudyZone:
     """The circular study zone around the located point, named after the address when there is one."""
-    return StudyZone(ring=geometry.buffer_point(x, y, args.buffer),
-                     name=address or f"{x:.0f}/{y:.0f}", radius_m=args.straal, address=address)
+    return StudyZone.around_point(x, y, args.buffer, args.straal, address)
