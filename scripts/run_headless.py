@@ -96,6 +96,10 @@ def run(args: argparse.Namespace, log: Log) -> int:
     print(f"pagina's: {pages} rapportpagina's, {len(outcome.page_pngs)} PNG's")
     print(f"duur: {finished - started:.0f} s totaal ({core_done - started:.0f} s kern, "
           f"{finished - core_done:.0f} s schil)")
+    # Per fase, want "de schil duurde 1736 s" zegt niet waar die tijd heen ging.
+    print(f"{'fase':34s} {'duur':>8s}")
+    for name, seconds in outcome.timings:
+        print(f"{name:34s} {seconds:7.1f} s")
     print(f"producten mislukt: {outcome.failures}")
     print(f"bronnen mislukt ({len(failed)}): {failed}")
     return INCOMPLETE if outcome.failures or failed else 0
