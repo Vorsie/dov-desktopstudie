@@ -994,6 +994,32 @@ def test_building_a_layout_stops_when_the_user_cancels(project, gent_zone, tmp_p
                             should_cancel=lambda: True)
 
 
+SOURCES_COLUMNS = ["Bron", "URL", "Opgehaald", "Status"]
+SOURCES_ROWS = [
+    ["Sonderingen", "https://www.dov.vlaanderen.be/geoserver/wfs", "2026-09-15",
+     "fout: HttpError: netwerkfout voor https://www.dov.vlaanderen.be/geoserver/wfs "
+     "(DescribeFeatureType dov-pub:Sonderingen): RemoteDisconnected: Remote end closed "
+     "connection without response"],
+    ["Grondwaterkwetsbaarheidskaart (feiten)", "https://www.dov.vlaanderen.be/geoserver/wfs",
+     "2026-09-15", "ok"]]
+
+
+def _honest_width(columns, rows):
+    """De breedte waarop elke kolom haar langste onbreekbare woord nog kan krijgen, hier gemeten.
+
+    Niet als getal in de test: dezelfde tekst is in de QGIS-containers breder dan op deze machine
+    (andere lettertypes), en een tabel die daar niet meer past valt terug op de andere regel -
+    "past zelfs de ondergrens niet, dan krimpt alles evenredig" - waar deze test niet over gaat.
+    Ruim gemeten, zodat de kap van MAX_COLUMN_SHARE niet meespeelt.
+    """
+    from desktopstudie.qgis import layout
+
+    roomy = 10_000.0
+    cells = [[row[index] for row in rows] for index in range(len(columns))]
+    return sum(layout._floor_width(column, column_cells, roomy, layout.TABLE_FONT_PT)
+               for column, column_cells in zip(columns, cells))
+
+
 def test_a_column_of_unbreakable_words_keeps_its_own_width(qgs_app):
     """WrapText breekt op spaties. Een datum of een permkey heeft er geen, dus die kolom moet haar
     hele woord krijgen - anders leest de bronnentabel "2026-09-15T22:2" en denkt de lezer dat de
@@ -1001,19 +1027,32 @@ def test_a_column_of_unbreakable_words_keeps_its_own_width(qgs_app):
     elke DOV-dienst plat lag."""
     from desktopstudie.qgis import layout
 
-    columns = ["Bron", "URL", "Opgehaald", "Status"]
-    rows = [["Sonderingen", "https://www.dov.vlaanderen.be/geoserver/wfs", "2026-09-15",
-             "fout: HttpError: netwerkfout voor https://www.dov.vlaanderen.be/geoserver/wfs "
-             "(DescribeFeatureType dov-pub:Sonderingen): RemoteDisconnected: Remote end closed "
-             "connection without response"],
-            ["Grondwaterkwetsbaarheidskaart (feiten)", "https://www.dov.vlaanderen.be/geoserver/wfs",
-             "2026-09-15", "ok"]]
+    available = _honest_width(SOURCES_COLUMNS, SOURCES_ROWS) + 1.0
 
-    widths = layout.column_widths(columns, rows, 169.5)
+    widths = layout.column_widths(SOURCES_COLUMNS, SOURCES_ROWS, available)
 
-    assert sum(widths) <= 169.5 + 0.01
+    assert sum(widths) <= available + 0.01
     for index, word in ((2, "2026-09-15"), (0, "Grondwaterkwetsbaarheidskaart")):
-        assert widths[index] >= layout._text_width_mm([word], layout.TABLE_FONT_PT), columns[index]
+        assert widths[index] >= layout._text_width_mm([word], layout.TABLE_FONT_PT), \
+            SOURCES_COLUMNS[index]
+
+
+def test_a_table_that_does_not_fit_at_all_shrinks_instead_of_clipping(qgs_app):
+    """Past zelfs de ondergrens niet, dan krimpt alles evenredig: smal is beter dan onzichtbaar.
+
+    Dit is de andere helft van dezelfde regel en de reden dat de test hierboven haar breedte meet
+    in plaats van aanneemt - op een machine met bredere lettertypes belandt dezelfde tabel op
+    169,5 mm in dit geval."""
+    from desktopstudie.qgis import layout
+
+    cramped = _honest_width(SOURCES_COLUMNS, SOURCES_ROWS) / 2.0
+
+    widths = layout.column_widths(SOURCES_COLUMNS, SOURCES_ROWS, cramped)
+
+    assert sum(widths) <= cramped + 0.01
+    assert all(width > 0 for width in widths), widths
+    # evenredig: de verhouding tussen twee kolommen blijft die van hun ondergrenzen
+    assert widths[1] > widths[2], "de URL-kolom blijft breder dan de datumkolom"
 
 
 def test_one_greedy_column_cannot_eat_the_whole_sheet(qgs_app):
