@@ -426,11 +426,16 @@ def _install_layout(project: QgsProject, lay, log: Log) -> None:
     The manager takes ownership, and when it refuses (a name it already holds) it DELETES the
     layout it was handed - verified on 3.40.15: the next call on the wrapper raises "wrapped C/C++
     object has been deleted". So a refusal ends the run here, with a sentence that says what
-    happened, rather than two lines further on in freed memory.
+    happened, rather than two lines further on in freed memory. The name is therefore read BEFORE
+    the hand-over, and it is the name of THIS layout ("DOV Desktopstudie - <studie>"), not the bare
+    plugin name: with two studies in one project the bare name points at the wrong one.
     """
+    name = lay.name()
     if not project.layoutManager().addLayout(lay):
-        raise RuntimeError(f"Layout {layout_mod.LAYOUT_NAME} kon niet aan het project worden "
-                           f"toegevoegd; staat er al een layout met die naam?")
+        message = (f"Layout {name} kon niet aan het project worden toegevoegd; "
+                   f"staat er al een layout met die naam?")
+        log.error(message)
+        raise RuntimeError(message)
 
 
 def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]):
