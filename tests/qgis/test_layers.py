@@ -196,7 +196,7 @@ def test_groups_and_geopackage(qgs_app, gent_zone, tmp_path):
 def test_a_group_added_a_second_time_replaces_the_first(qgs_app, gent_zone):
     """Een tweede studie in dezelfde sessie: de groep van de eerste hoort vervangen te worden, met
     haar lagen uit het project, niet ernaast gezet - anders staan er na drie runs drie keer
-    "5 Grondonderzoek DOV" in het lagenpaneel en kiest de gebruiker blind."""
+    "Grondonderzoek DOV" in het lagenpaneel en kiest de gebruiker blind."""
     from qgis.core import QgsProject
 
     from desktopstudie.qgis import layers
@@ -285,7 +285,7 @@ def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app
     project, _dropped = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"})
 
     names = [group.name() for group in project.layerTreeRoot().findGroups()]
-    assert names == ["1 Ligging en topografie", "4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+    assert names == ["1 Ligging en topografie", "Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
     assert project.crs().authid() == "EPSG:31370"
     found = {layer.name(): layer for layer in project.mapLayers().values()}
     for name, count in (("Onderzoekszone", 1), ("Doorsnedelijn", 1), ("Sonderingen", 1),
@@ -350,7 +350,7 @@ def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone,
     reread = QgsProject()
     assert reread.read(str(path)), reread.error()
     assert [group.name() for group in reread.layerTreeRoot().findGroups()] == \
-           ["4 Onderzoekszone en doorsnede", "5 Grondonderzoek DOV"]
+           ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
     assert sorted(layer.name() for layer in reread.mapLayers().values()) == \
            ["Boringen", "Doorsnedelijn", "Onderzoekszone", "Peilputten", "Sonderingen", "Zoekstraal"]
 
