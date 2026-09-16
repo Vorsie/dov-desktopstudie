@@ -1453,3 +1453,15 @@ def test_a_page_widens_for_the_study_boxes_it_was_given_not_for_its_layers(proje
     assert any("schaal 1:10 000" in text for text in texts), texts
     planned = layout.plan_map_images(_report([page]), gent_zone.ring, boxes)
     assert planned[0].extent == layout.map_extent(gent_zone.ring, 5000, 1.0, boxes["investigations"])
+
+
+def test_the_layout_is_named_after_its_study(project, gent_zone, tmp_path):
+    """Twee studies in één project, twee layouts: de naam draagt de studienaam, en zonder
+    studienaam blijft het de kale naam van de plugin."""
+    from desktopstudie.qgis import layout
+
+    assert layout.layout_name("Gent") == "DOV Desktopstudie - Gent"
+    assert layout.layout_name("") == layout.LAYOUT_NAME
+    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, _meta(),
+                              name=layout.layout_name("Gent"))
+    assert lay.name() == "DOV Desktopstudie - Gent"
