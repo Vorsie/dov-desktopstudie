@@ -208,6 +208,29 @@ def test_map_ids_limits_the_maps_that_are_fetched(gent_ring, tmp_path):
     assert [mf.map_id for mf in result.map_facts] == ["bodemkaart"]
 
 
+def test_the_chosen_maps_travel_with_the_study(gent_ring, tmp_path):
+    """De keuze uit de kaartenchecklist hoort bij het resultaat, niet alleen bij de instellingen:
+    de schil leest er haar lagen, legenda's en kaartbeelden uit, en een lezer van studie.json ziet
+    zo welke kaarten de studie gedekt heeft."""
+    import json
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"),
+                       study.Settings(n_section_points=2, map_ids=["bodemkaart"]), _client(), tmp_path)
+
+    assert result.map_ids == ["bodemkaart"]
+    data = json.loads((tmp_path / "data" / "studie.json").read_text(encoding="utf-8"))
+    assert data["map_ids"] == ["bodemkaart"]
+
+
+def test_without_a_choice_the_study_records_no_map_selection(gent_ring, tmp_path):
+    """Zonder keuze blijven alle ingeschakelde kaarten in het rapport, en dat is wat `None` zegt -
+    een lijst van alle ids zou een keuze suggereren die de gebruiker niet gemaakt heeft."""
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       _client(), tmp_path)
+
+    assert result.map_ids is None
+
+
 def test_with_profile_false_skips_the_profile_query(gent_ring, tmp_path):
     client = _client()
     result = study.run(StudyZone(ring=gent_ring, name="z"),
