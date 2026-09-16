@@ -47,7 +47,7 @@ def three_pages(project, gent_zone, tmp_path):
     page = MapPage(MAP_ID, "Ligging op de GRB-basiskaart", legend=True, scale=2500)
     report = Report(title="Desktopstudie testproject", meta={},
                     chapters=[Chapter(1, "Ligging en topografie", [page])])
-    return layout.build_layout(project, report, {MAP_ID: [wms_stand_in]}, {"zone": [zone]}, tmp_path,
+    return layout.build_layout(project, report, {"zone": [zone]}, tmp_path,
                                gent_zone.ring, _meta(),
                                legend_images={MAP_ID: write_png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)})
 
