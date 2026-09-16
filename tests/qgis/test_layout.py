@@ -1030,3 +1030,64 @@ def test_a_row_shorter_than_its_headers_does_not_take_the_report_down(qgs_app):
     widths = layout.column_widths(["A", "B", "C"], [["een", "twee"], ["een", "twee", "drie"]], 100.0)
 
     assert len(widths) == 3 and all(width > 0 for width in widths)
+
+
+def test_a_table_without_rows_prints_its_reason_and_no_empty_header(project, gent_zone, tmp_path):
+    """"Geen kaarteenheden binnen de zone." gevolgd door een lege kolomkop is een tabel die doet
+    alsof er iets komt. De reden volstaat."""
+    from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import TablePage
+    from desktopstudie.qgis import layout
+
+    page = TablePage("Legenda voor de zone - Erosie", ["Erosieklasse", "Totale erosie"], [],
+                     note="Geen kaarteenheden binnen de zone.")
+
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Geen kaarteenheden binnen de zone." in texts
+    assert _items_of(lay, 1, QgsLayoutFrame) == [], "geen tabelkader zonder rijen"
+
+
+def test_a_table_with_rows_keeps_its_header(project, gent_zone, tmp_path):
+    from qgis.core import QgsLayoutFrame
+
+    from desktopstudie.core.report_content import TablePage
+    from desktopstudie.qgis import layout
+
+    page = TablePage("Legenda", ["Klasse"], [["C - kleine kans [2]"]])
+
+    lay = layout.build_layout(project, _report([page]), {}, {}, tmp_path, gent_zone.ring, _meta())
+
+    assert len(_items_of(lay, 1, QgsLayoutFrame)) == 1
+
+
+def test_the_title_page_leaves_out_a_zone_line_that_repeats_the_address(project, gent_zone,
+                                                                        tmp_path):
+    """Bij een studie uit een adres is de zonenaam datzelfde adres; twee keer dezelfde regel op het
+    titelblad zegt de tweede keer niets."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Kortrijksesteenweg 100")
+
+    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring, meta)
+
+    texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
+    assert "Adres" in texts and "Kortrijksesteenweg 100" in texts
+    assert "<b>Zone</b>" not in texts
+
+
+def test_the_title_page_keeps_a_zone_line_that_says_something_else(project, gent_zone, tmp_path):
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Getekende polygoon")
+
+    lay = layout.build_layout(project, _report([]), {}, {}, tmp_path, gent_zone.ring, meta)
+
+    texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
+    assert "Getekende polygoon" in texts
