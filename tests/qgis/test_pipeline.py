@@ -186,11 +186,12 @@ def test_a_second_run_replaces_the_layout_instead_of_stacking_them(project, core
 
     layouts = [item.name() for item in project.layoutManager().printLayouts()]
     assert layouts == [layout.layout_name("Testproject")]
-    # De zes gestileerde kopieën van de tweede run plus haar kaartbeelden - en niets van de eerste.
+    # De zeven gestileerde kopieën van de tweede run plus haar kaartbeelden - en niets van de
+    # eerste: zone, doorsnedelijn, sonderingen, boringen, peilputten, virtuele boringen, zoekstraal.
     report_copies = [layer for layer in project.mapLayers().values()
                      if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)]
     names = sorted(layer.name() for layer in report_copies)
-    assert sum(1 for name in names if not name.endswith("(kaartbeeld)")) == 6, names
+    assert sum(1 for name in names if not name.endswith("(kaartbeeld)")) == 7, names
     snapshots = [name for name in names if name.endswith("(kaartbeeld)")]
     assert snapshots and len(snapshots) == len(set(id(layer) for layer in report_copies
                                                    if layer.name().endswith("(kaartbeeld)")))
