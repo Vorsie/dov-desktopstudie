@@ -119,12 +119,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   nominale snede; is er geen enkele witte rij, dan wint het blad. `hcov` en `quartair` hebben
   `legend=False`: hun GetLegendGraphic is een vierkantje van 20x20 zonder klassenaam; `dhmv_dtm`
   ook, want zijn legenda is een kleurbalk van 27x18 mm met twee getallen erop.
-- **Een kaart met een code krijgt twee bladen: de kaart met haar legenda eronder, en de
-  leeswijzer.** `Legenda voor de zone` zegt welke klassen er werkelijk voorkomen - ontdubbeld, met
-  de kolommen die bij die kaart horen (`report_content.ZONE_LEGEND_COLUMNS`) - en reist mee OP de
-  kaartpagina (`MapPage.zone_legend`), want een blad voor een of twee regels is een blad vol wit.
-  De `Leeswijzer` (`MapEntry.reading_guide`, drie tot vijf zinnen) zegt hoe die code te lezen valt.
-  Een lege legenda zegt of de ZONE leeg was of de BRON; dat onderscheid mag nooit vervagen.
+- **Een kaart met een code krijgt EEN blad: de kaart, met haar leeswijzer en haar legenda
+  eronder.** De `Leeswijzer` (`MapEntry.reading_guide`, drie tot vijf zinnen) zegt hoe die code te
+  lezen valt en `Legenda voor de zone` welke klassen er werkelijk voorkomen - ontdubbeld, met de
+  kolommen die bij die kaart horen (`report_content.ZONE_LEGEND_COLUMNS`). Allebei reizen ze mee
+  OP de kaartpagina (`MapPage.guide`, `MapPage.zone_legend`), in die volgorde: vier regels tekst
+  of twee legendaregels kostten elk een A4 vol wit. Een lege legenda zegt of de ZONE leeg was of
+  de BRON; dat onderscheid mag nooit vervagen.
 - **Het kaartkader krimpt voor wat eronder staat - in de hoogte, nooit in de breedte.**
   `layout.map_height` geeft de kaart alles wat overblijft: onder het kader stond al vier centimeter
   wit, dus een korte legenda kost niets, en verder dan `MAP_MIN_H` (120 mm, ongeveer een halve
@@ -133,7 +134,12 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   in het infovak en de sleutel waaronder `plan_map_images` het beeld ophaalde (die rekent altijd op
   volle hoogte). Wie de breedte aanraakt, verandert de gedrukte schaal en laat het blad zoeken naar
   een beeld dat niemand opgehaald heeft. Het infovak onderaan en de schaalbalk hangen aan de VOET
-  van het kader (`INFO_BOTTOM_LIFT`, `SCALE_BAR_LIFT`), niet aan een vaste y.
+  van het kader (`INFO_BOTTOM_LIFT`, `SCALE_BAR_LIFT`), niet aan een vaste y - de schaalbalk hoort
+  tegen zijn kaart, niet onder de tekst.
+  Een legenda die niet meer past loopt door op het volgende blad; past de EERSTE brok (de
+  leeswijzer) er niet eens onder een kaart op de ondergrens, dan houdt het kader zijn volle hoogte
+  en begint het hele blok op het blad erachter (`UnderMap.minimum`). Een halve alinea onder de
+  kaart en de andere helft overpagina leest slechter dan een blok dat op een eigen blad begint.
 - **De kleurschaal van het hoogtemodel is rapportinhoud, geen legendablad.** De GetLegendGraphic
   van `dhmv_dtm` is een kleurbalk van 16 x 48 px met de titel erboven en "300 - -50" ernaast (live
   2026-09-17, 102 x 68 px). `layout.ramp_rect` zoekt de balk als de langste reeks rijen die met een
@@ -142,6 +148,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   twee uiteinden uit `catalogue.DHMV_RAMP_MTAW` en de drie hoogtes uit `StudyResult.relief`. Vindt
   `ramp_rect` geen balk, dan komt er GEEN strook: een kleurschaal die niet bij de kaart erboven
   hoort is erger dan geen kleurschaal, en de regel eronder zegt waarom.
+  **En de zone staat er zelf op gemarkeerd**, anders zegt een balk van -50 tot 300 mTAW over een
+  bouwzone van vier meter niets: alles is een tint. De kern rekent de plaatsen uit als breuk van
+  de strook (`ColourRamp.band`, `mean_at`; geklemd op 0..1, want een markering naast het papier
+  wijst nergens naar), de schil kiest - een beugel tussen laagste en hoogste zodra die op papier
+  `RAMP_SPAN_MIN_MM` uit elkaar liggen, anders EEN streepje op het gemiddelde met een aanwijslijn,
+  want twee streepjes van een halve millimeter uit elkaar zijn een dik streepje. Zonder gemeten
+  reliëf, of zonder strook, wordt er niets gemarkeerd.
 - **Een kaart zonder kaartbeeld krijgt geen blad.** `prepare` weet het al - de beelden worden
   opgehaald vóór de rapportboom voor het drukwerk gebouwd wordt - en geeft die kennis door als
   `Prepared.unavailable` (`report_content.map_page_key`s, dus per KADER) aan `build_report`, dat
@@ -268,9 +281,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   reden om die eruit te halen in plaats van te versnellen.
 - **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
   laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken). Sinds de
-  compactere opmaak (2026-09-17) telt diezelfde studie 81 bladen: de legendabladen staan uit
-  (13 kaarten, 15 bladen), de vijftien zonelegenda's staan onder hun kaart, de Popp-kaart zonder
-  dekking krijgt geen blad, en korte stukken delen er een.
+  compactere opmaak (2026-09-17) telt diezelfde studie 70 bladen: de legendabladen staan uit
+  (13 kaarten, 15 bladen), de vijftien zonelegenda's en de zeventien leeswijzers staan onder hun
+  kaart, de Popp-kaart zonder dekking krijgt geen blad, en korte stukken delen er een.
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
     `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
     geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
