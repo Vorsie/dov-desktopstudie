@@ -350,6 +350,19 @@ def _in_view_m(entry: catalogue.MapEntry) -> float:
     return catalogue.MAP_WIDTH_MM / 1000.0 * entry.scale / 2.0
 
 
+def _point_name(row: Optional[Dict[str, Any]]) -> str:
+    """How to name the sample point a row came from: the representative point, or which vertex.
+
+    The GetFeatureInfo points are the representative point plus vertices of the zone's ring. When
+    point 0 answers nothing its row is dropped and some other point leads the list - so the name
+    has to be read off the row, never assumed.
+    """
+    index = (row or {}).get(catalogue.POINT_FIELD)
+    if index is None or index == catalogue.REPRESENTATIVE_POINT:
+        return "het representatieve punt"
+    return f"punt {index} op de rand van de zone"
+
+
 def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
                   entry: catalogue.MapEntry) -> str:
     """What the thickness map can say about THIS point, and about its own empty picture.
@@ -401,8 +414,8 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         # number, and nine near-identical rows cost two sheets while saying nothing the first row
         # does not. The first is the representative point - the one the virtual borehole stands on
         # and the one the bar under the map names (`_gfi_points` asks it first).
-        return TablePage(f"Waarde op het representatieve punt - {entry.title}", headers,
-                         rows[:1], _rows_note(rows_src))
+        return TablePage(f"Waarde op {_point_name(next(iter(rows_src or []), None))} - "
+                         f"{entry.title}", headers, rows[:1], _rows_note(rows_src))
     return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src))
 
 
@@ -510,7 +523,7 @@ def _gxg_ramp(entry: catalogue.MapEntry, result: StudyResult, images: Dict[str, 
     if depth is None:
         summary = f"{level}: geen waarde op dit punt (zie hoofdstuk Bronnen)."
     else:
-        summary = f"{level} op het representatieve punt: {float(depth):.2f} m onder maaiveld"
+        summary = f"{level} op {_point_name(row)}: {float(depth):.2f} m onder maaiveld"
         if result.relief is not None:
             mean = result.relief[2]
             summary += (f"; met het gemiddelde maaiveld van de zone ({mean:.2f} mTAW) is dat "
