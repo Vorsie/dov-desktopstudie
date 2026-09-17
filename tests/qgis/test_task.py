@@ -56,7 +56,7 @@ def _fake_result(zone):
 def _fake_prepared():
     from desktopstudie.qgis.pipeline import Prepared
 
-    return Prepared({}, {}, {}, set(), [], [("Kaartbeelden", 0.1)])
+    return Prepared({}, {}, {}, set(), [], set(), [("Kaartbeelden", 0.1)])
 
 
 def test_the_worker_runs_core_and_prepare_and_hands_the_outcome_to_the_main_thread(qgs_app, tmp_path,
@@ -235,7 +235,8 @@ def test_debug_lines_stay_out_of_the_message_log_by_default(qgs_app):
 def _pipeline_result(result, pdf, failures=()):
     from desktopstudie.qgis.pipeline import PipelineResult
 
-    return PipelineResult(result, None, pdf, None, None, [], list(failures), [("Layout", 0.1)])
+    return PipelineResult(result, None, pdf, None, None, [], 1, list(failures),
+                          [("Layout", 0.1)])
 
 
 def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs_app, tmp_path,
