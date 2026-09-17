@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from desktopstudie.core import catalogue
 from desktopstudie.core import report_content as rc
 from desktopstudie.core.model import (
     Cpt,
@@ -998,14 +1001,14 @@ def test_no_contour_in_view_says_where_the_nearest_one_is(gent_ring):
     """Een leeg kaartbeeld zonder uitleg laat de lezer denken dat er data ontbreekt. De regel zegt
     dat er geen contour in beeld is en waar de dichtstbijzijnde ligt - uit de opgehaalde lijnen
     zelf, niet uit een vast getal."""
-    rows = [{"dikte": 20, "afstand_m": 5680}, {"dikte": 25, "afstand_m": 6570}]
+    rows = [{"dikte": 20, "afstand_m": 12400}, {"dikte": 25, "afstand_m": 13900}]
     result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
 
     geo = _geologie(result)
 
     note = next(p for p in geo.pages
                 if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
-    assert "5.7 km" in note and "20 m" in note
+    assert "12.4 km" in note and "20 m" in note
 
 
 def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
@@ -1019,3 +1022,19 @@ def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
                 if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
     assert "dichtstbijzijnde" not in note
     assert "3.78 m" in note
+
+
+def test_in_view_is_measured_against_the_map_the_reader_holds(gent_ring):
+    """"In beeld" is geen vast getal maar het kaartblad zelf: op 1:100 000 is een blad van 180 mm
+    18 km breed, dus een contour op 5,7 km STAAT erop - live nagekeken bij Gent - en de regel die
+    het tegendeel beweert mag er niet staan. Op 1:25 000 is datzelfde blad 4,5 km breed en ligt
+    diezelfde contour er wel degelijk buiten."""
+    rows = [{"dikte": 20, "afstand_m": 5680}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
+    assert entry.scale == 100000
+
+    note = rc._isopach_note(result, rows, entry)
+
+    assert "dichtstbijzijnde" not in note
+    assert "dichtstbijzijnde" in rc._isopach_note(result, rows, replace(entry, scale=25000))
