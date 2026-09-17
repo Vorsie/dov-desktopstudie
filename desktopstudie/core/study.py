@@ -306,7 +306,8 @@ class _Runner:
         def ask(numbered) -> None:
             index, (x, y) = numbered
             per_point[index] = wms_gfi.feature_info_at_point(self.client, entry.wms_url, entry.wms_layer,
-                                                             x, y, log=gfi_log)
+                                                             x, y, info_format=entry.gfi_format,
+                                                             log=gfi_log)
 
         # Two workers, not the full pool: this runs INSIDE the pool over the maps, so the two
         # multiply. Four maps times four points is sixteen requests at once from one desktop, and
