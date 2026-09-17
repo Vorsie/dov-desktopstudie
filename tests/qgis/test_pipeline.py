@@ -106,6 +106,15 @@ def offline_shell(monkeypatch, gent_zone):
 
 
 @pytest.fixture
+def full_catalogue():
+    """De onaangeroerde catalogus, vastgehouden voordat `offline_shell` haar inkort. Vraag hem
+    voor `offline_shell` aan; pytest bouwt de fixtures in de volgorde van de parameters."""
+    from desktopstudie.core import catalogue
+
+    return list(catalogue.CATALOGUE)
+
+
+@pytest.fixture
 def no_pdf(monkeypatch):
     """Voor tests waar de export zelf niet de vraag is: schrijven kost seconden per rapport."""
     from desktopstudie.qgis import export
@@ -906,6 +915,7 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
 # --- de kleurschaal van het hoogtemodel ---------------------------------------------------------
 
 def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, core_result,
+                                                                       full_catalogue,
                                                                        offline_shell, tmp_path,
                                                                        monkeypatch, no_pdf):
     """De kleurschaal van het DHMV is rapportinhoud, geen legendablad: de schil haalt ze op ook
@@ -916,7 +926,7 @@ def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, 
     from desktopstudie.qgis import pipeline
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
-                        [catalogue.by_id(map_id) for map_id in ("grb", "dhmv_dtm", "bodemkaart")])
+                        [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
     strip = write_png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 48, 16)
     monkeypatch.setattr(layout_mod, "fetch_ramp",
                         lambda entry, out_dir, client, log=None: strip)
@@ -933,8 +943,8 @@ def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, 
 
 
 def test_a_height_ramp_that_did_not_come_back_is_a_failed_source(project, core_result,
-                                                                 offline_shell, tmp_path,
-                                                                 monkeypatch, no_pdf):
+                                                                 full_catalogue, offline_shell,
+                                                                 tmp_path, monkeypatch, no_pdf):
     """Komt de kleurschaal niet binnen, dan tekent het rapport geen kleuren en zegt de bronnenlijst
     waarom."""
     from desktopstudie.core import catalogue
@@ -943,7 +953,7 @@ def test_a_height_ramp_that_did_not_come_back_is_a_failed_source(project, core_r
     from desktopstudie.qgis import pipeline
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
-                        [catalogue.by_id(map_id) for map_id in ("grb", "dhmv_dtm", "bodemkaart")])
+                        [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
     monkeypatch.setattr(layout_mod, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
