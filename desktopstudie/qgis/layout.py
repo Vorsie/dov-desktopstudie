@@ -1955,17 +1955,21 @@ class LayoutBuilder:
             self.label(page.note, MARGIN, slot.top if slot.packed else NOTE_Y, metrics.content_w,
                        NOTE_BLOCK_H, slot.page, size=7)
             return
-        note_h = NOTE_BLOCK_H if page.note else 0.0
+        # A note of its own lines, not a fixed strip: the rule about which soundings are drawn runs
+        # to four lines, and a 6 mm band either clipped it or let it run over the first rows.
+        note_h = max(NOTE_BLOCK_H, self._text_height(page.note, metrics.content_w))             if page.note else 0.0
         table, frame, wanted = self._new_table(page, metrics, rows, max(self._sheet, 0))
         slot = self._start(chapter, page.title, min(wanted + note_h, metrics.content_h), metrics)
         top = slot.top
         if page.note:
-            # Above the table when it shares a sheet, in the header band otherwise - that band is
-            # where this note has always stood and it costs the table nothing there.
-            self.label(page.note, MARGIN, top if slot.packed else NOTE_Y, metrics.content_w,
-                       NOTE_BLOCK_H, slot.page, size=7)
-            if slot.packed:
-                top += NOTE_BLOCK_H
+            # Above the table when it shares a sheet; in the header band when it is short enough to
+            # live there for free, which is where this note has always stood. A longer one starts
+            # the content band instead and pushes the table down - it may not cross its own table.
+            in_band = not slot.packed and note_h <= CONTENT_TOP - NOTE_Y
+            self.label(page.note, MARGIN, NOTE_Y if in_band else top, metrics.content_w,
+                       note_h, slot.page, size=7)
+            if not in_band:
+                top += note_h
         room = CONTENT_TOP + metrics.content_h - top
         last = self._place_table(table, frame, slot.page, top, min(wanted, room), metrics)
         for extra in range(slot.page + 1, last + 1):
