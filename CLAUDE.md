@@ -477,6 +477,30 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   antwoord leeg of onbruikbaar is; nooit stil een leeg resultaat teruggeven.
 - **TDD op de kern**: eerst een falende test in de woorden van de regel, dan de implementatie, dan
   refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
+- **De woordenlijst zegt wat GEWOON is; al de rest vlagt.** `core/lithology.ORDINARY` is een
+  allowlist (de matrix zand/klei/leem/silt, de modificatoren, de kleuren, de boormethode, de
+  eenheden en het Frans van de oude records); elk woord dat er niet op staat is per definitie een
+  rariteit en komt als opmerking onder de boring en als signalering in hoofdstuk 7. **Die richting
+  mag nooit omgedraaid worden**: een onvolledige lijst geeft ruis, een lijst van "interessante"
+  woorden geeft een gemiste vondst, en alleen de eerste fout is ongevaarlijk. Gecureerd op 3630
+  lagen uit 512 boringen rond twaalf punten over heel Vlaanderen (`scripts/lithology_vocabulary.py`
+  telt opnieuw); widen de allowlist uit die frequentietabel, versmal nooit de vlagregel. Vier
+  dingen die de data besliste en geen conventie: de helft van de oude beschrijvingen is Frans; een
+  gecodeerde laag draagt codes en wordt overgeslagen (de codelijst is bekende schuld); een bank is
+  een rariteit en een bijmenging niet (schelpen worden 400+ keer als bijmenging genoemd, nooit als
+  "schelpenbank" - de bank draagt een eigen woord); en "geen kalk" meldt geen kalk. Citeren, nooit
+  concluderen: wat een term BETEKENT voor de grond staat er niet bij.
+- **Een lijnenlaag wordt niet met overlap bevraagd.** `MapEntry.fact_within_m` zet de feitenvraag
+  van INTERSECTS om naar DWITHIN met een straal, en de rijen komen dichtstbij eerst terug met de
+  afstand erbij (`catalogue.DISTANCE_FIELD`, door de kern berekend - het staat in geen enkel
+  antwoord). De isopachen van het Quartair zijn zo'n laag: contouren over heel Vlaanderen, en een
+  INTERSECTS met een zone van 50 m raakt er nooit een (live 2026-09-17 bij Gent: 0 objecten,
+  DWITHIN 5 km 0, DWITHIN 8 km 8, dichtstbijzijnde op 5,68 km met dikte 20 m). Zo'n kaart krijgt
+  ook haar eigen ruime schaal, anders blijft het blad leeg.
+- **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
+  (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
+  `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
+  23 elektrisch, live 2026-09-17), maar `conus` is een toestelcode met een open woordenschat.
 - **Geen rapporttekst die zich tot de ontwikkelaar richt.** Een uitgeschakelde catalogusentry
   krijgt geen blad; haar `note` wordt afgedrukt in de tabel "Niet opgenomen kaarten" van het
   hoofdstuk Bronnen en is dus tekst voor de LEZER - waarom de kaart er niet is en waar ze wel te
