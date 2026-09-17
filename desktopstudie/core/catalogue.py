@@ -37,6 +37,11 @@ DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 # the two ends as numbers; the colours themselves stay the service's, never invented ones.
 DHMV_RAMP_MTAW = (-50.0, 300.0)
 
+# The base map: the one that opens checked in the project, and the one painted UNDER a thematic
+# overlay so the reader can see where the theme lies (`MapEntry.backdrop`). One constant, because
+# they are one idea - a legible background - and two copies of it would drift apart.
+BASE_MAP_ID = "grb"
+
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
 
@@ -212,6 +217,12 @@ class MapEntry:
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
+    # Paint this map OVER the base map instead of on white paper. True for a theme that covers a
+    # few percent of the sheet at most - the landslides, the flood classes, PFAS - because on its
+    # own such a sheet is a white rectangle with a red circle on it and nothing to place it by.
+    # False for a map that fills the extent itself (bodemkaart, Tertiair): a backdrop under that
+    # one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    backdrop: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
@@ -243,13 +254,13 @@ def dov_wms(layer: str) -> Tuple[str, str]:
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
-         guide: str = "") -> MapEntry:
+         guide: str = "", backdrop: bool = False) -> MapEntry:
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
-                    reading_guide=guide, scale=scale)
+                    reading_guide=guide, scale=scale, backdrop=backdrop)
 
 
 def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
@@ -324,7 +335,7 @@ CATALOGUE: List[MapEntry] = [
          scale=100000),
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
          ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, field_labels={"dikte": "Dikte (m)"},
-         scale=50000),
+         scale=50000, backdrop=True),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
@@ -353,17 +364,19 @@ CATALOGUE: List[MapEntry] = [
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
-             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000),
+             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
+             backdrop=True),
     MapEntry("watertoets_fluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden fluviaal",
              WATERINFO_WMS_URL.format(kind="fluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
-             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000),
+             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
+             backdrop=True),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          field_labels={"Erosieklasse_ALV": "Erosieklasse", "Totale_erosie": "Totale erosie"},
-         guide=GUIDE_EROSIE, scale=10000),
+         guide=GUIDE_EROSIE, scale=10000, backdrop=True),
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
          ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch",
          field_labels={"Eenheid_G3Dv3_0": "Eenheid", "hoofdlithologie": "Hoofdlithologie",
@@ -372,17 +385,18 @@ CATALOGUE: List[MapEntry] = [
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
                        "risico_inrichting": "Risico-inrichting", "onder_voorbehoud": "Onder voorbehoud"},
-         scale=5000),
+         scale=5000, backdrop=True),
     _dov("grondverschuiving_gevoeligheid", "Gevoeligheid voor grondverschuivingen",
          "grondverschuivingen:grndversch_gevoeligh", ("gevoelighd", "klasse"),
          wfs="grondverschuivingen:grndversch_gevoeligh",
          field_labels={"gevoelighd": "Gevoeligheid", "klasse": "Klasse"},
-         guide=GUIDE_GRONDVERSCHUIVING, scale=25000),
+         guide=GUIDE_GRONDVERSCHUIVING, scale=25000, backdrop=True),
     _dov("grondverschuiving_gekarteerd", "Gekarteerde grondverschuivingen",
          "grondverschuivingen:grndversch_gekarteerd", ("type", "naam", "gemeente", "helling", "rapport"),
          wfs="grondverschuivingen:grndversch_gekarteerd",
          field_labels={"type": "Type", "naam": "Naam", "gemeente": "Gemeente", "helling": "Helling",
-                       "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000),
+                       "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000,
+         backdrop=True),
     # The WMS layer is pfas:no_regret_huidig; "no_regret_zones" is one of its named STYLES, not a
     # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
     MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", *dov_wms("pfas:no_regret_huidig"),
@@ -395,7 +409,7 @@ CATALOGUE: List[MapEntry] = [
                            # "(bron)", not "(link)": the report prints the URL folded, and the
                            # fragment that points at the measure itself does not survive that.
                            "no_regret_maatregelen": "Maatregelen (bron)"},
-             reading_guide=GUIDE_PFAS, scale=10000),
+             reading_guide=GUIDE_PFAS, scale=10000, backdrop=True),
 ]
 
 
