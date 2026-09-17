@@ -63,10 +63,11 @@ class MapPage:
     `extent_factor` times the zone's extent, so a small zone is never shown at an unreadably
     tight crop.
 
-    `zone_legend` is the legend of THIS map's classes inside the zone, and it travels WITH the
-    map instead of on a page of its own: a sheet carrying two legend rows is a sheet of white
-    paper. The shell prints it directly under the map frame and shrinks that frame by exactly
-    what the legend needs; what still does not fit runs on to the next sheet.
+    `guide` (how to read this map's codes) and `zone_legend` (the classes of THIS map inside the
+    zone) travel WITH the map instead of on pages of their own: four lines of text or two legend
+    rows on an A4 is a sheet of white paper. The shell prints them directly under the map frame,
+    guide first, and shrinks that frame by exactly what they need; what still does not fit runs on
+    to the next sheet.
     """
     map_id: str
     title: str
@@ -76,6 +77,7 @@ class MapPage:
     show_investigations: bool = False
     show_section_line: bool = False
     note: str = ""
+    guide: Optional[TextPage] = None
     zone_legend: Optional[Page] = None
     ramp: Optional[ColourRamp] = None
 
@@ -153,18 +155,15 @@ def _s(value: Any, digits: Optional[int] = None) -> str:
 
 
 def _map_pages(chapter: str, only: Optional[List[str]] = None, **kw) -> List[Page]:
-    """Every CHOSEN map of a chapter, each followed by its reading guide when it has one.
+    """Every CHOSEN map of a chapter, each carrying its reading guide when it has one.
 
     `only` is `StudyResult.map_ids`: a map the user unchecked never got fetched, so a sheet for it
     would print "Bron niet beschikbaar" - the same sentence a service that was down gets. It has
     to be absent, not empty.
     """
-    pages: List[Page] = []
-    for entry in catalogue.entries(chapter, only=only):
-        pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
-                             note=entry.note, **kw))
-        pages.extend(_guide_page(entry))
-    return pages
+    return [MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
+                    note=entry.note, guide=_guide_text(entry), **kw)
+            for entry in catalogue.entries(chapter, only=only)]
 
 
 def _fact_rows(entry: catalogue.MapEntry, result: StudyResult) -> Optional[List[Dict[str, Any]]]:
@@ -214,11 +213,15 @@ def _guide_html(entry: catalogue.MapEntry) -> str:
                             entry.reading_guide) + "</p>"
 
 
-def _guide_page(entry: catalogue.MapEntry) -> List[Page]:
-    """Zero or one TextPage: a map without a guide gets no empty sheet."""
+def _guide_text(entry: catalogue.MapEntry) -> Optional[TextPage]:
+    """How to read this map's codes, or None for a map that needs no explaining.
+
+    It rides along on the map page (`MapPage.guide`); a map without a guide simply carries none,
+    which is the difference between a shorter map frame and an empty one.
+    """
     if not entry.reading_guide:
-        return []
-    return [TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry))]
+        return None
+    return TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry))
 
 
 # What "Legenda voor de zone" shows per map: (field, header). Not the fact fields, because the
@@ -417,13 +420,13 @@ def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
 
 
 def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -> Chapter:
-    """Per map: the map with the classes that lie in the zone printed under it, then how to read
-    its codes.
+    """Per map: the map, with how to read its codes and the classes that lie in the zone printed
+    under it.
 
-    The zone legend rides along on the map page (`MapPage.zone_legend`) rather than following it
-    on a sheet of its own: it is usually one or two rows, and a sheet for that is a sheet of
-    white paper. Only the quartair units table of a whole map sheet stays a page, because that
-    one is a drawing of half an A4.
+    Both ride along on the map page (`MapPage.guide`, `MapPage.zone_legend`) rather than following
+    it on sheets of their own: four lines of leeswijzer and one or two legend rows each used to
+    cost a whole A4. Only the quartair units table of a map sheet stays a page, because that one
+    is a drawing of half an A4.
 
     One table per map, not two. The fact table and the zone legend used to say the same thing -
     the same soil type on two sheets, and for the quartair map a column of download links no
@@ -433,11 +436,10 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
     geo = Chapter(3, "Geologie en bodem")
     for entry in catalogue.entries("geologie", only=result.map_ids):
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
-                       note=entry.note)
+                       note=entry.note, guide=_guide_text(entry))
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
         geo.pages.append(page)
-        geo.pages.extend(_guide_page(entry))
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
 
@@ -592,16 +594,16 @@ def _drop_unavailable(chapters: List[Chapter], unavailable: Set[MapPageKey]) -> 
 
     A sheet with an empty frame and a line saying why is a sheet the reader turns past; the
     sources chapter is where "geen dekking op deze locatie" and a failed fetch belong, and it
-    names them there whatever happens here. The zone legend comes from the WFS and not from the
-    image, so it survives the drop - back on a sheet of its own, since there is no map left to
-    print it under.
+    names them there whatever happens here. The reading guide is catalogue text and the zone
+    legend comes from the WFS - neither depends on the image - so both survive the drop, back on
+    sheets of their own in the order they had under the map, since there is no map left to print
+    them under.
     """
     for chapter in chapters:
         kept: List[Page] = []
         for page in chapter.pages:
             if isinstance(page, MapPage) and map_page_key(page) in unavailable:
-                if page.zone_legend is not None:
-                    kept.append(page.zone_legend)
+                kept.extend(part for part in (page.guide, page.zone_legend) if part is not None)
                 continue
             kept.append(page)
         chapter.pages = kept
