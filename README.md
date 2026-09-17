@@ -26,7 +26,12 @@ op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
    boring - die op het representatieve punt en de doorprikpunten langs de doorsnedelijn - staat
    ook als punt in de laag "Virtuele boringen".
 5. Bestaand grondonderzoek uit DOV binnen een instelbare straal: sonderingen (met qc-diagram),
-   boringen (met lithologie), peilputten (met laatste peil).
+   boringen (met lithologie), peilputten (met laatste peil). De tabel toont elke sondering binnen
+   de straal; voor de diagrammen krijgen de **elektrische** sonderingen voorrang op de
+   dichterbije mechanische, omdat die over de volledige diepte meten. Wat een boorbeschrijving
+   noemt en niet tot de gewone grond behoort - een concretie, een zandsteenbank, glauconiet, veen,
+   puin, grind, een fossielrijke laag - komt als opmerking onder die boring te staan en als
+   signalering in hoofdstuk 7, met de diepte en de zin van de beschrijving zelf.
 6. Geologische doorsnede uit virtuele boringen langs een automatische of zelfgetekende lijn.
 7. Samenvatting en aandachtspunten: feiten uit de data met vaste signaleringen, plus een vaste
    tekst die naar bommenkaart.be verwijst voor de manuele controle op explosieven.
