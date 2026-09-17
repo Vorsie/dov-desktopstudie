@@ -360,3 +360,12 @@ def test_a_dead_getfeatureinfo_service_is_not_reported_as_an_empty_zone(gent_rin
     failed = [p for p in result.provenance if not p.ok and "pluviaal" in p.source]
     assert failed, [p.source for p in result.provenance if not p.ok]
     assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
+
+
+def test_compact_layout_is_off_by_default():
+    """De compacte opmaak is een keuze, geen standaard: wie niets kiest krijgt de voorspelbare
+    opmaak van altijd."""
+    from desktopstudie.core.study import Settings
+
+    assert Settings().compact is False
+    assert Settings(compact=True).compact is True
