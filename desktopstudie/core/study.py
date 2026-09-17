@@ -83,6 +83,11 @@ class Settings:
     max_features: int = 2000
     max_workers: int = 4
     map_ids: Optional[List[str]] = None  # None = all enabled catalogue entries
+    # Pack as many short tables and figures on one sheet as fit, instead of at most two. A layout
+    # choice rather than a fetch, but it travels with the settings the dialog collects, so the
+    # shell reads it in one place along with everything else the user chose. Off by default: the
+    # standard report has to come out the same shape every time.
+    compact: bool = False
 
 
 _now = now_iso  # one spelling of "now" for every provenance stamp; the shell stamps with it too
