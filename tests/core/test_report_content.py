@@ -1073,3 +1073,25 @@ def test_in_view_is_measured_against_the_map_the_reader_holds(gent_ring):
 
     assert "dichtstbijzijnde" not in note
     assert "dichtstbijzijnde" in rc._isopach_note(result, rows, replace(entry, scale=25000))
+
+
+def test_a_value_from_a_ring_vertex_is_not_called_the_representative_point(gent_ring):
+    """De GetFeatureInfo-punten zijn het representatieve punt plus hoekpunten van de rand. Geeft
+    punt 0 geen antwoord, dan is de eerste rij een randpunt tot honderden meters verderop - en die
+    rij stond onder de kop "Waarde op het representatieve punt", met de omrekening naar mTAW aan
+    het verkeerde punt opgehangen. Elke rij draagt nu haar puntnummer; alleen punt 0 mag zo heten."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", [
+        {"GHG-waarde_m-mv": 3.4, "Standaardafwijking_GHG_m": 1.1,
+         "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 1.0,
+         "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 5.0,
+         catalogue.POINT_FIELD: 3}]))
+    result.relief = (12.52, 16.25, 14.74)
+
+    ghg = next(p for p in _geologie(result).pages
+               if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg")
+
+    assert "representatieve punt" not in ghg.zone_legend.title
+    assert "representatieve punt" not in ghg.ramp.summary
+    assert "punt 3" in ghg.zone_legend.title and "rand" in ghg.zone_legend.title
+    assert "punt 3" in ghg.ramp.summary
