@@ -490,6 +490,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   een rariteit en een bijmenging niet (schelpen worden 400+ keer als bijmenging genoemd, nooit als
   "schelpenbank" - de bank draagt een eigen woord); en "geen kalk" meldt geen kalk. Citeren, nooit
   concluderen: wat een term BETEKENT voor de grond staat er niet bij.
+  Twee dingen die de vlagregel NIET aanraken maar wel bepalen wat er op papier komt. Een kort
+  brokstuk met een punt is een afkorting, geen waarneming: "Num. planulatus" gaf "num" in het
+  rapport van een klant, en `ABBREVIATION_MAX` gooit zo'n stomp weg (kort EN midden in de zin, of
+  aan het einde van de beschrijving; de materialen uit `ALWAYS_NOTABLE` blijven altijd staan).
+  En `FOSSILS` groepeert de soortnamen tot één "fossielen: ..."-regel per diepte, omdat
+  stratigrafische merkers zeggen in welke formatie je zit en niet dat je iets hards raakt.
+  **Groeperen is presentatie**: `notable_terms` geeft elke term terug, `summarise` vouwt ze
+  alleen samen - er verdwijnt niets.
 - **Een lijnenlaag wordt niet met overlap bevraagd.** `MapEntry.fact_within_m` zet de feitenvraag
   van INTERSECTS om naar DWITHIN met een straal, en de rijen komen dichtstbij eerst terug met de
   afstand erbij (`catalogue.DISTANCE_FIELD`, door de kern berekend - het staat in geen enkel
