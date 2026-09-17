@@ -50,7 +50,8 @@ def make_layout(project, gent_zone, tmp_path):
     zone = layers.zone_layer(gent_zone)
     project.addMapLayer(zone, False)
 
-    def build(pages=None, legends=True, legend_images=None, overlays=None, no_coverage=None):
+    def build(pages=None, legends=True, legend_images=None, overlays=None, no_coverage=None,
+              compact=False):
         if legend_images is None:
             legend_images = {MAP_ID: _png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)}
         merged = {"zone": [zone]}
@@ -58,7 +59,7 @@ def make_layout(project, gent_zone, tmp_path):
         return layout.build_layout(project, _report(_standard_pages() if pages is None else pages),
                                    merged, tmp_path, gent_zone.ring,
                                    _meta(), legends=legends, legend_images=legend_images,
-                                   no_coverage=no_coverage)
+                                   no_coverage=no_coverage, compact=compact)
 
     return build
 
@@ -1586,3 +1587,267 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
     assert link in asked, "de link uit de pagina is niet gevolgd"
     assert any(url.endswith("_png") for url in forgotten), (
         "de webpagina hoort uit de cache gegooid te worden")
+
+
+# --- de legenda voor de zone staat onder haar eigen kaart ----------------------------------------
+
+def _zone_legend_page(zone_legend, ramp=None, title="Bodemkaart van Vlaanderen"):
+    from desktopstudie.core.report_content import MapPage
+
+    return MapPage(MAP_ID, title, legend=False, scale=2500, extent_factor=3.0,
+                   zone_legend=zone_legend, ramp=ramp)
+
+
+def _legend_table(rows):
+    from desktopstudie.core.report_content import TablePage
+
+    return TablePage("Legenda voor de zone - Bodemkaart van Vlaanderen",
+                     ["Bodemtype", "Serie", "Omschrijving"], rows)
+
+
+def _map_item(lay, index):
+    from qgis.core import QgsLayoutItemMap
+
+    return _items_of(lay, index, QgsLayoutItemMap)[0]
+
+
+def _bottom_of(item):
+    return item.pagePositionWithUnits().y() + item.sizeWithUnits().height()
+
+
+def test_a_short_zone_legend_lands_under_the_map_on_the_same_sheet(make_layout):
+    """De legenda voor de zone hoort onder het kaartkader op het kaartblad zelf; een eigen blad
+    voor twee regels is een blad vol wit."""
+    from qgis.core import QgsLayoutFrame
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table([["OB", "OB", "Bebouwde zones"]]))])
+
+    assert lay.pageCollection().pageCount() == 1 + 1, "titelblad plus het kaartblad, verder niets"
+    frame = _items_of(lay, 1, QgsLayoutFrame)[0]
+    assert frame.pagePositionWithUnits().y() > _bottom_of(_map_item(lay, 1))
+
+
+def test_a_short_zone_legend_costs_the_map_no_height(make_layout):
+    """Onder het kaartkader stond al vier centimeter wit. Past de legenda daarin, dan blijft de
+    kaart even groot als altijd - krimpen zonder reden is winst die niemand vroeg."""
+    from desktopstudie.qgis import layout
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table([["OB", "OB", "Bebouwde zones"]]))])
+
+    assert _map_item(lay, 1).sizeWithUnits().height() == pytest.approx(layout.MAP_H, abs=0.1)
+
+
+def test_a_long_zone_legend_shrinks_the_map_frame_but_never_past_the_floor(make_layout):
+    """Vraagt de legenda meer dan er onder de kaart vrij is, dan krimpt het kaartkader met precies
+    zoveel - tot aan de ondergrens: een kaart van minder dan een halve bladhoogte is geen kaart
+    meer."""
+    from desktopstudie.qgis import layout
+
+    rows = [[f"Z{i}", f"Z{i}c", f"Omschrijving van bodemserie {i}"] for i in range(12)]
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table(rows))])
+
+    height = _map_item(lay, 1).sizeWithUnits().height()
+    assert height < layout.MAP_H
+    assert height >= layout.MAP_MIN_H
+
+
+def test_a_shrunken_map_keeps_the_scale_it_would_have_printed(make_layout):
+    """Het kaartkader krimpt in de hoogte, niet in de breedte, en de uitsnede krimpt mee: de
+    schaal onder de kaart en op de schaalbalk blijft dus dezelfde als zonder legenda."""
+    lay_without = make_layout(pages=[_zone_legend_page(None)])
+    full = _map_item(lay_without, 1).scale()
+
+    rows = [[f"Z{i}", f"Z{i}c", f"Omschrijving van bodemserie {i}"] for i in range(12)]
+    lay_with = make_layout(pages=[_zone_legend_page(_legend_table(rows))])
+
+    assert _map_item(lay_with, 1).scale() == pytest.approx(full, rel=0.001)
+
+
+def test_a_zone_legend_that_does_not_fit_runs_on_to_the_next_sheet(make_layout):
+    """Wat ook onder een kaart op de ondergrens niet past, loopt door op het volgende blad - zoals
+    elke tabel die te lang is."""
+    rows = [[f"Z{i}", f"Z{i}c", f"Omschrijving van bodemserie {i}"] for i in range(80)]
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table(rows))])
+
+    assert lay.pageCollection().pageCount() > 1 + 1
+
+
+def test_the_quartair_zone_legend_draws_its_strips_under_the_map(make_layout, tmp_path):
+    """De zonelegenda van het Quartair draagt tekeningen; ook die horen onder de kaart."""
+    from qgis.core import QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import LegendEntry, LegendPage
+
+    _png(tmp_path / "legendas" / "quartair_22026_kop.png", 400, 40)
+    legend = LegendPage("Legenda voor de zone - Quartair",
+                        [LegendEntry("22026", "22", "legendas/quartair_22026_kop.png")])
+
+    lay = make_layout(pages=[_zone_legend_page(legend)])
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+    strip = next(p for p in _items_of(lay, 1, QgsLayoutItemPicture)
+                 if p.picturePath().endswith("quartair_22026_kop.png"))
+    assert strip.pagePositionWithUnits().y() > _bottom_of(_map_item(lay, 1))
+
+
+# --- de kleurschaal van het hoogtemodel ---------------------------------------------------------
+
+def _dhmv_legend(path):
+    """Een GetLegendGraphic zoals de DHMV-dienst hem levert: een titelregel, daaronder een
+    verticale kleurverloop-balk van 16 px breed met het bereik ernaast (live 2026-09-17)."""
+    from qgis.PyQt.QtGui import QColor, QImage
+
+    image = QImage(102, 68, QImage.Format.Format_RGB32)
+    image.fill(QColor(255, 255, 255))
+    for x in range(20, 90):  # de titeltekst
+        image.setPixelColor(x, 6, QColor(0, 0, 0))
+    for y in range(18, 66):  # de kleurbalk zelf: bruin bovenaan, groen onderaan
+        share = (y - 18) / 47.0
+        colour = QColor(int(184 - 140 * share), int(79 + 131 * share), int(22 + 118 * share))
+        for x in range(16):
+            image.setPixelColor(x, y, colour)
+    for x in range(40, 80):  # het bereik "300 - -50" naast de balk
+        image.setPixelColor(x, 40, QColor(0, 0, 0))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
+def test_the_colour_bar_of_a_legend_graphic_is_cut_out_and_laid_on_its_side(qgs_app, tmp_path):
+    """Het strookje onder de kaart draagt de kleuren van de dienst zelf: het verloop wordt uit de
+    GetLegendGraphic geknipt en een kwartslag gedraaid, met de laagste waarde links."""
+    from qgis.PyQt.QtGui import QImage
+
+    from desktopstudie.qgis import layout
+
+    source = _dhmv_legend(tmp_path / "legendas" / "dhmv_dtm.png")
+
+    strip = layout.ramp_strip(source, tmp_path / "legendas" / "dhmv_dtm_schaal.png")
+
+    assert strip is not None and strip.exists()
+    image = QImage(str(strip))
+    assert image.width() > image.height(), "liggend, want het gaat onder de kaart"
+    left, right = image.pixelColor(0, image.height() // 2), image.pixelColor(image.width() - 1,
+                                                                            image.height() // 2)
+    assert left.green() > left.red(), "links het groen van de laagste waarde"
+    assert right.red() > right.green(), "rechts het bruin van de hoogste"
+
+
+def test_a_legend_graphic_without_a_colour_bar_gives_no_strip(qgs_app, tmp_path):
+    """Verandert de dienst haar legenda van vorm, dan komt er geen strookje - liever geen
+    kleurschaal dan een strook die niet bij de kaart hoort."""
+    from desktopstudie.qgis import layout
+
+    plain = _png(tmp_path / "legendas" / "plat.png", 4, 4)
+    from qgis.PyQt.QtGui import QColor, QImage
+    image = QImage(60, 20, QImage.Format.Format_RGB32)
+    image.fill(QColor(255, 255, 255))
+    assert image.save(str(plain))
+
+    assert layout.ramp_strip(plain, tmp_path / "legendas" / "plat_schaal.png") is None
+
+
+def test_the_map_page_prints_the_ramp_with_both_ends_and_the_zone_values(make_layout, tmp_path):
+    """Onder de kaart staat de kleurbalk met de twee uiteinden van de dienst en daaronder de
+    laagste, gemiddelde en hoogste hoogte van de zone zelf."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import ColourRamp
+
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    ramp = ColourRamp("Hoogte maaiveld (m TAW)", "-50 mTAW", "300 mTAW",
+                      "Zone: laagste 6.84 - gemiddeld 8.12 - hoogste 9.40 mTAW",
+                      "legendas/dhmv_dtm_schaal.png")
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+    strip = next(p for p in _items_of(lay, 1, QgsLayoutItemPicture)
+                 if p.picturePath().endswith("dhmv_dtm_schaal.png"))
+    assert strip.pagePositionWithUnits().y() > _bottom_of(_map_item(lay, 1))
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "-50 mTAW" in texts and "300 mTAW" in texts
+    assert "6.84" in texts and "8.12" in texts and "9.40" in texts
+
+
+def test_a_ramp_without_a_strip_draws_no_colours_at_all(make_layout):
+    """Zonder het strookje van de dienst worden er geen kleuren getekend; de regel eronder blijft
+    en zegt waarom."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import ColourRamp
+
+    ramp = ColourRamp("Hoogte maaiveld (m TAW)", "-50 mTAW", "300 mTAW",
+                      "Zone: laagste 6.84 - gemiddeld 8.12 - hoogste 9.40 mTAW",
+                      "", "Kleurschaal niet opgehaald; zie de leeswijzer hierna.")
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    assert not [p for p in _items_of(lay, 1, QgsLayoutItemPicture)
+                if "schaal" in p.picturePath()]
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "niet opgehaald" in texts and "6.84" in texts
+
+
+# --- meer op een blad ---------------------------------------------------------------------------
+
+def _short_table(title, rows=2):
+    from desktopstudie.core.report_content import TablePage
+
+    return TablePage(title, ["Kenmerk", "Waarde"], [[f"regel {i}", str(i)] for i in range(rows)])
+
+
+def _short_text(title):
+    from desktopstudie.core.report_content import TextPage
+
+    return TextPage(title, "<p>Een leeswijzer van enkele zinnen, meer niet.</p>")
+
+
+def test_a_short_table_and_the_text_after_it_share_one_sheet(make_layout):
+    """Een blad met alleen een korte tabel erop is bijna leeg. Past wat erna komt er ook op, dan
+    hoort het op hetzelfde blad."""
+    lay = make_layout(pages=[_short_table("Kerngegevens ligging"), _short_text("Leeswijzer")])
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+
+
+def test_a_sheet_that_two_pieces_share_still_carries_exactly_one_footer(make_layout):
+    """Twee rapportpagina's op een blad blijven een blad: een voettekst, een paginanummer."""
+    lay = make_layout(pages=[_short_table("Kerngegevens ligging"), _short_text("Leeswijzer")])
+
+    assert len(_footers_on(lay, 1)) == 1
+
+
+def test_by_default_no_more_than_two_pieces_share_a_sheet(make_layout):
+    """Standaard blijft de opmaak voorspelbaar: hoogstens twee stukken per blad, ook al zouden er
+    vier op passen."""
+    lay = make_layout(pages=[_short_table(f"Tabel {i}") for i in range(4)])
+
+    assert lay.pageCollection().pageCount() == 1 + 2
+
+
+def test_with_compact_on_everything_that_fits_goes_on_one_sheet(make_layout):
+    """Met compacte opmaak aan gaat alles wat past op een blad."""
+    lay = make_layout(pages=[_short_table(f"Tabel {i}") for i in range(4)], compact=True)
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+
+
+def test_a_map_never_shares_its_sheet_with_the_page_after_it(make_layout):
+    """Een kaart vult haar blad; wat erna komt begint op een nieuw blad, ook compact."""
+    lay = make_layout(pages=[_zone_legend_page(None), _short_text("Leeswijzer")], compact=True)
+
+    assert lay.pageCollection().pageCount() == 1 + 2
+
+
+def test_a_portrait_piece_never_lands_on_a_landscape_sheet(make_layout):
+    """Een liggende tabel en een staande tekst delen geen blad: het blad heeft maar een stand."""
+    from desktopstudie.core.report_content import TablePage
+
+    wide = TablePage("Sonderingen", [f"k{i}" for i in range(9)], [[str(i) for i in range(9)]])
+
+    lay = make_layout(pages=[wide, _short_text("Leeswijzer")], compact=True)
+
+    assert lay.pageCollection().pageCount() == 1 + 2
