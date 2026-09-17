@@ -47,6 +47,12 @@ class ColourRamp:
     `image_path` is the strip the shell cut from the service's own GetLegendGraphic, relative to
     the output directory. Empty means the strip did not come back, and then NO colours are drawn:
     a ramp painted from guessed colours would not match the map above it.
+
+    `band` says where this zone lies ON the scale, as two fractions of the strip (0 = the left
+    end, 1 = the right end), and that is what makes the strip say anything at all: over a range of
+    350 metres a building plot is one shade of one colour. A zone of four metres is a millimetre
+    of paper, too narrow for a bracket, so `mean_at` carries the fallback - one mark at the mean -
+    and the shell picks between them, because only the shell knows how wide the strip is printed.
     """
     title: str
     low: str  # what the left end of the strip means
@@ -54,6 +60,10 @@ class ColourRamp:
     summary: str  # the zone's own values, in one line
     image_path: str = ""
     note: str = ""
+    band: Optional[Tuple[float, float]] = None  # (minimum, maximum) of the zone, 0..1
+    band_label: str = ""
+    mean_at: Optional[float] = None  # the mean of the zone, 0..1
+    mean_label: str = ""
 
 
 @dataclass
@@ -359,23 +369,40 @@ def ramp_image_key(map_id: str) -> str:
     return f"{RAMP_KEY}:{map_id}"
 
 
-def _dem_ramp(result: StudyResult, images: Dict[str, str]) -> ColourRamp:
-    """The height model's colour scale, with this zone's own three heights under it.
+def _ramp_at(value: float, low: float, high: float) -> float:
+    """Where a height falls on the strip: 0 at the left end, 1 at the right.
 
-    The ends are the service's (`catalogue.DHMV_RAMP_MTAW`); the three values are what the shell
-    measured over the zone (`StudyResult.relief`, min/max/mean). A zone that was never measured -
-    a service that was down, a zone outside the model - says so rather than showing numbers.
+    Clamped on purpose. A zone above or below what the service's own scale covers would otherwise
+    be marked off the paper, and a mark beside the strip says nothing at all.
+    """
+    if high <= low:
+        return 0.0
+    return min(1.0, max(0.0, (value - low) / (high - low)))
+
+
+def _dem_ramp(result: StudyResult, images: Dict[str, str]) -> ColourRamp:
+    """The height model's colour scale, with this zone marked on it and its three heights under it.
+
+    The ends are the service's (`catalogue.DHMV_RAMP_MTAW`); the values are what the shell measured
+    over the zone (`StudyResult.relief`, min/max/mean). A zone that was never measured - a service
+    that was down, a zone outside the model - says so, and is marked nowhere: a tick without a
+    number behind it would suggest a measurement nobody made.
     """
     low, high = catalogue.DHMV_RAMP_MTAW
     path = images.get(ramp_image_key(DEM_MAP_ID), "")
-    if result.relief is None:
-        summary = "Zone: geen hoogtewaarden gemeten (zie hoofdstuk Bronnen)."
-    else:
-        lo, hi, mean = result.relief
-        summary = (f"Zone: laagste {lo:.2f} - gemiddeld {mean:.2f} - hoogste {hi:.2f} mTAW "
-                   f"(DHMV II, zonale statistiek)")
-    return ColourRamp(DEM_RAMP_TITLE, f"{low:.0f} mTAW", f"{high:.0f} mTAW", summary, path,
+    ramp = ColourRamp(DEM_RAMP_TITLE, f"{low:.0f} mTAW", f"{high:.0f} mTAW",
+                      "Zone: geen hoogtewaarden gemeten (zie hoofdstuk Bronnen).", path,
                       "" if path else DEM_RAMP_MISSING)
+    if result.relief is None:
+        return ramp
+    lo, hi, mean = result.relief
+    ramp.summary = (f"Zone: laagste {lo:.2f} - gemiddeld {mean:.2f} - hoogste {hi:.2f} mTAW "
+                    f"(DHMV II, zonale statistiek)")
+    ramp.band = (_ramp_at(lo, low, high), _ramp_at(hi, low, high))
+    ramp.band_label = f"zone {lo:.2f} - {hi:.2f} mTAW"
+    ramp.mean_at = _ramp_at(mean, low, high)
+    ramp.mean_label = f"zone gemiddeld {mean:.2f} mTAW"
+    return ramp
 
 
 def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
