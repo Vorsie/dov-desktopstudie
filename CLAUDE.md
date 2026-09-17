@@ -155,6 +155,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `RAMP_SPAN_MIN_MM` uit elkaar liggen, anders EEN streepje op het gemiddelde met een aanwijslijn,
   want twee streepjes van een halve millimeter uit elkaar zijn een dik streepje. Zonder gemeten
   reliëf, of zonder strook, wordt er niets gemarkeerd.
+  **Niet elke balk is lineair.** De GxG-balk is een reeks klassen van ONGELIJKE breedte die op
+  gelijke hoogte getekend worden (grenzen 0-1-2-3-4-5-10-15-20 m, live gelezen 2026-09-17 uit de
+  GetLegendGraphic zelf: negen labels op gelijke afstand). Daarom draagt `ColourRamp.ticks` die
+  grenzen en wordt er op zo'n balk NOOIT een waarde geïnterpoleerd - het getal staat in de tabel
+  erboven. `MapEntry.ramp_low_at_top` zegt aan welke kant de kleinste waarde staat, zodat beide
+  balken op papier van klein links naar groot rechts lopen; `ramp_rect` zoekt de balk niet in
+  kolom nul maar bij de eerste kleur van elke rij, want de GxG-legenda laat een witte pixel tegen
+  de rand.
 - **Een kaart zonder kaartbeeld krijgt geen blad.** `prepare` weet het al - de beelden worden
   opgehaald vóór de rapportboom voor het drukwerk gebouwd wordt - en geeft die kennis door als
   `Prepared.unavailable` (`report_content.map_page_key`s, dus per KADER) aan `build_report`, dat
@@ -162,12 +170,28 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   locatie" of de mislukking); dat is waar een lezer dat zoekt, niet op een blad met een leeg kader.
   De legenda voor de zone komt uit de WFS en niet uit het beeld, dus die overleeft het wegvallen -
   dan weer op een blad van zichzelf.
-- **Korte stukken delen een blad.** `LayoutBuilder._start` zet een tabel, een figuur of een tekst op
-  het blad dat al open staat zolang het past: standaard twee stukken per blad (`PACK_PAIR`), met
-  `compact=True` zoveel als erop passen (`PACK_MANY`). Een kaartblad doet niet mee en vult zijn blad
-  (`_seal`), een staand stuk belandt nooit op een liggend blad, en de voettekst wordt PER BLAD
-  geschreven (`_footer_every_sheet`, aan het einde van `build`) in plaats van per rapportpagina -
-  twee voetteksten op een blad zijn twee paginanummers op een vel papier.
+- **Een blad vult zich.** `LayoutBuilder._start` zet een tabel, een figuur of een tekst op het blad
+  dat al open staat zolang het past - niet tot een aantal, want een blad met een tabel van vier
+  regels erop is een blad vol wit. Eén hoofdstukkop per blad: een stuk uit het volgende hoofdstuk
+  begint een nieuw blad, tenzij `compact`, en dan staat de nieuwe kop er klein bij
+  (`PACKED_CHAPTER_H`) - een tabel van hoofdstuk 4 onder "3. Geologie en bodem" wordt gelezen als
+  hoofdstuk 3. Een kaartblad doet niet mee en vult zijn blad (`_seal`), een staand stuk belandt
+  nooit op een liggend blad, en de voettekst wordt PER BLAD geschreven (`_footer_every_sheet`, aan
+  het einde van `build`) in plaats van per rapportpagina - twee voetteksten op een blad zijn twee
+  paginanummers op een vel papier.
+- **Een dun thema wordt over de basiskaart getekend.** `MapEntry.backdrop` markeert de kaarten die
+  maar enkele procenten van hun uitsnede tekenen (gemeten op Gent, 2026-09-17: gekarteerde
+  grondverschuivingen, erosie, watertoets fluviaal en de dikte van het Quartair 100 % doorzichtig,
+  watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het Tertiair,
+  HCOV en de kwetsbaarheidskaart). `prepare_map_images` haalt daarvoor `catalogue.BASE_MAP_ID` op
+  bij dezelfde extent en hetzelfde pixelformaat en schildert het thema erover met de opaciteit uit
+  de catalogus, zodat de pagina één beeld tekent en niets achteraf hoeft te passen. De dekkingsproef
+  (`_is_empty`) wordt op het THEMA gedaan, vóór er iets onder komt te staan - anders beantwoordt de
+  basiskaart de vraag of de dienst hier iets tekent. `TRANSPARENT=TRUE` ging altijd al mee en wordt
+  gehonoreerd (live 2026-09-17: mét de parameter vier kanalen met een echt alfa, zonder drie
+  kanalen met wit); het lege blad kwam dus niet van een ondoorzichtig thema maar van niets eronder.
+  Een ondergrond die mislukt kost het thema zijn achtergrond, nooit zijn blad, en krijgt een eigen
+  bronregel (`pipeline._record_backdrops`).
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
   staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
@@ -450,6 +474,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   antwoord leeg of onbruikbaar is; nooit stil een leeg resultaat teruggeven.
 - **TDD op de kern**: eerst een falende test in de woorden van de regel, dan de implementatie, dan
   refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
+- **Geen rapporttekst die zich tot de ontwikkelaar richt.** Een uitgeschakelde catalogusentry
+  krijgt geen blad; haar `note` wordt afgedrukt in de tabel "Niet opgenomen kaarten" van het
+  hoofdstuk Bronnen en is dus tekst voor de LEZER - waarom de kaart er niet is en waar ze wel te
+  vinden is. "Vul wms_url in en zet enabled=True" stond zo in het rapport van een klant; wat een
+  onderhouder moet weten hoort in de schuldlijst hieronder.
+  `tests/core/test_report_content.test_no_report_text_addresses_the_developer` loopt elke
+  rapporttekst af en bewaakt het.
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
