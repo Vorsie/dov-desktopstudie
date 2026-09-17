@@ -450,6 +450,15 @@ def _chapter_virtuele_boring(result: StudyResult) -> Chapter:
     if not any(borehole.layers for borehole in result.virtual_boreholes.values()):
         vb.pages.append(TextPage("Virtuele boring", "<p>Virtuele boring niet beschikbaar (zie bronnen).</p>"))
         return vb
+    # Where the borehole was taken, per model. The centroid and the representative point stand in
+    # chapter 1, but those are properties of the ZONE; this is the point the model was actually
+    # asked about, and two models can answer from a different cell and a different ground level.
+    vb.pages.append(TablePage(
+        "Plaats van de virtuele boringen",
+        ["Model", "X (Lambert 72)", "Y (Lambert 72)", "Maaiveld (mTAW)", "Lagen"],
+        [[MODEL_TITLES.get(model, model), _s(borehole.x, 1), _s(borehole.y, 1),
+          _s(borehole.surface_mtaw, 2), str(len(borehole.layers))]
+         for model, borehole in result.virtual_boreholes.items()]))
     for model, borehole in result.virtual_boreholes.items():
         rows = [[layer.name, _s(layer.top_mtaw, 2), _s(layer.base_mtaw, 2), _s(layer.thickness_m, 2), layer.texture]
                 for layer in borehole.layers]
