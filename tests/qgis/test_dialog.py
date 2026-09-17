@@ -100,6 +100,7 @@ def _fill_xy(dialog, tmp_path):
     dialog.output_edit.setText(str(tmp_path / "uit"))
     dialog.cache_combo.setCurrentIndex(dialog.cache_combo.findData("refresh"))
     dialog.legends_check.setChecked(False)
+    dialog.compact_check.setChecked(True)
 
 
 def test_the_form_in_xy_mode_becomes_one_request(qgs_app, tmp_path):
@@ -118,6 +119,7 @@ def test_the_form_in_xy_mode_becomes_one_request(qgs_app, tmp_path):
         ("Proef Gent", "Testbureau", "A. Tester")
     assert request.out_dir.parent == tmp_path / "uit" and request.out_dir.name.startswith("Proef_Gent_")
     assert request.cache_mode == "refresh" and request.legends is False
+    assert request.settings.compact is True
     # The cache sits next to the run folders, shared by every run under this output folder.
     assert request.cache_dir == tmp_path / "uit" / "cache"
 
@@ -202,6 +204,7 @@ def test_start_hands_the_request_to_the_runner_and_saves_the_settings(qgs_app, t
     assert (saved.company, saved.author, saved.radius_m) == ("Testbureau", "A. Tester", 600.0)
     assert Path(saved.output_dir) == tmp_path / "uit"
     assert saved.cache_mode == "refresh" and saved.legends is False
+    assert saved.compact is True
 
     runner.finished.emit(None)
 
@@ -405,3 +408,13 @@ def test_a_section_line_from_a_selected_line_layer(qgs_app, tmp_path):
         assert line[0] == pytest.approx(start, abs=0.01) and line[1] == pytest.approx(end, abs=0.01)
     finally:
         QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_the_legend_pages_start_unticked_and_the_compact_layout_too(qgs_app, tmp_path):
+    """De aparte legendapagina's staan standaard UIT - veertien kaarten leveren er tientallen -
+    en de compacte opmaak ook, want de standaardopmaak hoort voorspelbaar te zijn. Wie ze wil,
+    vinkt ze aan, en die keuze wordt onthouden."""
+    dialog = _dialog(tmp_path)
+
+    assert dialog.legends_check.isChecked() is False
+    assert dialog.compact_check.isChecked() is False
