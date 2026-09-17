@@ -58,8 +58,10 @@ zegt waar ze genomen is.
   feitenvraag zocht overlap met de zone en vond nooit iets, en op 1:25 000 lag er geen lijn in
   beeld. De kaart vraagt nu de dichtstbijzijnde lijnen binnen tien kilometer op
   (`MapEntry.fact_within_m`), toont ze met hun afstand, staat op 1:100 000 en zet de dikte die
-  G3Dv3 op het representatieve punt geeft erboven - als modelwaarde benoemd. Ligt er geen contour
-  in beeld, dan zegt de regel dat en waar de dichtstbijzijnde ligt.
+  G3Dv3 op het representatieve punt geeft erboven - als modelwaarde benoemd. Of er een contour
+  "in beeld" ligt wordt tegen het kaartblad zelf gemeten (180 mm op de schaal van die kaart), niet
+  tegen een vast getal: met een vaste vier kilometer ontkende het rapport contouren die op zijn
+  eigen kaart getekend stonden.
 
 ### Gewijzigd
 - **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
@@ -88,8 +90,9 @@ zegt waar ze genomen is.
 - **Een elektrische sondering krijgt voorrang op een dichterbije mechanische** bij de keuze welke
   sonderingen een qc-diagram krijgen. Een continu elektrische sondering meet over de volledige
   diepte, een discontinu mechanische met stappen; afstand beslist binnen elke groep. De tabel
-  toont nog altijd elke sondering binnen de straal, op afstand gesorteerd, en het hoofdstuk zegt
-  waarom een elektrische van 300 m getekend is en een mechanische van 40 m niet.
+  toont nog altijd elke sondering binnen de straal, op afstand gesorteerd, met de regel als noot
+  erboven: waarom een elektrische van 300 m getekend is en een mechanische van 40 m niet. Zo'n
+  noot krijgt nu de hoogte van zijn eigen regels in plaats van een vaste strook van twee.
 - **Een uitgeschakelde kaart krijgt geen blad meer** tussen de historische kaarten. Ze staat in
   het hoofdstuk Bronnen, in de tabel "Niet opgenomen kaarten", met de reden erbij. De reden zelf
   is herschreven voor een lezer: de NGI-regel gaf een instructie aan wie de plugin onderhoudt
