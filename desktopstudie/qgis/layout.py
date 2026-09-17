@@ -179,6 +179,7 @@ RAMP_MARK_H = RAMP_TICK_H + 0.5
 # with its label away to the left points nowhere. Wide enough for "zone 12.52 - 16.25 mTAW", and
 # slid back onto the paper when the mark sits near the right end.
 RAMP_MARK_LABEL_W = 48.0
+RAMP_TICK_LABEL_W = 10.0
 RULE_COLOUR = "#000000"
 RAMP_SUFFIX = "_schaal"
 # A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
@@ -186,13 +187,13 @@ RAMP_SUFFIX = "_schaal"
 RAMP_MIN_ROWS = 10
 RAMP_MIN_COLUMNS = 4
 WHITE_RGB = bytes((255, 255, 255))
-# How many pieces of content may share one sheet. Two by default - a short table and the text
-# behind it - so the shape of the report stays predictable; everything that fits with the compact
-# setting on.
-PACK_PAIR = 2
-PACK_MANY = 99
+# A sheet keeps taking pieces of content while they fit: a sheet holding one four-row table is a
+# sheet of white paper, and that was the complaint this whole round started from. One chapter per
+# sheet, though - a heading belongs to what stands under it. `compact` lifts that last rule too
+# and repeats the new chapter's heading, small, where the sheet changes chapter.
 PACK_GAP = 6.0
 PACKED_TITLE_H = 6.0
+PACKED_CHAPTER_H = 5.0
 CAPTION_H = 12.0
 NOTE_BLOCK_H = 6.0
 TEXT_FONT_PT = 9.0
@@ -502,32 +503,40 @@ def ramp_rect(image: QImage) -> Optional[Tuple[int, int, int, int]]:
     buffer = rgba.constBits()
     buffer.setsize(height * stride)
     data = bytes(buffer)
-    runs: List[int] = []
+    # Per row: where its solid run of one colour starts and how long it is. Not "column zero":
+    # the GxG legend leaves a white pixel against the edge, and a search that insists on the very
+    # first column finds nothing there and leaves that map without a legend.
+    bands: List[Tuple[int, int]] = []
     for y in range(height):
         row = data[y * stride:y * stride + width * 4]
-        first = row[:4]
-        if not row or first[3] == 0 or first[:3] == WHITE_RGB:
-            runs.append(0)  # a row that opens white or transparent is not the band
-            continue
-        run = 1
-        while run < width and row[run * 4:run * 4 + 4] == first:
-            run += 1
-        runs.append(run)
-    best_top, best_rows = 0, 0
+        start, run = 0, 0
+        while start < width:
+            pixel = row[start * 4:start * 4 + 4]
+            if pixel[3] != 0 and pixel[:3] != WHITE_RGB:
+                run = 1
+                while start + run < width and row[(start + run) * 4:(start + run) * 4 + 4] == pixel:
+                    run += 1
+                break
+            start += 1
+        bands.append((start, run) if run >= RAMP_MIN_COLUMNS else (-1, 0))
+    best_top, best_rows, best_start = 0, 0, -1
     top = None
-    for y, run in enumerate(runs + [0]):
-        if run >= RAMP_MIN_COLUMNS:
+    for y, (start, _run) in enumerate(bands + [(-1, 0)]):
+        # One band: the rows have to open at the same column, or a stack of legend swatches would
+        # read as one long bar.
+        if start >= 0 and (top is None or bands[top][0] == start):
             top = y if top is None else top
             continue
         if top is not None and y - top > best_rows:
-            best_top, best_rows = top, y - top
-        top = None
+            best_top, best_rows, best_start = top, y - top, bands[top][0]
+        top = y if start >= 0 else None
     if best_rows < RAMP_MIN_ROWS:
         return None
-    return 0, best_top, min(runs[best_top:best_top + best_rows]), best_rows
+    return (best_start, best_top,
+            min(run for _start, run in bands[best_top:best_top + best_rows]), best_rows)
 
 
-def ramp_strip(legend_png, target) -> Optional[Path]:
+def ramp_strip(legend_png, target, flip: bool = False) -> Optional[Path]:
     """The colour band of a legend graphic, cut out, laid on its side and saved as `target`.
 
     The band runs high-to-low downwards (the DTM is brown at 300 mTAW on top, green at -50 at the
@@ -541,7 +550,10 @@ def ramp_strip(legend_png, target) -> Optional[Path]:
     rect = ramp_rect(image)
     if rect is None:
         return None
-    band = image.copy(*rect).transformed(QTransform().rotate(90))
+    # A quarter clockwise puts the TOP of the band on the right, which is where the height model
+    # wants its maximum. A bar whose smallest value sits on top turns the other way, so that both
+    # read small-left to large-right (`MapEntry.ramp_low_at_top`).
+    band = image.copy(*rect).transformed(QTransform().rotate(-90 if flip else 90))
     target = Path(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     return target if band.save(str(target)) else None
@@ -557,7 +569,8 @@ def fetch_ramp(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Option
     legend = fetch_legend(entry, out_dir, client, log)
     if legend is None:
         return None
-    strip = ramp_strip(legend, Path(legend).with_name(f"{entry.id}{RAMP_SUFFIX}.png"))
+    strip = ramp_strip(legend, Path(legend).with_name(f"{entry.id}{RAMP_SUFFIX}.png"),
+                       flip=entry.ramp_low_at_top)
     if strip is None and log:
         log.warning(f"Kleurschaal van {entry.id}: geen herkenbare kleurbalk in de legenda")
     return strip
@@ -1245,42 +1258,46 @@ class LayoutBuilder:
         # (`_start`).
         self._sheet = -1
         self._cursor = CONTENT_TOP
-        self._on_sheet = 0
         self._sheet_metrics = _METRICS[PORTRAIT]
         self._sheet_chapter: Optional[int] = None
 
     # --- which sheet does this piece of content go on? --------------------------------------------
 
-    @property
-    def _pack_limit(self) -> int:
-        return PACK_MANY if self.compact else PACK_PAIR
-
     def _start(self, chapter: Chapter, title: str, content_h: float,
                metrics: PageMetrics = _METRICS[PORTRAIT], packable: bool = True) -> Slot:
         """Room for one piece of content, with its heading written.
 
-        On the sheet being filled when it fits there - a sheet holding one short table is a sheet
-        of white paper - and on a fresh one otherwise. A sheet has one orientation, so a portrait
-        piece never joins a landscape one, and ONE chapter heading, so a piece from the next
-        chapter starts its own sheet instead of landing under the heading of the previous one. A
-        map page never shares at all, and fills its sheet so that nothing lands behind it either.
+        On the sheet being filled for as long as things fit on it - a sheet holding one short
+        table is a sheet of white paper - and on a fresh one otherwise. A sheet has one
+        orientation, so a portrait piece never joins a landscape one, and one chapter heading, so
+        a piece from the next chapter starts its own sheet; `compact` lets it share and repeats
+        the new heading, small, where the chapter changes. A map page never shares at all, and
+        fills its sheet so that nothing lands behind it either.
         """
         room = CONTENT_TOP + self._sheet_metrics.content_h - self._cursor
-        packed = (packable and self._sheet >= 0 and self._on_sheet < self._pack_limit
+        same = chapter.number == self._sheet_chapter
+        heading = PACKED_TITLE_H + (0.0 if same else PACKED_CHAPTER_H)
+        packed = (packable and self._sheet >= 0
                   and metrics.orientation == self._sheet_metrics.orientation
-                  and chapter.number == self._sheet_chapter
-                  and PACK_GAP + PACKED_TITLE_H + content_h <= room)
+                  and (same or self.compact)
+                  and PACK_GAP + heading + content_h <= room)
         if packed:
             index, top = self._sheet, self._cursor + PACK_GAP
+            if not same:
+                # The heading belongs to what stands under it; a table of chapter 4 under
+                # "3. Geologie en bodem" is read as chapter 3.
+                self.label(f"{chapter.number}. {chapter.title}", MARGIN, top, metrics.content_w,
+                           PACKED_CHAPTER_H, index, size=9, bold=True)
+                top += PACKED_CHAPTER_H
+                self._sheet_chapter = chapter.number
             self.label(title, MARGIN, top, metrics.content_w, PACKED_TITLE_H, index, size=10,
                        bold=True)
             top += PACKED_TITLE_H
-            self._on_sheet += 1
         else:
             index = self.new_page(metrics.orientation)
             self.header(chapter, title, index, metrics)
             top = CONTENT_TOP
-            self._sheet, self._sheet_metrics, self._on_sheet = index, metrics, 1
+            self._sheet, self._sheet_metrics = index, metrics
             self._sheet_chapter = chapter.number
         self._cursor = top + content_h
         return Slot(index, top, packed)
@@ -1288,7 +1305,7 @@ class LayoutBuilder:
     def _seal(self, index: int, metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
         """This sheet is full: whatever comes next starts a new one."""
         self._sheet, self._sheet_metrics = index, metrics
-        self._on_sheet, self._cursor = PACK_MANY, CONTENT_TOP + metrics.content_h
+        self._cursor = CONTENT_TOP + metrics.content_h
 
     # --- page furniture ---------------------------------------------------------------------------
 
@@ -1606,7 +1623,9 @@ class LayoutBuilder:
         strip_h = RAMP_STRIP_H + RAMP_LABEL_GAP if image is not None else 0.0
         # The zone is only marked where there IS a strip: a tick beside no colours points nowhere.
         marked = image is not None and ramp.band is not None
+        ticks = ramp.ticks if image is not None else []
         height = (UNDER_MAP_TITLE_H + strip_h + (RAMP_MARK_H + RAMP_LINE_H if marked else 0.0)
+                  + (RAMP_LINE_H if ticks else 0.0)
                   + RAMP_LINE_H * (2 if ramp.note else 1) + RAMP_LINE_H)
 
         def draw(sheet: int, top: float) -> None:
@@ -1630,6 +1649,14 @@ class LayoutBuilder:
                 y += RAMP_MARK_H
                 self.label(zone, min(at, CONTENT_RIGHT - RAMP_MARK_LABEL_W), y,
                            RAMP_MARK_LABEL_W, RAMP_LINE_H, sheet, size=7, bold=True)
+                y += RAMP_LINE_H
+            for at, label in ticks:
+                # Centred on the boundary, and never off the paper at either end.
+                left = MARGIN + at * RAMP_STRIP_W - RAMP_TICK_LABEL_W / 2.0
+                left = min(max(left, MARGIN), CONTENT_RIGHT - RAMP_TICK_LABEL_W)
+                centred = self.label(label, left, y, RAMP_TICK_LABEL_W, RAMP_LINE_H, sheet, size=6)
+                centred.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            if ticks:
                 y += RAMP_LINE_H
             self.label(ramp.low, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high = self.label(ramp.high, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
