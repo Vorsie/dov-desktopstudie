@@ -102,3 +102,16 @@ def test_the_french_of_the_old_records_is_ordinary_too():
     layers = [_layer(0.0, 3.0, "sable fin gris avec un peu d'argile, très homogène")]
 
     assert lithology.notable_terms(layers) == []
+
+
+def test_filler_is_widened_away_but_the_rarity_beside_it_still_flags():
+    """Verbreed de lijst van gewone woorden uit de frequentietabel, versmal de vlagregel nooit:
+    een bindwoord, een kleur, een boornotitie of hoe dicht het zand gepakt zat is geen rariteit -
+    de zandsteenconcretie in dezelfde zin blijft wel vlaggen."""
+    layers = [_layer(0.0, 2.5, "dicht gepakt bruin zand, ongeveer horizontaal, "
+                               "licht cremebruin, staal gewassen door de boormeester"),
+              _layer(2.5, 3.0, "zand met zandsteenconcreties")]
+
+    found = lithology.notable_terms(layers)
+
+    assert [term.word for term in found] == ["zandsteenconcreties"]
