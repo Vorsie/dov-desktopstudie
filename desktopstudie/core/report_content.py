@@ -37,6 +37,26 @@ class ReportMeta:
 
 
 @dataclass
+class ColourRamp:
+    """A map's continuous colour scale, printed as a strip under that map.
+
+    For a scale that runs over the whole of Flanders - the height model runs from -50 to 300 mTAW
+    while a building plot spans a few metres - a legend page says almost nothing and a strip under
+    the map says it all: what the colours mean, and where this zone lies on them (`summary`).
+
+    `image_path` is the strip the shell cut from the service's own GetLegendGraphic, relative to
+    the output directory. Empty means the strip did not come back, and then NO colours are drawn:
+    a ramp painted from guessed colours would not match the map above it.
+    """
+    title: str
+    low: str  # what the left end of the strip means
+    high: str  # what the right end means
+    summary: str  # the zone's own values, in one line
+    image_path: str = ""
+    note: str = ""
+
+
+@dataclass
 class MapPage:
     """A rendered catalogue map. `scale` is the target scale (1:scale); the shell actually draws
     at the larger (more zoomed-out) of `scale` and whatever scale is needed to fit
@@ -57,6 +77,7 @@ class MapPage:
     show_section_line: bool = False
     note: str = ""
     zone_legend: Optional[Page] = None
+    ramp: Optional[ColourRamp] = None
 
 
 @dataclass
@@ -321,12 +342,48 @@ def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
     return pages
 
 
-def _chapter_ligging(result: StudyResult) -> Chapter:
+# The one map whose legend is a continuous colour scale instead of a list of classes. Its
+# GetLegendGraphic is a ramp over the whole height range of Flanders; a page for that is a page
+# the reader turns past, a strip under the map is what it is worth (`ColourRamp`).
+DEM_MAP_ID = "dhmv_dtm"
+DEM_RAMP_TITLE = "Hoogte maaiveld (m TAW)"
+DEM_RAMP_MISSING = "Kleurschaal niet opgehaald; zie de leeswijzer hierna."
+RAMP_KEY = "kleurschaal"
+
+
+def ramp_image_key(map_id: str) -> str:
+    """How `zone_legend_images` names the colour strip the shell cut for one map."""
+    return f"{RAMP_KEY}:{map_id}"
+
+
+def _dem_ramp(result: StudyResult, images: Dict[str, str]) -> ColourRamp:
+    """The height model's colour scale, with this zone's own three heights under it.
+
+    The ends are the service's (`catalogue.DHMV_RAMP_MTAW`); the three values are what the shell
+    measured over the zone (`StudyResult.relief`, min/max/mean). A zone that was never measured -
+    a service that was down, a zone outside the model - says so rather than showing numbers.
+    """
+    low, high = catalogue.DHMV_RAMP_MTAW
+    path = images.get(ramp_image_key(DEM_MAP_ID), "")
+    if result.relief is None:
+        summary = "Zone: geen hoogtewaarden gemeten (zie hoofdstuk Bronnen)."
+    else:
+        lo, hi, mean = result.relief
+        summary = (f"Zone: laagste {lo:.2f} - gemiddeld {mean:.2f} - hoogste {hi:.2f} mTAW "
+                   f"(DHMV II, zonale statistiek)")
+    return ColourRamp(DEM_RAMP_TITLE, f"{low:.0f} mTAW", f"{high:.0f} mTAW", summary, path,
+                      "" if path else DEM_RAMP_MISSING)
+
+
+def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
     ligging = Chapter(1, "Ligging en topografie",
                       _map_pages("ligging", result.map_ids, show_investigations=False))
+    for page in ligging.pages:
+        if isinstance(page, MapPage) and page.map_id == DEM_MAP_ID:
+            page.ramp = _dem_ramp(result, images)
     facts = [["Gemeente", _s(result.municipality)], ["Adres", _s(z.address)],
              ["Zwaartepunt (Lambert 72)", f"{cx:.1f} / {cy:.1f}"],
              ["Representatief punt (virtuele boring)", f"{rx:.1f} / {ry:.1f}"],
@@ -515,9 +572,10 @@ def build_report(result: StudyResult, meta: ReportMeta,
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
+    images = zone_legend_images or {}
     chapters = [
-        _chapter_ligging(result), _chapter_historisch(result.map_ids),
-        _chapter_geologie(result, zone_legend_images or {}),
+        _chapter_ligging(result, images), _chapter_historisch(result.map_ids),
+        _chapter_geologie(result, images),
         _chapter_virtuele_boring(result), _chapter_grondonderzoek(result), _chapter_doorsnede(result),
         _chapter_samenvatting(result), _chapter_bronnen(result),
     ]
