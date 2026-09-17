@@ -106,7 +106,9 @@ CONTENT_W = 180.0
 CONTENT_H = 245.0
 CONTENT_TOP = 30.0
 CONTENT_RIGHT = MARGIN + CONTENT_W  # 195 mm: the right edge the info boxes are pinned to
-MAP_W, MAP_H = 180.0, 200.0
+# The width lives in the catalogue, because the report text reasons about how many metres a
+# sheet covers at a map's own scale; one number, drawn here and reasoned about there.
+MAP_W, MAP_H = catalogue.MAP_WIDTH_MM, 200.0
 NOTE_Y = 25.5
 FOOTER_Y = 285.0
 INFO_TOP_Y = 46.0
