@@ -270,7 +270,7 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken). Sinds de
   compactere opmaak (2026-09-17) telt diezelfde studie 81 bladen: de legendabladen staan uit
   (13 kaarten, 15 bladen), de vijftien zonelegenda's staan onder hun kaart, de Popp-kaart zonder
-  dekking krijgt geen blad, en korte stukken delen er een (3 bladen).
+  dekking krijgt geen blad, en korte stukken delen er een.
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
     `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
     geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
