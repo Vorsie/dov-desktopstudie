@@ -147,9 +147,11 @@ FIXTURES: list[tuple[str, str]] = [
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          f"INTERSECTS(the_geom,{ZONE_EROSIE_HOOG})", 5,
          props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
-    ("wfs_quartair_isopachen_intersects.json",
-     wfs("dov-pub:Quartair_Isopachen", f"INTERSECTS(geometry,{ZONE_RURAL})", 5,
-         props=("objectid", "dikte"))),
+    # A contour never overlaps a plot, so this one is asked with DWITHIN - and WITHOUT
+    # propertyName: asking for named properties makes GeoServer answer "geometry": null on every
+    # feature, and the distance the report prints is measured from that geometry.
+    ("wfs_quartair_isopachen_dwithin.json",
+     wfs("dov-pub:Quartair_Isopachen", f"DWITHIN(geometry,{ZONE_RURAL},10000,meters)", 5)),
     ("wfs_grndversch_gevoeligh_intersects.json",
      wfs("grondverschuivingen:grndversch_gevoeligh", f"INTERSECTS(shape,{ZONE_RURAL})", 5,
          props=("ogc_fid", "gevoelighd", "klasse"))),
