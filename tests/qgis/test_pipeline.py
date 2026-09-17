@@ -806,3 +806,166 @@ def test_a_run_with_project_groups_still_fills_the_open_project(project, core_re
     study = project.layerTreeRoot().findGroup(pipeline.study_group_name("Testproject"))
     titles = [group.name() for group in study.findGroups()]
     assert list(pipeline.CHAPTER_GROUPS.values())[0] in titles
+
+
+# --- een kaart zonder beeld krijgt geen blad ----------------------------------------------------
+
+def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
+    """Vervangt de kaartbeeld-ophaler: de genoemde kaarten leveren een lege tegel of helemaal
+    niets, de rest een klein plaatje."""
+    from desktopstudie.qgis import layout as layout_mod
+
+    def fake(requests, out_dir, client, log=None, should_cancel=None):
+        images, empty = {}, set()
+        for request in requests:
+            if request.map_id in failed_maps:
+                continue
+            path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
+            write_png(path, 60, 60)
+            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            images[request.key] = path
+            if request.map_id in empty_maps:
+                empty.add(request.key)
+        return images, empty
+
+    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+
+
+def _map_ids(report):
+    from desktopstudie.core.report_content import MapPage
+
+    return [page.map_id for chapter in report.chapters for page in chapter.pages
+            if isinstance(page, MapPage)]
+
+
+def test_a_map_without_coverage_gets_no_sheet_but_stays_in_the_sources(project, core_result,
+                                                                       offline_shell, tmp_path,
+                                                                       monkeypatch, no_pdf):
+    """Een kaart zonder dekking krijgt geen blad maar staat wel in de bronnen.
+
+    Een blad met een leeg kader en een regel eronder is een blad dat de lezer omslaat; dat de
+    kaart geprobeerd is, hoort in het hoofdstuk Bronnen te staan, met de reden erbij."""
+    from desktopstudie.qgis import pipeline
+
+    _empty_map_images(monkeypatch, empty_maps=("ferraris",))
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert "ferraris" not in _map_ids(out.report)
+    assert "bodemkaart" in _map_ids(out.report)
+    source = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Ferraris"))
+    assert source.ok and source.message == pipeline.NO_COVERAGE_MESSAGE
+
+
+def test_a_map_whose_image_failed_gets_no_sheet_but_stays_a_failed_source(project, core_result,
+                                                                          offline_shell, tmp_path,
+                                                                          monkeypatch, no_pdf):
+    """Een kaart waarvan het beeld mislukte krijgt geen blad maar staat wel als mislukte bron."""
+    from desktopstudie.qgis import pipeline
+
+    _empty_map_images(monkeypatch, failed_maps=("ferraris",))
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert "ferraris" not in _map_ids(out.report)
+    source = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Ferraris"))
+    assert not source.ok and "niet opgehaald" in source.message
+
+
+def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offline_shell, tmp_path,
+                                                    monkeypatch, no_pdf):
+    """Geen dekking hoort bij een kader, niet bij een kaart: de GRB-basiskaart draagt drie kaders
+    en een lege tegel op het ene zegt niets over de andere."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    seen = []
+
+    def fake(requests, out_dir, client, log=None, should_cancel=None):
+        images, empty = {}, set()
+        for request in requests:
+            path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
+            write_png(path, 60, 60)
+            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            images[request.key] = path
+            if request.map_id == "grb" and not seen:
+                seen.append(request.key)
+                empty.add(request.key)
+        return images, empty
+
+    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    grb = [page for chapter in out.report.chapters for page in chapter.pages
+           if isinstance(page, MapPage) and page.map_id == "grb"]
+    assert grb, "alleen het lege kader hoort weg te vallen, niet elke GRB-pagina"
+
+
+# --- de kleurschaal van het hoogtemodel ---------------------------------------------------------
+
+def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, core_result,
+                                                                       offline_shell, tmp_path,
+                                                                       monkeypatch, no_pdf):
+    """De kleurschaal van het DHMV is rapportinhoud, geen legendablad: de schil haalt ze op ook
+    als de legendabladen uitstaan, en de kaartpagina draagt ze."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    monkeypatch.setattr(catalogue, "CATALOGUE",
+                        [catalogue.by_id(map_id) for map_id in ("grb", "dhmv_dtm", "bodemkaart")])
+    strip = write_png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 48, 16)
+    monkeypatch.setattr(layout_mod, "fetch_ramp",
+                        lambda entry, out_dir, client, log=None: strip)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    dtm = next(page for chapter in out.report.chapters for page in chapter.pages
+               if isinstance(page, MapPage) and page.map_id == "dhmv_dtm")
+    assert dtm.ramp is not None
+    assert dtm.ramp.image_path == "legendas/dhmv_dtm_schaal.png"
+    assert "7.10" in dtm.ramp.summary, "het gemeten gemiddelde van de zone hoort erbij"
+    source = next(p for p in out.result.provenance if p.source.startswith("Kleurschaal"))
+    assert source.ok
+
+
+def test_a_height_ramp_that_did_not_come_back_is_a_failed_source(project, core_result,
+                                                                 offline_shell, tmp_path,
+                                                                 monkeypatch, no_pdf):
+    """Komt de kleurschaal niet binnen, dan tekent het rapport geen kleuren en zegt de bronnenlijst
+    waarom."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    monkeypatch.setattr(catalogue, "CATALOGUE",
+                        [catalogue.by_id(map_id) for map_id in ("grb", "dhmv_dtm", "bodemkaart")])
+    monkeypatch.setattr(layout_mod, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    dtm = next(page for chapter in out.report.chapters for page in chapter.pages
+               if isinstance(page, MapPage) and page.map_id == "dhmv_dtm")
+    assert dtm.ramp.image_path == ""
+    source = next(p for p in out.result.provenance if p.source.startswith("Kleurschaal"))
+    assert not source.ok
+
+
+# --- compacte opmaak ----------------------------------------------------------------------------
+
+def test_compact_packs_more_sheets_than_the_default(project, core_result, offline_shell, tmp_path,
+                                                    no_pdf):
+    """De instelling `compact` reist tot in de layout: dezelfde studie levert er minder bladen mee
+    op, en staat standaard uit."""
+    from desktopstudie.qgis import pipeline
+
+    plain = pipeline.finish(project, core_result, _meta(), tmp_path / "gewoon", _log(),
+                            legends=False)
+    packed = pipeline.finish(project, core_result, _meta(), tmp_path / "compact", _log(),
+                             legends=False, compact=True)
+
+    assert packed.sheets < plain.sheets
