@@ -371,3 +371,26 @@ def test_compact_layout_is_off_by_default():
 
     assert Settings().compact is False
     assert Settings(compact=True).compact is True
+
+
+def test_every_map_is_asked_in_the_format_its_service_speaks(gent_ring, tmp_path):
+    """De kaart draagt haar antwoordformaat; de orchestrator hoort het door te geven. Vraagt hij
+    de DOV-dienst om geo+json, dan komt er een ServiceExceptionReport terug en valt de kaart uit
+    met "geen van de punten antwoordde" - een kaart zonder getal, precies wat we wilden oplossen.
+    """
+    from desktopstudie.core import catalogue
+
+    client = _client()
+    study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), client,
+              tmp_path)
+
+    formats = {}
+    for url in client.calls:
+        if "GetFeatureInfo" not in url:
+            continue
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        formats.setdefault(query["query_layers"][0], set()).add(query["info_format"][0])
+    assert formats, client.calls[:3]
+    for entry in catalogue.entries():
+        if entry.fact_mode == "gfi":
+            assert formats.get(entry.wms_layer) == {entry.gfi_format}, entry.id
