@@ -884,3 +884,23 @@ def test_a_measured_number_is_printed_to_two_decimals(gent_ring):
                  if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").zone_legend
     assert table.rows[0][0] == "2.85"
     assert table.rows[0][1] == "1.37"
+
+
+def test_a_continuous_map_prints_the_representative_point_not_nine_samples(gent_ring):
+    """Een kaart met een doorlopende waarde heeft geen "klassen in de zone": elk bevraagd punt
+    geeft zijn eigen getal, en negen bijna gelijke rijen kosten twee bladen en zeggen niets extra.
+    De tabel toont het representatieve punt - het punt waar de virtuele boring ook staat."""
+    result = _result(gent_ring)
+    rows = [{"GHG-waarde_m-mv": value, "Standaardafwijking_GHG_m": 1.37,
+             "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.96,
+             "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 4.74}
+            for value in (2.85, 2.88, 2.95, 2.94, 2.69, 2.65, 2.91, 3.0)]
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", rows))
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").zone_legend
+    assert len(table.rows) == 1
+    assert table.rows[0][0] == "2.85", "de eerste bevraging is het representatieve punt"
+    assert "representatieve punt" in table.title
