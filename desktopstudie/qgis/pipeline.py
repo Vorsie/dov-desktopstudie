@@ -49,11 +49,16 @@ from ..core.catalogue import DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
 from ..core.report_content import (
+    DEM_MAP_ID,
+    MapPage,
+    MapPageKey,
     Report,
     ReportMeta,
     build_report,
+    map_page_key,
     profile_image_key,
     quartair_sheet,
+    ramp_image_key,
     sheet_image_key,
 )
 from ..core.services.http import DATA_DIR, HttpClient, study_client
@@ -101,6 +106,10 @@ class PipelineResult:
     project_file: Optional[Path]
     geopackage: Optional[Path]
     page_pngs: List[Path]
+    # How many SHEETS the layout came to. Not the same as the number of report pages: two short
+    # pieces of content can share a sheet and a long table can take three, and what a reader
+    # holds - and what a PDF costs - is sheets.
+    sheets: int = 0
     failures: List[str] = field(default_factory=list)
     # (phase, seconds) in the order they ran. A study of half an hour has to be able to say WHERE
     # the time went; the plugin's progress bar needs the same split.
@@ -358,6 +367,31 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
     return sheets
 
 
+RAMP_SOURCE = "Kleurschaal"
+
+
+def _ramp_entry(result: StudyResult):
+    """The catalogue entry whose legend is a colour ramp, if this study chose it."""
+    return next((e for e in catalogue.entries(only=result.map_ids) if e.id == DEM_MAP_ID), None)
+
+
+def _fetch_ramp(result: StudyResult, entry, out_dir: Path, client: HttpClient,
+                log: Log) -> Dict[str, str]:
+    """The colour strip of the height model, keyed as `report_content` looks it up.
+
+    Report content and not a legend page, so it is fetched whatever the legend switch says: the
+    DTM's own legend is a ramp over the whole of Flanders, which as a sheet of its own is a sheet
+    nobody reads and under the map is exactly what the three measured heights need beside them.
+    """
+    strip = layout_mod.fetch_ramp(entry, out_dir, client, log.child("legendas"))
+    record_source(result, f"{RAMP_SOURCE} {entry.title}",
+                  layout_mod.wms_legend_url(entry, entry.legend_options), strip is not None,
+                  "" if strip is not None else "kleurschaal niet opgehaald of niet herkend")
+    if strip is None:
+        return {}
+    return {ramp_image_key(entry.id): Path(strip).relative_to(out_dir).as_posix()}
+
+
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
@@ -464,22 +498,49 @@ class Prepared:
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
     requests: List[layout_mod.MapRequest]  # what was asked for, in page order
+    # The map pages that have no image at all - no coverage here, or a fetch that failed. Worked
+    # out here because the images are fetched BEFORE the report is built for printing, and handed
+    # to `build_report` so those sheets are never made. Per framing, not per map.
+    unavailable: Set[MapPageKey]
     timings: List[Tuple[str, float]]
+
+
+def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[str, Path],
+                            no_coverage: Set[str]) -> Set[MapPageKey]:
+    """The map pages that have no picture to show: no coverage here, or a fetch that failed.
+
+    Read off the very tree the images were planned from, so every page is matched with the image
+    that was fetched for ITS framing - the GRB base map carries three, and a mosaic can cover the
+    narrow one and not the wide one.
+    """
+    boxes = layout_mod.overlay_boxes(result)
+    missing: Set[MapPageKey] = set()
+    for chapter in report.chapters:
+        for page in chapter.pages:
+            if not isinstance(page, MapPage):
+                continue
+            extent = layout_mod.map_extent(result.zone.ring, page.scale, page.extent_factor,
+                                           layout_mod.page_boxes(page, boxes))
+            key = layout_mod.map_image_key(page.map_id, extent)
+            if key in no_coverage or key not in images:
+                missing.add(map_page_key(page))
+    return missing
 
 
 def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
             progress: Optional[Callable[[float, str], None]] = None,
             should_cancel: Optional[Callable[[], bool]] = None, client: Optional[HttpClient] = None,
-            cache_mode: str = "use", legends: bool = True) -> Prepared:
-    """The shell's network half: legends, the quartair drawings and the map images.
+            cache_mode: str = "use", legends: bool = False) -> Prepared:
+    """The shell's network half: legends, the quartair drawings, the colour ramp and the map images.
 
     No project, no map layer, nothing that needs the GUI thread - the map images are planned on
     boxes read from the study (`layout.overlay_boxes`), which is why the plugin can run this on
     its worker right after `run_core`. Every fetch records its source on `result`, ok or not.
 
-    The quartair drawings are report content, not legend sheets, so they are fetched whatever
-    `legends` says: without them the quartair chapter has a table of numbers and nothing that
-    says what those numbers look like. A study whose zone holds no quartair rows asks nothing.
+    The quartair drawings and the height ramp are report content, not legend sheets, so they are
+    fetched whatever `legends` says: without them the quartair chapter has a table of numbers and
+    nothing that says what those numbers look like, and the height map has a colour scale nobody
+    can read. A study whose zone holds no quartair rows asks nothing.
     """
     out_dir = Path(out_dir)
     clock = PhaseClock(progress or (lambda fraction, message: None), log)
@@ -499,6 +560,13 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
 
+    ramp_entry = _ramp_entry(result)
+    if ramp_entry is not None:
+        _stop_if_cancelled(should_cancel)
+        clock.begin(0.13, "Kleurschaal hoogtemodel")
+        client = client or make_client(out_dir, log, cache_mode)
+        zone_legend_images.update(_fetch_ramp(result, ramp_entry, out_dir, client, log))
+
     _stop_if_cancelled(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
     client = client or make_client(out_dir, log, cache_mode)
@@ -508,9 +576,12 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     planned = build_report(result, meta, zone_legend_images)
     requests = layout_mod.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
     map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
+    unavailable = _pages_without_an_image(planned, result, map_images, no_coverage)
+    if unavailable and log:
+        log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
     clock.close()
     return Prepared(legend_images, zone_legend_images, map_images, no_coverage, requests,
-                    clock.timings)
+                    unavailable, clock.timings)
 
 
 # The PDF phase on the progress bar: from `PDF_START` to `PDF_END` the export reports per run.
@@ -518,10 +589,10 @@ PDF_START, PDF_END = 0.50, 0.95
 
 
 def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, log: Log,
-           progress: Optional[Callable[[float, str], None]] = None, legends: bool = True,
+           progress: Optional[Callable[[float, str], None]] = None, legends: bool = False,
            should_cancel: Optional[Callable[[], bool]] = None, client: Optional[HttpClient] = None,
            cache_mode: str = "use", pngs: bool = False, study_groups: bool = True,
-           prepared: Optional[Prepared] = None) -> PipelineResult:
+           prepared: Optional[Prepared] = None, compact: bool = False) -> PipelineResult:
     """Main-thread part: relief, layers, files, report, layout, exports - on what `prepare` fetched.
 
     `prepared` is the network half, already done on a worker thread by the plugin; left None it is
@@ -537,6 +608,8 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     wants - the user carries on working in that project - and what a headless run does not: nobody
     ever sees that QgsProject, while building the layers costs a GetCapabilities per map (2,6 s
     each against DOV, measured 2026-09-16). The deliverable `.qgz` gets them either way.
+
+    `compact` packs as many short tables and figures on one sheet as fit, instead of at most two.
     """
     out_dir = Path(out_dir)
     progress = progress or (lambda fraction, message: None)
@@ -577,7 +650,10 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
     record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
     result.write_json(json_path)
-    report = build_report(result, meta, prepared.zone_legend_images)
+    # The pages of maps that have no picture are left out: the sources chapter says per map that
+    # it was tried and what came back, which is where a reader looks for that - not a sheet with
+    # an empty frame and a line under it.
+    report = build_report(result, meta, prepared.zone_legend_images, prepared.unavailable)
 
     report_progress(0.33, "GeoPackage en projectbestand")
     gpkg = out_dir / DATA_DIR / GPKG_NAME
@@ -616,9 +692,10 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                                   should_cancel=should_cancel, no_coverage=prepared.no_coverage,
                                   map_images=map_images,
                                   overlay_boxes=layout_mod.overlay_boxes(result),
-                                  name=layout_mod.layout_name(owner))
+                                  name=layout_mod.layout_name(owner), compact=compact)
     _install_layout(project, lay, log)
-    log.info(f"Layout: {lay.pageCollection().pageCount()} bladen")
+    sheets = lay.pageCollection().pageCount()
+    log.info(f"Layout: {sheets} bladen")
 
     _stop_if_cancelled(should_cancel)
     # Stoppable between two runs of the exporter, never inside one: QgsLayoutExporter takes no
@@ -646,7 +723,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                                   pdf.name if pdf else None) if name]
     log.info(f"Klaar: {', '.join(products)} in {out_dir}"
              + (f" ({len(failures)} mislukt)" if failures else ""))
-    return PipelineResult(result, report, pdf, project_file, written, page_pngs, failures,
+    return PipelineResult(result, report, pdf, project_file, written, page_pngs, sheets, failures,
                           clock.timings)
 
 
@@ -662,7 +739,7 @@ def part_of(progress: Optional[Callable[[float, str], None]], low: float, high: 
 def run_pipeline(zone: StudyZone, settings: Settings, meta: ReportMeta, out_dir, project: QgsProject,
                  log: Log, progress: Optional[Callable[[float, str], None]] = None,
                  should_cancel: Optional[Callable[[], bool]] = None, cache_mode: str = "use",
-                 legends: bool = True, pngs: bool = False) -> PipelineResult:
+                 legends: bool = False, pngs: bool = False) -> PipelineResult:
     """One study from zone to PDF, on the calling thread. The client is made once so both halves
     share the same disk cache."""
     out_dir = Path(out_dir)
@@ -671,4 +748,4 @@ def run_pipeline(zone: StudyZone, settings: Settings, meta: ReportMeta, out_dir,
                       should_cancel, cache_mode, client)
     return finish(project, result, meta, out_dir, log, part_of(progress, CORE_SHARE, 1.0),
                   legends=legends, should_cancel=should_cancel, client=client, cache_mode=cache_mode,
-                  pngs=pngs)
+                  pngs=pngs, compact=settings.compact)
