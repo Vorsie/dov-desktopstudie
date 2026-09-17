@@ -372,13 +372,21 @@ class _Runner:
         feats = self.wfs.within_distance(entry.wfs_typename, self.zone.wkt, entry.fact_within_m,
                                          self.s.max_features)
         rows = []
+        without_geometry = 0
         for feature in feats:
             distance = geometry.distance_to_geometry(feature.get("geometry"), self.zone.ring)
             if distance is None:
+                # A feature with no geometry cannot be measured, so it cannot be reported. Saying
+                # how many fell away beats a short table that looks like the whole answer - and a
+                # WFS asked with `propertyName` returns exactly this, every row geometry-less.
+                without_geometry += 1
                 continue
             row = {k: feature["properties"].get(k) for k in entry.fact_fields}
             row[catalogue.DISTANCE_FIELD] = round(distance)
             rows.append(row)
+        if without_geometry:
+            self.log.warning(f"{entry.id}: {without_geometry} van {len(feats)} objecten zonder "
+                             "geometrie overgeslagen; de afstand is niet te meten")
         rows.sort(key=lambda row: row[catalogue.DISTANCE_FIELD])
         return rows
 
