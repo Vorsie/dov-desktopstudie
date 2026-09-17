@@ -287,15 +287,18 @@ CATALOGUE: List[MapEntry] = [
           "image/jpeg", scale=5000),
     _hist("ortho_2000_03", "Orthofoto 2000-2003", "https://geo.api.vlaanderen.be/OMW/wms", "OMWRGB00_03VL",
           "image/jpeg", scale=5000),
+    # `note` van een uitgeschakelde entry wordt afgedrukt in de bronnenlijst en is dus tekst voor
+    # de LEZER: waarom de kaart niet in de studie zit en waar ze wel te vinden is. Geen enkele
+    # aanwijzing voor wie de plugin onderhoudt - die staat in de schuldlijst van CLAUDE.md.
     MapEntry("ngi_hist", "historisch", "Historische topografische kaarten NGI (1873-1989)", "", "",
              "Nationaal Geografisch Instituut", enabled=False,
-             note="Geen officiele open WMS beschikbaar (alleen het Cartesius-portaal). Vul wms_url en "
-                  "wms_layer in en zet enabled=True zodra een service bestaat.", scale=25000),
+             note="Het NGI publiceert deze reeks niet als open kaartdienst; ze is te raadplegen via "
+                  "het Cartesius-portaal van het NGI.", scale=25000),
     MapEntry("bommenkaart", "historisch", "Bommenkaart - conventionele en toxische explosieven", "", "",
              "Bommenkaart.be - Bom-Be BV", licence="Geen open data", enabled=False,
-             note="Bommenkaart.be (Bom-Be BV) is geen open data en biedt geen WMS/WFS; raadpleeg de "
-                  "kaart manueel en vermeld het risico op conventionele en toxische explosieven "
-                  "(WOI/WOII) in de studie.", scale=10000),
+             note="Bommenkaart.be (Bom-Be BV) is geen open data en biedt geen kaartdienst aan; "
+                  "raadpleeg de kaart apart en beoordeel het risico op conventionele en toxische "
+                  "explosieven (WOI/WOII) zelf.", scale=10000),
     # --- geologie en bodem ---
     # legend=False on purpose: the soil legend lists every soil series in Flanders, which fills
     # pages nobody reads. The fact table below the map names the types inside the zone instead.
