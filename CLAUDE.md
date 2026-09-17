@@ -305,9 +305,12 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   reden om die eruit te halen in plaats van te versnellen.
 - **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
   laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken). Sinds de
-  compactere opmaak (2026-09-17) telt diezelfde studie 68 bladen: de legendabladen staan uit
-  (13 kaarten, 15 bladen), de vijftien zonelegenda's en de veertien leeswijzers staan onder hun
-  kaart, de Popp-kaart zonder dekking krijgt geen blad, en korte stukken delen er een.
+  compactere opmaak (2026-09-17) telt diezelfde studie 67 bladen: de legendabladen staan uit
+  (13 kaarten, 15 bladen), de zonelegenda's en de leeswijzers staan onder hun kaart, de Popp-kaart
+  zonder dekking krijgt geen blad, de uitgeschakelde kaarten staan in de bronnen in plaats van op
+  een blad, en een blad vult zich. Gemeten inktdekking over alle bladen: gemiddeld 28 %, dertien
+  bladen onder 5 % (was negentien) - wat er nog leeg staat is het titelblad en het laatste stuk
+  van een hoofdstuk, dat per definitie geen buur meer heeft.
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
     `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
     geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
