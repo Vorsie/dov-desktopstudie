@@ -32,7 +32,7 @@ from qgis.core import (
 
 from ..core import catalogue
 from ..core.catalogue import MapEntry
-from ..core.model import Borehole, Cpt, GwFilter, StudyZone
+from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
 
 CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
@@ -65,6 +65,14 @@ DEPTH_ALIAS = "diepte / filterbasis (m)"
 LABEL_FIELD = "nummer"
 LABEL_SIZE_PT = 7.0
 POINT_SIZE_MM = "2.6"
+# The virtual boreholes: a shape and a colour of their own, because a modelled column must never
+# be mistaken for a sounding or a real borehole on the same map. Its fields are its own too - a
+# virtual borehole has no number, no contractor and no fiche, it has a model and a ground level.
+VB_NAME = "Virtuele boringen"
+VB_STYLE = ("#7030a0", "diamond")
+VB_LABEL_FIELD = "model"
+VB_FIELDS = [("model", "string"), ("x", "double"), ("y", "double"), ("maaiveld_mtaw", "double"),
+             ("aantal_lagen", "integer")]
 SECTION_LABEL = "A-A'"
 ZONE_NAME = "Onderzoekszone"
 SECTION_NAME = "Doorsnedelijn"
@@ -81,7 +89,7 @@ INVESTIGATION_GROUP = "Grondonderzoek DOV"
 GPKG_GROUPS = (
     (ZONE_GROUP, (ZONE_NAME, SECTION_NAME)),
     (INVESTIGATION_GROUP, (POINT_NAMES["sondering"], POINT_NAMES["boring"], POINT_NAMES["peilput"],
-                           SEARCH_AREA_NAME)),
+                           VB_NAME, SEARCH_AREA_NAME)),
 )
 LOCKED_HINT = "sluit de lagen van een vorige studie in QGIS en probeer opnieuw"
 
@@ -205,6 +213,29 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     return layer
 
 
+def style_virtual_boreholes_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
+    """The virtual boreholes: a purple diamond, labelled with the model it came from.
+
+    Deliberately unlike the three investigation kinds. A reader who cannot tell a modelled column
+    from a real sounding at a glance reads the map wrong, and no legend fixes that.
+    """
+    colour, marker = VB_STYLE
+    symbol = QgsMarkerSymbol.createSimple(
+        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
+         "outline_width": "0.3"})
+    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    layer.renderer().setSymbol(symbol)
+    settings = QgsPalLayerSettings()
+    settings.fieldName = VB_LABEL_FIELD
+    text_format = QgsTextFormat()
+    text_format.setSize(LABEL_SIZE_PT)
+    text_format.setSizeUnit(Qgis.RenderUnit.Points)
+    settings.setFormat(text_format)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(True)
+    return layer
+
+
 def style_by_name(layer: QgsVectorLayer, log=None) -> QgsVectorLayer:
     """Give a layer read back from the GeoPackage the style it had during the study. The layer
     name is the only thing that survives the file, so it is what the lookup goes by."""
@@ -213,7 +244,7 @@ def style_by_name(layer: QgsVectorLayer, log=None) -> QgsVectorLayer:
     if kind is not None:
         return style_points_layer(layer, kind)
     styles = {ZONE_NAME: style_zone_layer, SEARCH_AREA_NAME: style_search_area_layer,
-              SECTION_NAME: style_section_line_layer}
+              SECTION_NAME: style_section_line_layer, VB_NAME: style_virtual_boreholes_layer}
     if name in styles:
         return styles[name](layer)
     if log:
@@ -282,6 +313,33 @@ def points_layer(kind: str, items: Iterable[Investigation],
         features.append(feature)
     _add(layer, features)
     return style_points_layer(layer, kind)
+
+
+def virtual_boreholes_layer(result: StudyResult) -> QgsVectorLayer:
+    """Every virtual borehole this study took, as one point layer.
+
+    Two kinds in one layer, because they are the same thing asked at different places: the ones at
+    the representative point (one per model, so several points on one coordinate) and the doorprik
+    points along the section line. A reader of the map has to be able to see WHERE the column in
+    chapter 4 and the section in chapter 6 were taken - the report prints the coordinates, this is
+    the same fact on the map.
+
+    Always valid, even for a study that got none: the GeoPackage and `studie.qgz` carry the same
+    layer names every run, and a name that is sometimes missing is reported as lost.
+    """
+    layer = _memory("Point", VB_NAME, VB_FIELDS)
+    taken: List[VirtualBorehole] = list(result.virtual_boreholes.values())
+    if result.section is not None:
+        taken += list(result.section.boreholes)
+    features = []
+    for borehole in taken:
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(borehole.x, borehole.y)))
+        feature.setAttributes([borehole.model, float(borehole.x), float(borehole.y),
+                               borehole.surface_mtaw, len(borehole.layers)])
+        features.append(feature)
+    _add(layer, features)
+    return style_virtual_boreholes_layer(layer)
 
 
 # --- project tree and GeoPackage -----------------------------------------------------------------
