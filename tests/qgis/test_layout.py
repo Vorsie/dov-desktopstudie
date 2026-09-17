@@ -1857,3 +1857,19 @@ def test_a_portrait_piece_never_lands_on_a_landscape_sheet(make_layout):
     lay = make_layout(pages=[wide, _short_text("Leeswijzer")], compact=True)
 
     assert lay.pageCollection().pageCount() == 1 + 2
+
+
+def test_a_piece_from_another_chapter_starts_its_own_sheet(project, gent_zone, tmp_path):
+    """Een blad draagt een hoofdstukkop. Twee stukken uit verschillende hoofdstukken op een blad
+    zetten het ene onder de kop van het andere - de lezer leest dan de tabel van hoofdstuk 4 onder
+    "3. Geologie en bodem"."""
+    from desktopstudie.core.report_content import Chapter, Report
+    from desktopstudie.qgis import layout
+
+    report = Report(title="Desktopstudie testproject", meta={}, chapters=[
+        Chapter(3, "Geologie en bodem", [_short_text("Leeswijzer")]),
+        Chapter(4, "Virtuele boring", [_short_table("Plaats van de virtuele boringen")])])
+
+    lay = layout.build_layout(project, report, {}, tmp_path, gent_zone.ring, _meta(), compact=True)
+
+    assert lay.pageCollection().pageCount() == 1 + 2
