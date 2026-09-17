@@ -84,9 +84,9 @@ GUIDE_BODEMKAART = (
 GUIDE_QUARTAIR = (
     "Het profieltype is een nummer; elk nummer hoort bij een vaste opeenvolging van Quartaire "
     "afzettingen (zand, leem, klei of veen) boven de Tertiaire ondergrond. "
-    "Achter deze tabel staat per profieltype de tekening van DOV: eerst het type zelf met zijn "
-    "kleur, lettercode en omschrijving, daarna de eenhedentabel van het kaartblad, die van boven "
-    "naar onder loopt - van de jongste laag aan het maaiveld tot de oudste. "
+    "Onder de kaart staat per profieltype de tekening van DOV: het type zelf met zijn kleur, "
+    "lettercode en omschrijving. Op het blad daarna volgt de eenhedentabel van het kaartblad, die "
+    "van boven naar onder loopt - van de jongste laag aan het maaiveld tot de oudste. "
     "Het Quartair is de jongste geologische periode, alles wat de laatste 2,6 miljoen jaar is "
     "afgezet, en is meestal het pakket waarin gefundeerd wordt. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-150000")
@@ -115,8 +115,8 @@ GUIDE_DHMV_DTM = (
     "300 m TAW. "
     "Binnen een bouwzone scheelt dat zelden meer dan enkele meters, dus verschilt de kleur er "
     "nauwelijks. "
-    "Het gemeten minimum, maximum en gemiddelde over de zone zelf staan in de tabel Kerngegevens "
-    "ligging.")
+    "De kleurbalk onder de kaart is die van de dienst zelf; het gemeten minimum, maximum en "
+    "gemiddelde over de zone staan eronder en in de tabel Kerngegevens ligging.")
 GUIDE_GW_KWETSBAARHEID = (
     "De index van twee of drie tekens vat de drie kolommen ernaast samen. "
     "De hoofdletter staat voor de watervoerende laag, de kleine letter voor de deklaag erboven en "
