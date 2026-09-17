@@ -45,6 +45,22 @@ zegt waar ze genomen is.
   afdrukt, met de doorzichtigheid die de catalogus voor dat thema kiest. Elke ondergrond is een
   eigen bron; valt ze weg, dan wordt het thema alleen getekend en houdt het blad zijn plaats.
 
+- **Opmerkingen uit de boorbeschrijvingen.** Wat een beschrijving noemt en niet tot de gewone
+  grond behoort - een concretie, een zandsteenbank, glauconiet, veen, puin, baksteen, grind,
+  keien, een fossielrijke laag - komt als regel onder de boring te staan en als signalering in
+  hoofdstuk 7, met de diepte erbij en de zin van de beschrijving zelf geciteerd. De regel werkt
+  omgekeerd aan wat je zou verwachten: `core/lithology.ORDINARY` is een lijst van GEWONE woorden
+  (de matrix zand/klei/leem/silt, de modificatoren, de kleuren, het Frans van de oude records) en
+  alles wat daar niet op staat vlagt. Een onvolledige lijst geeft dus ruis, nooit een gemiste
+  vondst. De lijst is gecureerd op 3630 lagen uit 512 boringen rond twaalf punten verspreid over
+  Vlaanderen; `scripts/lithology_vocabulary.py` telt ze opnieuw wanneer DOV verandert.
+- **De diktekaart van het Quartair werkt weer.** Het zijn contourlijnen, geen vlakken: de
+  feitenvraag zocht overlap met de zone en vond nooit iets, en op 1:25 000 lag er geen lijn in
+  beeld. De kaart vraagt nu de dichtstbijzijnde lijnen binnen tien kilometer op
+  (`MapEntry.fact_within_m`), toont ze met hun afstand, staat op 1:100 000 en zet de dikte die
+  G3Dv3 op het representatieve punt geeft erboven - als modelwaarde benoemd. Ligt er geen contour
+  in beeld, dan zegt de regel dat en waar de dichtstbijzijnde ligt.
+
 ### Gewijzigd
 - **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
   ernaast: vier regels leeswijzer of twee legenda-regels op een A4 is een blad vol wit. Eerst de
@@ -69,6 +85,11 @@ zegt waar ze genomen is.
   `--legendas` om ze wel te maken. De profieltypetekeningen van het Quartair komen er hoe dan ook:
   dat is rapportinhoud, geen legendablad.
 
+- **Een elektrische sondering krijgt voorrang op een dichterbije mechanische** bij de keuze welke
+  sonderingen een qc-diagram krijgen. Een continu elektrische sondering meet over de volledige
+  diepte, een discontinu mechanische met stappen; afstand beslist binnen elke groep. De tabel
+  toont nog altijd elke sondering binnen de straal, op afstand gesorteerd, en het hoofdstuk zegt
+  waarom een elektrische van 300 m getekend is en een mechanische van 40 m niet.
 - **Een uitgeschakelde kaart krijgt geen blad meer** tussen de historische kaarten. Ze staat in
   het hoofdstuk Bronnen, in de tabel "Niet opgenomen kaarten", met de reden erbij. De reden zelf
   is herschreven voor een lezer: de NGI-regel gaf een instructie aan wie de plugin onderhoudt
