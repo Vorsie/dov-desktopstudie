@@ -158,6 +158,7 @@ SCALE_BAR_LIFT = 2.0  # the scale bar, measured down from the foot of the map fr
 # its two ends named under it and the zone's own heights below that.
 RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
 RAMP_LINE_H = 4.5
+RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
 RAMP_SUFFIX = "_schaal"
 # A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
 # swatch, not a ramp, and then no strip is cut at all - see `ramp_rect`.
@@ -1099,13 +1100,12 @@ def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
 
 
 class Slot(NamedTuple):
-    """Where one piece of content landed: its sheet, the y it starts at, how much room is left
-    under it, whether it shares the sheet with something above it, and in which orientation."""
+    """Where one piece of content landed: its sheet, the y it starts at, and whether it shares
+    that sheet with something above it - a note that stands in the header band on a sheet of its
+    own has to move under the title when it does not."""
     page: int
     top: float
-    available: float
     packed: bool
-    metrics: PageMetrics
 
 
 class UnderMap(NamedTuple):
@@ -1199,7 +1199,7 @@ class LayoutBuilder:
             self._sheet, self._sheet_metrics, self._on_sheet = index, metrics, 1
             self._sheet_chapter = chapter.number
         self._cursor = top + content_h
-        return Slot(index, top, CONTENT_TOP + metrics.content_h - top, packed, metrics)
+        return Slot(index, top, packed)
 
     def _seal(self, index: int, metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
         """This sheet is full: whatever comes next starts a new one."""
@@ -1456,7 +1456,8 @@ class LayoutBuilder:
         the picture right above it, and a legend that disagrees with its map is worse than none.
         """
         image = self.out_dir / ramp.image_path if ramp.image_path else None
-        height = (UNDER_MAP_TITLE_H + (RAMP_STRIP_H if image is not None else 0.0)
+        strip_h = RAMP_STRIP_H + RAMP_LABEL_GAP if image is not None else 0.0
+        height = (UNDER_MAP_TITLE_H + strip_h
                   + RAMP_LINE_H * (2 if ramp.note else 1) + RAMP_LINE_H)
 
         def draw(sheet: int, top: float) -> None:
@@ -1474,7 +1475,7 @@ class LayoutBuilder:
                 self.layout.addLayoutItem(strip)
                 strip.attemptMove(point_mm(MARGIN, y), page=sheet)
                 strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
-                y += RAMP_STRIP_H
+                y += strip_h
             self.label(ramp.low, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high = self.label(ramp.high, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high.setHAlign(Qt.AlignmentFlag.AlignRight)
