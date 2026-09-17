@@ -86,7 +86,6 @@ zegt waar ze genomen is.
   begint leeg, `PluginSettings.legendas` is standaard `False`, en `run_headless.py` heeft
   `--legendas` om ze wel te maken. De profieltypetekeningen van het Quartair komen er hoe dan ook:
   dat is rapportinhoud, geen legendablad.
-
 - **Een elektrische sondering krijgt voorrang op een dichterbije mechanische** bij de keuze welke
   sonderingen een qc-diagram krijgen. Een continu elektrische sondering meet over de volledige
   diepte, een discontinu mechanische met stappen; afstand beslist binnen elke groep. De tabel
