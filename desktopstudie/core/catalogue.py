@@ -41,6 +41,9 @@ DHMV_RAMP_MTAW = (-50.0, 300.0)
 # overlay so the reader can see where the theme lies (`MapEntry.backdrop`). One constant, because
 # they are one idea - a legible background - and two copies of it would drift apart.
 BASE_MAP_ID = "grb"
+# The one fact field the study computes instead of reading: how far the feature lies from
+# the zone. Only a `fact_within_m` map has it, and no recorded answer ever contains it.
+DISTANCE_FIELD = "afstand_m"
 
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
@@ -105,6 +108,15 @@ GUIDE_QUARTAIR_200K = (
     "Deze kaart is een overzicht op 1/200 000; voor de zone zelf is de kaart 1/50 000 hierboven "
     "nauwkeuriger. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-1200000")
+GUIDE_QUARTAIR_DIKTE = (
+    "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden, "
+    "in stappen van vijf meter. "
+    "Het zijn contourlijnen over heel Vlaanderen, geen vlakken per perceel, dus op de schaal van "
+    "een bouwzone ligt er zelden een lijn binnen het kaartbeeld. "
+    "De tabel geeft daarom de dichtstbijzijnde contouren met hun dikte en hun afstand tot de zone, "
+    "en daarboven de dikte die het model G3Dv3 op het representatieve punt zelf geeft. "
+    "Die modelwaarde is een berekening, geen boring: de werkelijke dikte ter plaatse volgt uit het "
+    "grondonderzoek.")
 GUIDE_TERTIAIR = (
     "De code noemt de Tertiaire eenheid onder het Quartair: de eerste twee letters staan voor de "
     "formatie, de twee daarna voor het lid, een onderdeel van die formatie. "
@@ -234,6 +246,13 @@ class MapEntry:
     # one (live, both services and both formats, 2026-09-17). Asked in the wrong format a map
     # fails with "geen van de punten antwoordde" and arrives without a number.
     gfi_format: str = "application/geo+json"
+    # How far around the zone a WFS fact query looks. None means "whatever overlaps the zone",
+    # which is right for a map of areas. A map of LINES needs a radius instead: the isopachs of
+    # the Quaternary are contour lines, and an overlap test against a zone of fifty metres never
+    # touches one (live 2026-09-17 at the Gent point: INTERSECTS 0, DWITHIN 5 km 0, DWITHIN 8 km
+    # 8 lines, the nearest at 5,68 km). The rows then come back nearest first, each with the
+    # distance it was found at.
+    fact_within_m: Optional[float] = None
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
@@ -284,13 +303,13 @@ def dov_wms(layer: str) -> Tuple[str, str]:
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
-         guide: str = "", backdrop: bool = False) -> MapEntry:
+         guide: str = "", backdrop: bool = False, within_m: Optional[float] = None) -> MapEntry:
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
-                    reading_guide=guide, scale=scale, backdrop=backdrop)
+                    reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -382,9 +401,14 @@ CATALOGUE: List[MapEntry] = [
          ("type", "profiel"), wfs="quartair:quartair_200k",
          field_labels={"type": "Type", "profiel": "Profiel"}, guide=GUIDE_QUARTAIR_200K,
          scale=100000),
+    # Contourlijnen, geen vlakken: vandaar de ruime zoekstraal en een schaal waarop er een in
+    # beeld komt. Op 1:25 000 hield het kaartbeeld rond Gent geen enkele lijn (de dichtstbijzijnde
+    # ligt op 5,7 km) en bleef het blad leeg; op 1:100 000 wordt de zone een stip, wat voor een
+    # regionale contourkaart de juiste afweging is.
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, field_labels={"dikte": "Dikte (m)"},
-         scale=50000, backdrop=True),
+         ("dikte", "afstand_m"), wfs="dov-pub:Quartair_Isopachen", legend=False,
+         field_labels={"dikte": "Dikte Quartair (m)", "afstand_m": "Afstand tot de zone (m)"},
+         guide=GUIDE_QUARTAIR_DIKTE, scale=100000, backdrop=True, within_m=10000.0),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
