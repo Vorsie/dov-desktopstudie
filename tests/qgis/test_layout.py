@@ -78,23 +78,29 @@ def _footers_on(lay, index):
 
 # --- paginastructuur -------------------------------------------------------------------------
 
-def test_a_page_per_report_page_plus_a_title_page_and_a_legend_page(make_layout):
-    """Titelblad + vier rapportpagina's + een legendapagina, want de kaart vraagt een legenda."""
+# Het standaardrapport van deze tests: titelblad, kaartblad, een blad dat de figuur en de tabel
+# delen, en een blad met de tekst. De kaart vraagt bovendien een legendablad.
+STANDARD_SHEETS = 1 + 3
+
+
+def test_a_sheet_per_piece_of_content_plus_a_title_page_and_a_legend_page(make_layout):
+    """Titelblad, kaartblad, een gedeeld blad en een tekstblad - en een legendablad, want de kaart
+    vraagt een legenda."""
     lay = make_layout()
-    assert lay.pageCollection().pageCount() == 1 + 4 + 1
+    assert lay.pageCollection().pageCount() == STANDARD_SHEETS + 1
 
 
 def test_without_legends_no_legend_pages_are_made(make_layout):
     """De schakelaar van de plugin/CLI: geen legendapagina's, de rest ongewijzigd."""
     lay = make_layout(legends=False)
-    assert lay.pageCollection().pageCount() == 1 + 4
+    assert lay.pageCollection().pageCount() == STANDARD_SHEETS
 
 
 def test_a_map_without_a_fetched_legend_gets_no_legend_page(make_layout):
     """Een legenda die niet opgehaald raakte, levert geen lege pagina op - dat zou de lezer een
     legenda beloven die er niet is."""
     lay = make_layout(legend_images={})
-    assert lay.pageCollection().pageCount() == 1 + 4
+    assert lay.pageCollection().pageCount() == STANDARD_SHEETS
 
 
 def test_every_page_is_a4_portrait(make_layout):
@@ -453,7 +459,7 @@ def test_the_legend_switch_drops_the_pages_from_a_real_export(make_layout, tmp_p
     assert QgsLayoutExporter(lay).exportToImage(str(out_off / "p.png"), settings) == QgsLayoutExporter.Success
     without_legends = len(list(out_off.glob("p*.png")))
 
-    assert with_legends == 6
+    assert with_legends == STANDARD_SHEETS + 1
     assert without_legends == with_legends - 1
 
 
@@ -715,8 +721,8 @@ def test_the_table_page_has_a_frame_the_columns_and_runs_on(make_layout):
     from qgis.core import QgsLayoutFrame, QgsLayoutMultiFrame
 
     lay = make_layout()
-    frames = _items_of(lay, 4, QgsLayoutFrame)
-    assert frames, "geen tabelframe op de tabelpagina"
+    frames = _items_of(lay, 3, QgsLayoutFrame)
+    assert frames, "geen tabelframe op het blad dat de figuur en de tabel delen"
     table = frames[0].multiFrame()
     assert table.frameCount() >= 1
     assert [column.heading() for column in table.columns()] == TABLE_COLUMNS
@@ -1181,7 +1187,7 @@ def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout, ge
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert layout_module().NO_COVERAGE_NOTE in texts
-    assert lay.pageCollection().pageCount() == 1 + 4, "geen legendapagina bij een leeg beeld"
+    assert lay.pageCollection().pageCount() == STANDARD_SHEETS, "geen legendapagina bij een leeg beeld"
 
 
 def test_an_empty_framing_leaves_the_other_framings_of_that_map_alone(make_layout, gent_zone):
@@ -1215,7 +1221,7 @@ def test_a_map_with_coverage_is_unchanged(make_layout):
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert layout_module().NO_COVERAGE_NOTE not in texts
-    assert lay.pageCollection().pageCount() == 1 + 4 + 1
+    assert lay.pageCollection().pageCount() == STANDARD_SHEETS + 1
 
 
 def layout_module():
