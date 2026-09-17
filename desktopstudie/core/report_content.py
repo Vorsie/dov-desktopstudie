@@ -331,6 +331,8 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
 
 ISOPACH_ID = "quartair_dikte"
 QUARTAIR_UNIT = "quartair"
+
+
 def _in_view_m(entry: catalogue.MapEntry) -> float:
     """How far from the zone the map frame still reaches, in metres.
 
