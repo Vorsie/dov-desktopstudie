@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue
 from .catalogue import MODEL_TITLES
@@ -563,12 +563,53 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
     return sources
 
 
+MapPageKey = Tuple[str, int, float, bool, bool]
+
+
+def map_page_key(page: MapPage) -> MapPageKey:
+    """What decides which map image a page needs: the map plus the framing it asks for.
+
+    The shell plans one image per key (`layout.plan_map_images` computes the very same extent from
+    the very same fields), so it can hand back the keys it found no image for. Per FRAMING, not
+    per map: the GRB base map carries three, and a mosaic may well cover the narrow frame and not
+    the wide one.
+    """
+    return (page.map_id, page.scale, page.extent_factor, page.show_investigations,
+            page.show_section_line)
+
+
+def _drop_unavailable(chapters: List[Chapter], unavailable: Set[MapPageKey]) -> None:
+    """Take out the map pages whose image never arrived, and keep what did not depend on it.
+
+    A sheet with an empty frame and a line saying why is a sheet the reader turns past; the
+    sources chapter is where "geen dekking op deze locatie" and a failed fetch belong, and it
+    names them there whatever happens here. The zone legend comes from the WFS and not from the
+    image, so it survives the drop - back on a sheet of its own, since there is no map left to
+    print it under.
+    """
+    for chapter in chapters:
+        kept: List[Page] = []
+        for page in chapter.pages:
+            if isinstance(page, MapPage) and map_page_key(page) in unavailable:
+                if page.zone_legend is not None:
+                    kept.append(page.zone_legend)
+                continue
+            kept.append(page)
+        chapter.pages = kept
+
+
 def build_report(result: StudyResult, meta: ReportMeta,
-                 zone_legend_images: Optional[Dict[str, str]] = None) -> Report:
-    """The whole report tree. `zone_legend_images` maps `profieltype:<code>` to the header strip
-    and `kaartblad:<nn>` to the units table the shell fetched, as paths relative to the output
-    directory (the same shape as `StudyResult.figures`); without it the legend page keeps its
-    lines but shows no drawings."""
+                 zone_legend_images: Optional[Dict[str, str]] = None,
+                 unavailable: Optional[Set[MapPageKey]] = None) -> Report:
+    """The whole report tree. `zone_legend_images` maps `profieltype:<code>` to the header strip,
+    `kaartblad:<nn>` to the units table and `kleurschaal:<map id>` to a colour strip the shell
+    fetched, as paths relative to the output directory (the same shape as `StudyResult.figures`);
+    without it the legend keeps its lines but shows no drawings.
+
+    `unavailable` holds the `map_page_key`s whose map image did not come back - no coverage here,
+    or a fetch that failed. Those pages are left out entirely; the shell knows them because it
+    fetched the images before this tree was built for printing, and the sources chapter says per
+    map what happened."""
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
@@ -579,6 +620,8 @@ def build_report(result: StudyResult, meta: ReportMeta,
         _chapter_virtuele_boring(result), _chapter_grondonderzoek(result), _chapter_doorsnede(result),
         _chapter_samenvatting(result), _chapter_bronnen(result),
     ]
+    if unavailable:
+        _drop_unavailable(chapters, set(unavailable))
     return Report(title=f"Desktopstudie {meta.project}", chapters=chapters, meta={
         "project": meta.project, "project_number": meta.project_number, "author": meta.author,
         "company": meta.company, "logo_path": meta.logo_path, "address": _s(z.address),
