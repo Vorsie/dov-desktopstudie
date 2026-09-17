@@ -45,10 +45,10 @@ def test_map_pages_come_from_catalogue_and_tables_from_data(gent_ring):
     # chapter 3 interleaves: map page, how to read its codes, then what lies in the zone
     assert isinstance(geo.pages[0], rc.MapPage) and geo.pages[0].map_id == "bodemkaart"
     assert isinstance(geo.pages[1], rc.TextPage) and geo.pages[1].title.startswith("Leeswijzer")
-    tables = [p for p in geo.pages if isinstance(p, rc.TablePage)]
-    assert tables[0].title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
-    assert tables[0].rows[0][0] == "OB"
-    assert tables[0].columns[2] == "Omschrijving"  # readable header, not the raw DOV field name
+    legend = geo.pages[0].zone_legend  # onder de kaart, niet op een blad ernaast
+    assert legend.title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
+    assert legend.rows[0][0] == "OB"
+    assert legend.columns[2] == "Omschrijving"  # readable header, not the raw DOV field name
     inv = report.chapters[4]
     cpt_table = next(p for p in inv.pages if isinstance(p, rc.TablePage) and p.title.startswith("Sonderingen"))
     assert cpt_table.columns[0] == "Nummer" and cpt_table.rows[0][1] == "210"
@@ -132,7 +132,7 @@ def test_the_new_geology_maps_get_a_map_page_and_a_zone_legend(gent_ring):
     geo = report.chapters[2]
     map_ids = [p.map_id for p in geo.pages if isinstance(p, rc.MapPage)]
     assert {"grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "pfas_no_regret"} <= set(map_ids)
-    pfas = next(p for p in geo.pages if isinstance(p, rc.TablePage) and "PFAS" in p.title)
+    pfas = _zone_legend(geo, "PFAS")
     # "(bron)", niet "(link)": de ingekorte URL noemt de bron, ze is niet meer aan te klikken - het
     # fragment (#sb-...) waar de maatregel zelf staat, valt bij het inkorten weg.
     assert pfas.columns == ["PFAS-dossier", "Gemeente", "Straat", "Status", "Geldig vanaf",
@@ -180,27 +180,34 @@ def _geologie(result, zone_legend_images=None):
                            zone_legend_images=zone_legend_images).chapters[2]
 
 
+def _zone_legend(chapter, title_part):
+    """De legenda voor de zone van een kaart, waar ze staat: onder het kaartkader van haar eigen
+    kaartpagina, niet als blad in het hoofdstuk."""
+    return next(page.zone_legend for page in chapter.pages
+                if isinstance(page, rc.MapPage) and page.zone_legend is not None
+                and title_part in page.zone_legend.title)
+
+
 def test_the_zone_legend_lists_only_the_classes_that_lie_in_the_zone(gent_ring):
     """De volledige bodemlegende telt honderden series; de lezer heeft er een nodig. "Legenda voor
     de zone" zet de klassen die in deze zone voorkomen op een rij, met hun omschrijving erbij."""
     geo = _geologie(_result(gent_ring))
 
-    legend = next(p for p in geo.pages if p.title == "Legenda voor de zone - Bodemkaart van Vlaanderen")
+    legend = _zone_legend(geo, "Bodemkaart van Vlaanderen")
     # De gegeneraliseerde legende ("Antropogeen") zegt iets wat geen andere kolom zegt en verhuist
     # mee nu de feitentabel verdwijnt; de textuur- en drainagecode herhalen alleen hun eigen naam.
     assert legend.columns == ["Bodemtype", "Serie", "Omschrijving", "Textuur", "Drainage", "Legende"]
     assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
 
 
-def test_the_reading_guide_stands_between_the_map_and_the_zone_legend(gent_ring):
-    """De volgorde waarin de lezer het nodig heeft: eerst de kaart, dan hoe haar codes te lezen
-    zijn (de leeswijzer), dan welke klassen er in de zone liggen."""
+def test_the_reading_guide_stands_right_behind_its_map(gent_ring):
+    """De volgorde waarin de lezer het nodig heeft: eerst de kaart met de klassen die in de zone
+    liggen eronder, dan hoe die codes te lezen zijn (de leeswijzer)."""
     geo = _geologie(_result(gent_ring))
 
     titles = [p.title for p in geo.pages]
     guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
-    legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
-    assert titles.index("Bodemkaart van Vlaanderen") < guide < legend
+    assert titles.index("Bodemkaart van Vlaanderen") == guide - 1
     page = geo.pages[guide]
     assert isinstance(page, rc.TextPage)
     assert "Z zand" in page.html and "drainage" in page.html
@@ -215,7 +222,7 @@ def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
     geo = _geologie(_with_quartair(_result(gent_ring)),
                     zone_legend_images=_profile_images("22026", "22010", "22098"))
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert isinstance(legend, rc.LegendPage)
     assert [(e.code, e.sheet, e.image_path) for e in legend.entries] == [
         ("22026", "22", "legendas/quartair_22026_kop.png"),
@@ -229,7 +236,7 @@ def test_a_profile_type_whose_drawing_failed_keeps_its_line(gent_ring):
     code en kaartblad kloppen nog - alleen de tekening ontbreekt, en de bronnenlijst zegt waarom."""
     geo = _geologie(_with_quartair(_result(gent_ring)), zone_legend_images=_profile_images("22026"))
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert [(e.code, e.image_path) for e in legend.entries] == [
         ("22026", "legendas/quartair_22026_kop.png"), ("22010", ""), ("22098", "")]
 
@@ -247,7 +254,6 @@ def test_the_quartair_block_is_two_pages_not_four(gent_ring):
                 or title.startswith("Eenheden op kaartblad")]
     assert quartair == ["Quartairgeologische kaart 1/50 000 (samengesteld)",
                         "Leeswijzer - Quartairgeologische kaart 1/50 000 (samengesteld)",
-                        "Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)",
                         "Eenheden op kaartblad 22"]
 
 
@@ -279,9 +285,9 @@ def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent
 
     geo = _geologie(result)
 
-    empty = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Tertiair"))
+    empty = _zone_legend(geo, "Tertiairgeologische kaart")
     assert empty.rows == [] and empty.note == "Geen kaarteenheden binnen de zone."
-    silent = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - HCOV"))
+    silent = _zone_legend(geo, "HCOV")
     assert silent.rows == [] and silent.note == "Bron niet beschikbaar."
 
 
@@ -310,7 +316,7 @@ def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
 
     geo = _geologie(result)
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - PFAS"))
+    legend = _zone_legend(geo, "PFAS")
     link = legend.rows[0][-1]
     assert link.startswith("https://www.vlaanderen.be/...") and len(link) <= 64, link
 
@@ -322,9 +328,10 @@ def test_a_map_gets_one_table_not_two(gent_ring):
     report = rc.build_report(_with_quartair(_result(gent_ring)),
                              rc.ReportMeta(project="P1", author="A", company="C"))
 
-    titles = [p.title for p in report.chapters[2].pages]
+    geo = report.chapters[2]
+    titles = [p.title for p in geo.pages]
     assert not any(title.endswith("eenheden in de zone") for title in titles), titles
-    assert "Legenda voor de zone - Bodemkaart van Vlaanderen" in titles
+    assert _zone_legend(geo, "Bodemkaart van Vlaanderen").rows
     # en de kern houdt de rijen zoals de dienst ze gaf
     rows = next(fact.rows for fact in _with_quartair(_result(gent_ring)).map_facts
                 if fact.map_id == "quartair")
@@ -340,7 +347,7 @@ def test_a_generic_zone_legend_translates_its_codes(gent_ring):
 
     geo = _geologie(result)
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Watertoets"))
+    legend = _zone_legend(geo, "Watertoets")
     assert legend.columns == ["Klasse"]
     assert legend.rows == [["C - Kleine kans op overstromingen [2]"]], "ontdubbeld en vertaald"
 
@@ -424,3 +431,46 @@ def test_without_a_choice_every_enabled_map_stays_in_the_report(gent_ring):
     assert maps == {e.id for e in catalogue.entries()}
     sources = next(p for p in report.chapters[7].pages if p.title.startswith("Kaartbronnen"))
     assert len(sources.rows) == len(catalogue.entries())
+
+
+# --- de legenda voor de zone staat onder haar kaart -------------------------------------------
+
+def test_the_zone_legend_stands_under_its_map_and_not_on_a_sheet_of_its_own(gent_ring):
+    """Een apart blad "Legenda voor de zone" draagt vaak een of twee regels en laat de rest van de
+    A4 wit. Die legenda hoort onder het kaartkader op het kaartblad zelf te staan, dus ze is geen
+    pagina van het hoofdstuk meer - ze reist mee met haar kaart."""
+    geo = _geologie(_result(gent_ring))
+
+    assert not [p for p in geo.pages if p.title.startswith("Legenda voor de zone")], \
+        "de zonelegenda hoort geen eigen blad meer te zijn"
+    bodemkaart = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    legend = bodemkaart.zone_legend
+    assert isinstance(legend, rc.TablePage)
+    assert legend.title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
+    assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
+
+
+def test_the_quartair_zone_legend_takes_its_drawings_under_the_map_too(gent_ring):
+    """De zonelegenda van het Quartair draagt tekeningen - de kopstroken van de profieltypes. Ook
+    die gaan onder de kaart mee; alleen de eenhedentabel van het kaartblad blijft een eigen blad,
+    want dat is een tekening van een halve A4."""
+    geo = _geologie(_with_quartair(_result(gent_ring)),
+                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+
+    quartair_map = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "quartair")
+    legend = quartair_map.zone_legend
+    assert isinstance(legend, rc.LegendPage)
+    assert [(e.code, e.sheet) for e in legend.entries] == [("22026", "22"), ("22010", "22"),
+                                                           ("22098", "22")]
+    assert [p.title for p in geo.pages if p.title.startswith("Eenheden op kaartblad")] == [
+        "Eenheden op kaartblad 22"]
+
+
+def test_a_map_without_a_zone_legend_carries_none(gent_ring):
+    """Een kaart zonder feiten - een orthofoto, het hoogtemodel - heeft geen legenda voor de zone;
+    ze draagt er dan ook geen."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ortho = next(p for p in report.chapters[0].pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "ortho")
+    assert ortho.zone_legend is None
