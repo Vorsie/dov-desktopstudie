@@ -33,10 +33,12 @@ op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
 8. Bronnen: elke geraadpleegde dienst met URL, ophaaltijdstip en of ze antwoordde.
 
 Elke kaart met een code krijgt een leeswijzer en een "Legenda voor de zone" met alleen de
-klassen die in de zone voorkomen. Die legenda staat **onder het kaartkader op het kaartblad zelf**:
-het kader krimpt met wat ze nodig heeft (nooit verder dan een halve bladhoogte) en wat dan nog niet
-past loopt door op het volgende blad. Het hoogtemodel krijgt op dezelfde plaats de kleurbalk van de
-dienst zelf, met de laagste, gemiddelde en hoogste hoogte van de zone eronder. Een kaart waarvan de
+klassen die in de zone voorkomen. Allebei staan ze **onder het kaartkader op het kaartblad zelf** -
+eerst de leeswijzer, dan de legenda: het kader krimpt met wat ze nodig hebben (nooit verder dan een
+halve bladhoogte) en wat dan nog niet past loopt door op het volgende blad. Het hoogtemodel krijgt
+op dezelfde plaats de kleurbalk van de dienst zelf, met de zone erop gemarkeerd - een beugel tussen
+de laagste en de hoogste hoogte, of een streepje op het gemiddelde als die te dicht bij elkaar
+liggen om te tekenen - en de drie waarden eronder. Een kaart waarvan de
 dienst hier geen beeld levert krijgt geen blad; ze staat wel in het hoofdstuk Bronnen, met de reden.
 De historische NGI-reeks (1873–1989) en de bommenkaart staan in de catalogus maar uitgeschakeld;
 zie *Bekende beperkingen*.
@@ -189,10 +191,10 @@ levert `data/studie.json` en `figuren/`, geen kaarten en geen PDF; dezelfde afsl
 ## Prestaties
 
 Reken op ongeveer een minuut per studie in de plugin; de eerste run op een locatie duurt langer
-omdat elke bron dan echt opgehaald wordt. Dezelfde zone in Gent telde 115 bladen in v0.1.0 en 81
-sinds de compactere opmaak (gemeten 2026-09-17): de legendabladen staan uit, de legenda's voor de
-zone staan onder hun kaart, een kaart zonder dekking krijgt geen blad en korte stukken delen er
-een. Gemeten op 2026-09-16 voor diezelfde zone (toen 115 bladen):
+omdat elke bron dan echt opgehaald wordt. Dezelfde zone in Gent telde 115 bladen in v0.1.0 en 70
+sinds de compactere opmaak (gemeten 2026-09-17): de legendabladen staan uit, de leeswijzers en de
+legenda's voor de zone staan onder hun kaart, een kaart zonder dekking krijgt geen blad en korte
+stukken delen er een. Gemeten op 2026-09-16 voor diezelfde zone (toen 115 bladen):
 in de plugin 149 s met koude cache, waarvan PDF-export 60 s, layout 24 s, lagen 8 s en de
 profieltypetekeningen 21 s (het documentportaal van DOV antwoordde traag); headless op een warme
 cache 46–48 s voor de schil, waarvan PDF-export 28 s, layout 9 s en GeoPackage plus projectbestand
