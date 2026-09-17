@@ -803,10 +803,25 @@ def test_no_report_text_addresses_the_developer(gent_ring):
                              zone_legend_images=_profile_images("22026"))
 
     forbidden = ("wms_url", "wms_layer", "enabled", "=True", "=False", "None", "catalogus",
-                 ".py", "TODO", "FIXME", "parameter")
+                 ".py", "TODO", "FIXME", "parameter", "True", "False")
     for text in _all_text(report):
         for word in forbidden:
             assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
+
+
+def test_a_boolean_from_a_service_is_printed_in_dutch(gent_ring):
+    """"Risico-inrichting: True" in een Nederlandstalige tabel is Python, geen rapporttaal. De
+    dienst antwoordt met een booleaanse waarde; op papier staat er ja of nee."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("ovam", "OVAM - uitspraak bodemonderzoeken", [
+        {"kadaster_id": "44809I0837/00F010", "uitspraak": "Geen verder onderzoek nodig",
+         "risico_inrichting": True, "onder_voorbehoud": False}]))
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "ovam").zone_legend
+    assert "ja" in table.rows[0] and "nee" in table.rows[0]
 
 
 # --- de grondwaterstand onder haar eigen kaart --------------------------------------------------
