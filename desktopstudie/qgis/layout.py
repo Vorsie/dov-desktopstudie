@@ -1156,12 +1156,14 @@ class LayoutBuilder:
         self.layout.setName(name or LAYOUT_NAME)
         QgsExpressionContextUtils.setLayoutVariable(self.layout, LEGEND_VARIABLE, 1 if legends else 0)
         self._first_page_used = False
-        # The sheet being filled: which one, how far down it is used, how many pieces stand on it
-        # and in which orientation. A fresh sheet resets all four (`_start`).
+        # The sheet being filled: which one, how far down it is used, how many pieces stand on it,
+        # in which orientation and under which chapter heading. A fresh sheet resets all five
+        # (`_start`).
         self._sheet = -1
         self._cursor = CONTENT_TOP
         self._on_sheet = 0
         self._sheet_metrics = _METRICS[PORTRAIT]
+        self._sheet_chapter: Optional[int] = None
 
     # --- which sheet does this piece of content go on? --------------------------------------------
 
@@ -1175,12 +1177,14 @@ class LayoutBuilder:
 
         On the sheet being filled when it fits there - a sheet holding one short table is a sheet
         of white paper - and on a fresh one otherwise. A sheet has one orientation, so a portrait
-        piece never joins a landscape one; a map page never shares at all, and fills its sheet so
-        that nothing lands behind it either.
+        piece never joins a landscape one, and ONE chapter heading, so a piece from the next
+        chapter starts its own sheet instead of landing under the heading of the previous one. A
+        map page never shares at all, and fills its sheet so that nothing lands behind it either.
         """
         room = CONTENT_TOP + self._sheet_metrics.content_h - self._cursor
         packed = (packable and self._sheet >= 0 and self._on_sheet < self._pack_limit
                   and metrics.orientation == self._sheet_metrics.orientation
+                  and chapter.number == self._sheet_chapter
                   and PACK_GAP + PACKED_TITLE_H + content_h <= room)
         if packed:
             index, top = self._sheet, self._cursor + PACK_GAP
@@ -1193,6 +1197,7 @@ class LayoutBuilder:
             self.header(chapter, title, index, metrics)
             top = CONTENT_TOP
             self._sheet, self._sheet_metrics, self._on_sheet = index, metrics, 1
+            self._sheet_chapter = chapter.number
         self._cursor = top + content_h
         return Slot(index, top, CONTENT_TOP + metrics.content_h - top, packed, metrics)
 
