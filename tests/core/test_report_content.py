@@ -738,3 +738,65 @@ def test_a_ramp_without_measured_relief_has_nothing_to_mark(gent_ring):
     ramp = next(p for p in report.chapters[0].pages
                 if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
     assert ramp.band is None and ramp.mean_at is None
+
+
+# --- geen uitgeschakelde kaart op een eigen blad, geen ontwikkelaarstaal -------------------------
+
+def _all_text(report):
+    """Elke tekst die een lezer in het rapport te zien krijgt, waar ze ook hangt."""
+    out = []
+    for chapter in report.chapters:
+        out.append(chapter.title)
+        pages = list(chapter.pages)
+        for page in chapter.pages:
+            if isinstance(page, rc.MapPage):
+                pages += [part for part in (page.guide, page.zone_legend) if part is not None]
+                if page.ramp is not None:
+                    out += [page.ramp.title, page.ramp.low, page.ramp.high, page.ramp.summary,
+                            page.ramp.note, page.ramp.band_label, page.ramp.mean_label]
+        for page in pages:
+            out.append(page.title)
+            out.append(getattr(page, "note", ""))
+            out.append(getattr(page, "html", ""))
+            out.append(getattr(page, "caption", ""))
+            out += list(getattr(page, "columns", []))
+            for row in getattr(page, "rows", []):
+                out += [str(cell) for cell in row]
+            for entry in getattr(page, "entries", []):
+                out += [entry.code, entry.sheet]
+    return [text for text in out if text]
+
+
+def test_a_disabled_map_gets_no_sheet_but_stands_in_the_sources(gent_ring):
+    """Een uitgeschakelde kaart krijgt geen eigen blad maar staat wel in de bronnen.
+
+    Een blad met een regel "Niet opgenomen" zegt tussen de historische kaarten niets wat de
+    bronnenlijst niet beter zegt - daar hoort het thuis, met de reden erbij."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"))
+
+    hist = report.chapters[1]
+    assert not [p for p in hist.pages if p.title.startswith("Historische topografische kaarten NGI")]
+    assert not [p for p in hist.pages if p.title.startswith("Bommenkaart")]
+    assert not any("Niet opgenomen" in text for text in _all_text(report))
+
+    left_out = next(p for p in report.chapters[7].pages if p.title.startswith("Niet opgenomen"))
+    assert left_out.columns == ["Kaart", "Reden"]
+    titles = [row[0] for row in left_out.rows]
+    assert any("NGI" in title for title in titles) and any("ommenkaart" in title for title in titles)
+    assert all(row[1] for row in left_out.rows), "elke regel hoort haar reden te noemen"
+
+
+def test_no_report_text_addresses_the_developer(gent_ring):
+    """Geen enkele rapporttekst richt zich tot de ontwikkelaar.
+
+    "Vul wms_url in en zet enabled=True" is een opmerking voor wie de plugin schrijft; in het
+    rapport van een klant heeft ze niets te zoeken."""
+    report = rc.build_report(_with_quartair(_result(gent_ring)),
+                             rc.ReportMeta(project="P", author="A", company="C"),
+                             zone_legend_images=_profile_images("22026"))
+
+    forbidden = ("wms_url", "wms_layer", "enabled", "=True", "=False", "None", "catalogus",
+                 ".py", "TODO", "FIXME", "parameter")
+    for text in _all_text(report):
+        for word in forbidden:
+            assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
