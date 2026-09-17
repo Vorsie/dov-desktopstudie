@@ -256,6 +256,10 @@ def _report_overlays(project: QgsProject, overlays: Dict[str, List[QgsMapLayer]]
             kind = next((k for k, title in layers.POINT_NAMES.items() if title == layer.name()), None)
             if kind is not None:
                 layers.style_points_layer(copy, kind, label_only_figured=True)
+            elif layer.name() == layers.VB_NAME:
+                # A dozen doorprik points along one line all say the same model; on paper that is
+                # a smudge over the section line, so the copy draws its diamonds and nothing else.
+                layers.style_virtual_boreholes_layer(copy, labels=False)
             project.addMapLayer(copy, False)
             copies.append(copy)
         report[key] = copies
