@@ -36,12 +36,14 @@ from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
     QgsExpressionContextUtils,
+    QgsFillSymbol,
     QgsLayoutFrame,
     QgsLayoutItemLabel,
     QgsLayoutItemMap,
     QgsLayoutItemPage,
     QgsLayoutItemPicture,
     QgsLayoutItemScaleBar,
+    QgsLayoutItemShape,
     QgsLayoutItemTextTable,
     QgsLayoutMultiFrame,
     QgsLayoutObject,
@@ -159,6 +161,14 @@ SCALE_BAR_LIFT = 2.0  # the scale bar, measured down from the foot of the map fr
 RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
 RAMP_LINE_H = 4.5
 RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
+# Marking the zone on the strip. Over a scale of 350 metres a building plot is a millimetre wide,
+# so a bracket is only drawn when the two ends are this far apart on paper; below it the mean gets
+# one tick with a leader line down to its label.
+RAMP_SPAN_MIN_MM = 6.0
+RAMP_TICK_W = 0.5
+RAMP_TICK_H = 2.5
+RAMP_MARK_H = RAMP_TICK_H + 0.5
+RULE_COLOUR = "#000000"
 RAMP_SUFFIX = "_schaal"
 # A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
 # swatch, not a ramp, and then no strip is cut at all - see `ramp_rect`.
@@ -1109,13 +1119,17 @@ class Slot(NamedTuple):
 
 
 class UnderMap(NamedTuple):
-    """One block below a map frame: how tall it is, and how to draw it once the frame is placed.
+    """What goes below a map frame: how tall it is, and how to draw it once the frame is placed.
 
     Measured first and drawn later, because the height of the frame follows from the measurement
-    and the position of the block follows from the frame.
+    and the position of the block follows from the frame. `minimum` is what the FIRST piece needs:
+    a legend that does not fit runs on to the next sheet, but a reading guide that does not even
+    start under a readable map takes the whole block with it - half a paragraph under a map and
+    the other half overleaf reads worse than a block that begins on a sheet of its own.
     """
     height: float
     draw: Callable[[int, float], None]
+    minimum: float = 0.0
 
 
 class LayoutBuilder:
@@ -1384,6 +1398,11 @@ class LayoutBuilder:
         extent = self.map_extent(page.scale, page.extent_factor, self._page_boxes(page))
         block = self._under_map(chapter, page, index)
         height = map_height(block.height)
+        # Not even the first piece fits under a map that is still readable: the frame keeps its
+        # full height and the whole block starts on the sheet behind it.
+        overleaf = block.minimum > CONTENT_H - height - UNDER_MAP_GAP
+        if overleaf:
+            height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
         map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
         map_item.setLayers(self._map_layers(page, extent))
@@ -1421,16 +1440,28 @@ class LayoutBuilder:
         if note:
             self.label(note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
         self._seal(index)
-        block.draw(index, CONTENT_TOP + height + UNDER_MAP_GAP)
+        if overleaf:
+            index = self.new_page()
+            self.header(chapter, f"{page.title} (vervolg)", index)
+            self._seal(index)
+            block.draw(index, CONTENT_TOP)
+        else:
+            block.draw(index, CONTENT_TOP + height + UNDER_MAP_GAP)
         if page.legend and self.legends and not empty:
             self.legend_pages(chapter, page)
 
     # --- what stands under a map frame ------------------------------------------------------------
 
     def _under_map(self, chapter: Chapter, page: MapPage, index: int) -> UnderMap:
-        """The blocks under this map frame, measured and ready to draw: a colour ramp, the legend
-        of the classes inside the zone, or neither."""
+        """Everything that belongs under this map frame, measured and ready to draw.
+
+        In the order the reader needs it: first how to read the map (the leeswijzer), then what it
+        says about this zone - the classes inside it, or the colour scale for a map that has one
+        instead of classes.
+        """
         blocks: List[UnderMap] = []
+        if page.guide is not None:
+            blocks.append(self._guide_block(page.guide))
         if page.ramp is not None:
             blocks.append(self._ramp_block(page.ramp))
         if page.zone_legend is not None:
@@ -1446,7 +1477,52 @@ class LayoutBuilder:
                 block.draw(sheet, y)
                 y += block.height + UNDER_MAP_BLOCK_GAP
 
-        return UnderMap(height, draw)
+        return UnderMap(height, draw, blocks[0].height)
+
+    def _guide_block(self, page: TextPage) -> UnderMap:
+        """How to read this map, under its own frame instead of on a sheet of its own."""
+        height = self._text_height(page.html, CONTENT_W)
+
+        def draw(sheet: int, top: float) -> None:
+            self.label(page.html, MARGIN, top, CONTENT_W, height, sheet, size=TEXT_FONT_PT,
+                       html=True)
+
+        return UnderMap(height, draw, height)
+
+    def _rule(self, x: float, y: float, width: float, height: float, page: int) -> None:
+        """A thin black bar: a tick under the colour strip, or the line that joins two of them.
+
+        A shape rather than a label with a background: a rule is a rule, and a label carries a
+        margin and a text layout that has nothing to do here.
+        """
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple({"color": RULE_COLOUR, "outline_style": "no"}))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(width, height))
+
+    def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> str:
+        """Put this zone on the colour strip, and answer with the line that names it.
+
+        A bracket between its lowest and highest value when those are far enough apart to tell
+        apart on paper; otherwise one tick at the mean with a leader down to the label, because
+        two ticks half a millimetre apart are one fat tick that means nothing.
+        """
+        if ramp.band is None or ramp.mean_at is None:
+            return ""
+        left = MARGIN + ramp.band[0] * RAMP_STRIP_W
+        right = MARGIN + ramp.band[1] * RAMP_STRIP_W
+        if right - left >= RAMP_SPAN_MIN_MM:
+            self._rule(left, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+            self._rule(right, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+            self._rule(left, y + RAMP_TICK_H - RAMP_TICK_W, right - left + RAMP_TICK_W,
+                       RAMP_TICK_W, sheet)
+            return ramp.band_label
+        middle = MARGIN + ramp.mean_at * RAMP_STRIP_W
+        self._rule(middle, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+        self._rule(middle, y + RAMP_TICK_H - RAMP_TICK_W, RAMP_TICK_W * 2, RAMP_TICK_W, sheet)
+        return ramp.mean_label
 
     def _ramp_block(self, ramp: ColourRamp) -> UnderMap:
         """A colour scale as a strip: the service's own band, its two ends named under it and the
@@ -1457,7 +1533,9 @@ class LayoutBuilder:
         """
         image = self.out_dir / ramp.image_path if ramp.image_path else None
         strip_h = RAMP_STRIP_H + RAMP_LABEL_GAP if image is not None else 0.0
-        height = (UNDER_MAP_TITLE_H + strip_h
+        # The zone is only marked where there IS a strip: a tick beside no colours points nowhere.
+        marked = image is not None and ramp.band is not None
+        height = (UNDER_MAP_TITLE_H + strip_h + (RAMP_MARK_H + RAMP_LINE_H if marked else 0.0)
                   + RAMP_LINE_H * (2 if ramp.note else 1) + RAMP_LINE_H)
 
         def draw(sheet: int, top: float) -> None:
@@ -1476,6 +1554,11 @@ class LayoutBuilder:
                 strip.attemptMove(point_mm(MARGIN, y), page=sheet)
                 strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
                 y += strip_h
+            if marked:
+                zone = self._mark_the_zone(ramp, sheet, y)
+                y += RAMP_MARK_H
+                self.label(zone, MARGIN, y, CONTENT_W, RAMP_LINE_H, sheet, size=7, bold=True)
+                y += RAMP_LINE_H
             self.label(ramp.low, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high = self.label(ramp.high, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high.setHAlign(Qt.AlignmentFlag.AlignRight)
