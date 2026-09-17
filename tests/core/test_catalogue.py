@@ -9,7 +9,7 @@ FIXTURE_FOR = {
     "bodemkaart": "wfs_bodemtypes_intersects.json",
     "quartair": "wfs_quartair_samengesteld_intersects.json",
     "quartair_200k": "wfs_quartair_200k_intersects.json",
-    "quartair_dikte": "wfs_quartair_isopachen_intersects.json",
+    "quartair_dikte": "wfs_quartair_isopachen_dwithin.json",
     "tertiair": "wfs_tertiair_50k_intersects.json",
     "hcov": "wfs_hcov_0100_vk_intersects.json",
     "gw_kwetsbaarheid": "wfs_gwkwb_kwbschaal_intersects.json",
