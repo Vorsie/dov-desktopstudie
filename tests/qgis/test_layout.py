@@ -2304,3 +2304,24 @@ def test_a_note_under_a_filled_zone_legend_is_printed_too(make_layout):
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Modelwaarde G3Dv3" in texts
+
+
+def test_a_long_note_above_a_table_gets_the_room_its_lines_need(make_layout):
+    """De uitleg waarom net die sonderingen getekend zijn staat als noot boven de tabel. Een vaste
+    strook van twee regels snijdt zo'n noot af of laat hem over de eerste tabelrij lopen: de
+    noot krijgt de hoogte van zijn eigen regels, en de tabel begint eronder."""
+    from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import TablePage
+
+    note = ("Niet elke sondering hieronder krijgt een diagram: voor de figuren krijgen de "
+            "elektrische sonderingen voorrang, hoe ver ze ook liggen, en pas daarna de "
+            "dichtstbijzijnde mechanische. Een continu elektrische sondering meet de "
+            "conusweerstand over de volledige diepte; een discontinu mechanische meet met "
+            "stappen en mist wat daartussen ligt.")
+    lay = make_layout(pages=[TablePage("Sonderingen binnen 500 m", ["a"], [["1"]], note=note)])
+
+    label = next(item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+                 if "elektrische" in item.text())
+    frame = next(item for item in _items_of(lay, 1, QgsLayoutFrame))
+    assert frame.pos().y() >= label.pos().y() + label.rect().height() - 0.5
