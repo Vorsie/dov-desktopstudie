@@ -13,8 +13,11 @@ def _store(tmp_path):
 
 
 def test_the_defaults_before_anything_was_saved(qgs_app, tmp_path):
-    """Een verse installatie: 500 m zoekstraal, de studies onder Documenten, de schijfcache aan en
-    de legenda's op aparte pagina's; de velden van het titelblad leeg."""
+    """Een verse installatie: 500 m zoekstraal, de studies onder Documenten, de schijfcache aan,
+    geen aparte legendapagina's en geen compacte opmaak; de velden van het titelblad leeg.
+
+    De legendabladen staan UIT: veertien kaarten leveren er tientallen, en wie ze wil vinkt ze
+    aan. De compacte opmaak staat uit omdat de standaardopmaak voorspelbaar hoort te zijn."""
     from desktopstudie.qgis.settings import PluginSettings
 
     settings = PluginSettings(_store(tmp_path))
@@ -23,7 +26,8 @@ def test_the_defaults_before_anything_was_saved(qgs_app, tmp_path):
     assert (settings.company, settings.author, settings.logo) == ("", "", "")
     assert Path(settings.output_dir) == Path.home() / "Documents" / "Desktopstudies"
     assert settings.cache_mode == "use"
-    assert settings.legends is True
+    assert settings.legends is False
+    assert settings.compact is False
 
 
 def test_what_is_saved_comes_back_to_a_fresh_reader(qgs_app, tmp_path):
@@ -38,7 +42,8 @@ def test_what_is_saved_comes_back_to_a_fresh_reader(qgs_app, tmp_path):
     first.radius_m = 750.0
     first.output_dir = str(tmp_path / "studies")
     first.cache_mode = "refresh"
-    first.legends = False
+    first.legends = True
+    first.compact = True
     first.sync()
 
     again = PluginSettings(_store(tmp_path))
@@ -47,7 +52,8 @@ def test_what_is_saved_comes_back_to_a_fresh_reader(qgs_app, tmp_path):
     assert again.radius_m == 750.0
     assert again.output_dir == str(tmp_path / "studies")
     assert again.cache_mode == "refresh"
-    assert again.legends is False
+    assert again.legends is True
+    assert again.compact is True
 
 
 def test_the_keys_live_under_the_plugin_prefix(qgs_app, tmp_path):
@@ -59,10 +65,12 @@ def test_the_keys_live_under_the_plugin_prefix(qgs_app, tmp_path):
     settings = PluginSettings(store)
     settings.company, settings.author, settings.logo = "X", "Y", "Z"
     settings.radius_m, settings.output_dir, settings.cache_mode, settings.legends = 600.0, "map", "off", True
+    settings.compact = True
     settings.sync()
 
     assert sorted(store.allKeys()) == ["desktopstudie/auteur", "desktopstudie/bedrijf", "desktopstudie/cache",
-                                       "desktopstudie/legendas", "desktopstudie/logo", "desktopstudie/straal",
+                                       "desktopstudie/compact", "desktopstudie/legendas",
+                                       "desktopstudie/logo", "desktopstudie/straal",
                                        "desktopstudie/uitvoermap"]
 
 
@@ -74,13 +82,15 @@ def test_a_value_that_cannot_be_read_falls_back_to_its_default(qgs_app, tmp_path
     store = _store(tmp_path)
     store.setValue("desktopstudie/straal", "vijfhonderd")
     store.setValue("desktopstudie/cache", "misschien")
-    store.setValue("desktopstudie/legendas", "nee")
+    store.setValue("desktopstudie/legendas", "ja")
+    store.setValue("desktopstudie/compact", "nee")
 
     settings = PluginSettings(store)
 
     assert settings.radius_m == 500.0
     assert settings.cache_mode == "use"
-    assert settings.legends is False, "een tekst die geen 'true' is, is uit"
+    assert settings.legends is True, "'ja' is aan"
+    assert settings.compact is False, "een tekst die geen 'true' is, is uit"
 
 
 def test_the_fields_can_be_read_off_the_class(qgs_app):
