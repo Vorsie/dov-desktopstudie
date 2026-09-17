@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence
+from typing import Dict, Iterable, List, Sequence
 
 from .model import LithologyLayer
 
@@ -131,10 +131,36 @@ ALWAYS_NOTABLE = ("concreti", "konkreti", "zandsteen", "glauconiet", "glauconif"
                   "tourbe", "ligniet", "baksteen", "beton", "asfalt", "puin", "houtskool",
                   "kolengruis", "koolas", "keramiek", "metaal", "glashoudend", "kassei",
                   "straatsteen", "geremanieerd", "talus", "slak", "sintel")
+# Fossil, genus and species names, and the words for what a fossil is. They are stratigraphic
+# markers - they say which formation you are in, not that you will hit something hard - so listed
+# one per name they crowd out the remarks that do matter. Grouping is PRESENTATION ONLY:
+# `notable_terms` still returns every one of them and nothing is ever dropped; `summarise` folds
+# them into a single "fossielen: ..." entry per depth. Harvested from the same frequency count as
+# ORDINARY (nummulites 31, cardium 22, ditrupa 15, ostrea 13, planulatus 12 ...); extend it here.
+FOSSILS = frozenset("""
+ammonites annelides annélides anoplo arca astarte belemnieten bivalve bivalves bryozoa bryozoaires
+bryozoen buccinum cardita cardium cerithes cerithium coquiller coquillière coquillières corbula
+corbules corneus crinoiden cymbula dentalium ditrupa echinodermen edita edule elegans foraminifera
+foraminiferen fossiel fossielen fossielenen fossielfragmenten fossielhoudend fossielhoudende
+fossielrijk fossilifère gastropoden gebrokenschelpjes glycimeris haaietand haaietanden hispida
+laevigatus lingula lucina macrofossielen meerfossielhoudend myabivalves mytilus natica nucula
+nummulieten nummulites nummulitesplanulatus orbignyi ostrea pecten phora planicosta planulata
+planulatus porulosum roggetanden schelpbrokjes schelpdelen schelpenbrokjes schelpenbrokken
+schelpenfragmenten schelpenhoudend schelpenpuin schelpenresten schelpenrijke schelpensporen
+schelpfragmentjes schelprestjes schelpresten schelpstukjes serpula stukkenfossielen tenuissima
+terebratula turbinolia turritella variolaria variolarius venericardia vijverschelpen vistanden
+wemmelensis zoetwaterschelpjes
+""".split())
+FOSSIL_LABEL = "fossielen"
 # A denial in front of a word: "geen kalk" reports no kalk at all.
 DENIALS = ("geen", "zonder", "sans", "vrij van")
 WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 MIN_LENGTH = 3  # one- and two-letter tokens are units and coded shorthand, not observations
+# "Num. planulatus", "(Ech.)", "Incl. 10", "enz. (aangevuld)": a short token cut off by its own
+# full stop in the middle of a sentence is shorthand, and printing the stump ("num") in a client
+# report looks like the bug it is. Both signals have to agree - short AND mid-sentence - so that
+# "glauconiethoudend." at the end of a sentence stays the observation it is.
+ABBREVIATION_MAX = 4
 CODED = "gecodeerd"
 
 
@@ -144,6 +170,28 @@ class NotableTerm:
     word: str
     depth: str
     quote: str
+
+
+def _abbreviated(text: str, match) -> bool:
+    """Whether this token is shorthand cut off by its own full stop instead of a whole word.
+
+    The full stop after the last word of a sentence is punctuation and belongs to the sentence;
+    a full stop inside one belongs to the word in front of it, and a word that carries one is an
+    abbreviation. Only short ones: the descriptions end sentences with "zand." and
+    "glauconiethoudend." too, and those are words, not stumps.
+
+    A description that simply stops ("met vaste lagen afw.") has no following sentence to tell the
+    two apart, so a short stump there counts as shorthand as well - except for the materials the
+    user asked for by name, which stay whatever punctuation follows them.
+    """
+    word = match.group(0)
+    rest = text[match.end():]
+    if not rest.startswith(".") or len(word) > ABBREVIATION_MAX:
+        return False
+    if any(stem in word.lower() for stem in ALWAYS_NOTABLE):
+        return False
+    after = rest[1:].lstrip()
+    return not after or not after[:1].isupper()
 
 
 def _denied(text: str, start: int) -> bool:
@@ -176,11 +224,30 @@ def notable_terms(layers: Sequence[LithologyLayer]) -> List[NotableTerm]:
             lowered = match.group(0).lower()
             if lowered in known or is_ordinary(lowered) or _denied(text, match.start()):
                 continue
+            if _abbreviated(text, match):
+                continue
             known.add(lowered)
             found.append(NotableTerm(lowered, f"{layer.top_m:.2f}-{layer.base_m:.2f} m", text))
     return found
 
 
 def summarise(terms: Iterable[NotableTerm]) -> str:
-    """The words of one borehole on one line, each with the depth it was first named at."""
-    return "; ".join(f"{term.word} ({term.depth})" for term in terms)
+    """The words of one borehole on one line, each with the depth it was first named at.
+
+    The fossils of one depth travel together under one label, in the place where the first of them
+    was named. That is a presentation choice and nothing else: every term handed in is still named,
+    and a reader sees at a glance that a run of Latin is palaeontology and not an obstruction.
+    """
+    parts: List[str] = []
+    fossils: Dict[str, List[str]] = {}
+    for term in terms:
+        if term.word not in FOSSILS:
+            parts.append(f"{term.word} ({term.depth})")
+            continue
+        if term.depth not in fossils:
+            fossils[term.depth] = []
+            parts.append(term.depth)  # placeholder: the group takes this spot when the line is cut
+        fossils[term.depth].append(term.word)
+    named = {depth: f"{FOSSIL_LABEL}: {', '.join(words)} ({depth})"
+             for depth, words in fossils.items()}
+    return "; ".join(named.get(part, part) for part in parts)
