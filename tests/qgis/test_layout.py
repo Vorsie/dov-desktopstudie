@@ -2187,3 +2187,77 @@ def test_the_theme_keeps_its_own_colours_over_the_backdrop(qgs_app, gent_zone, t
     drawn = _pixels(images[request.key]).pixelColor(20, 20)
     assert drawn.red() > drawn.blue(), "het thema hoort bovenop te liggen"
     assert drawn.blue() > 0, "en de basiskaart hoort er doorheen te schemeren"
+
+
+# --- een balk die niet tegen de rand begint, en haar klassegrenzen ------------------------------
+
+def _inset_legend(path, margin=1):
+    """De GxG-legenda: een kleurloop met een witte rand van een pixel ernaast, met de labels
+    rechts (live 2026-09-17: 38 x 272 px, band van x=1 tot x=20)."""
+    from qgis.PyQt.QtGui import QColor, QImage
+
+    image = QImage(38, 100, QImage.Format.Format_RGB32)
+    image.fill(QColor(255, 255, 255))
+    for y in range(1, 99):
+        share = (y - 1) / 97.0
+        colour = QColor(int(240 - 220 * share), int(250 - 230 * share), 255)
+        for x in range(margin, margin + 20):
+            image.setPixelColor(x, y, colour)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    assert image.save(str(path))
+    return path
+
+
+def test_a_colour_bar_that_does_not_touch_the_edge_is_still_found(qgs_app, tmp_path):
+    """De GxG-legenda zet haar balk een pixel van de rand. Een zoeker die alleen naar kolom nul
+    kijkt, vindt hem niet en het rapport zou de kaart zonder legenda laten."""
+    from desktopstudie.qgis import layout
+
+    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
+
+    rect = layout.ramp_rect(_pixels(source))
+
+    assert rect is not None
+    x, _y, width, height = rect
+    assert x == 1 and width == 20 and height > 90
+
+
+def test_a_bar_whose_smallest_value_is_on_top_is_turned_the_other_way(qgs_app, tmp_path):
+    """Het hoogtemodel zet zijn hoogste waarde bovenaan, de grondwaterdiepte haar kleinste. Beide
+    horen op papier van klein links naar groot rechts te lopen, dus draait de ene andersom."""
+    from desktopstudie.qgis import layout
+
+    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
+
+    plain = layout.ramp_strip(source, tmp_path / "legendas" / "plain.png")
+    flipped = layout.ramp_strip(source, tmp_path / "legendas" / "flip.png", flip=True)
+
+    left_plain = _pixels(plain).pixelColor(0, 2)
+    left_flipped = _pixels(flipped).pixelColor(0, 2)
+    assert left_plain.blue() == left_flipped.blue()
+    assert left_plain.red() < left_flipped.red(), "gedraaid staat de bovenkant van de bron links"
+
+
+def test_the_class_boundaries_are_written_under_the_bar(make_layout, tmp_path):
+    """Een balk waarvan de klassen niet even breed zijn - 0 tot 5 per meter, dan 10, 15, 20 -
+    leest de helft als tien meter waar ze vijf is. De grenzen horen er dus onder te staan."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import ColourRamp
+
+    _png(tmp_path / "legendas" / "gxg_schaal.png", 400, 20)
+    ramp = ColourRamp("Grondwaterstand (m onder maaiveld)", "0 m-mv", "20 m-mv",
+                      "GHG op het representatieve punt: 2.85 m onder maaiveld.",
+                      "legendas/gxg_schaal.png",
+                      ticks=[(index / 8.0, label) for index, label in
+                             enumerate(["0", "1", "2", "3", "4", "5", "10", "15", "20"])])
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="GHG")])
+
+    labels = [item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+              if item.text() in ("1", "2", "3", "4", "5", "10", "15")]
+    assert len(labels) == 7, [item.text() for item in labels]
+    places = sorted(item.pagePositionWithUnits().x() for item in labels)
+    assert places == sorted(places) and places[0] < places[-1]
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "2.85 m onder maaiveld" in texts
