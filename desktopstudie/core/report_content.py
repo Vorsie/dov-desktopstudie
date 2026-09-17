@@ -24,14 +24,13 @@ from .services.http import short_url
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
 
 # Why one sounding is drawn and another is not. The rule itself lives in `study.for_figures`.
+# A note on the table, not a page of its own: four lines alone on a sheet is the loose item the
+# packing exists to clear away, and the reader meets the rule where the soundings are listed.
 FIGURE_CHOICE = (
-    "<p>Niet elke sondering binnen de straal krijgt een diagram. De tabel hierboven toont ze "
-    "allemaal, op afstand gesorteerd; voor de figuren krijgen de <b>elektrische</b> sonderingen "
-    "voorrang, hoe ver ze ook liggen, en pas daarna de dichtstbijzijnde mechanische.</p>"
-    "<p>Een continu elektrische sondering meet de conusweerstand over de volledige diepte; een "
-    "discontinu mechanische meet met stappen en mist wat daartussen ligt. Voor het beoordelen van "
-    "een laagopbouw is een elektrische sondering op enkele honderden meters dus meer waard dan "
-    "een mechanische vlak naast de zone.</p>")
+    "Niet elke sondering hieronder krijgt een diagram: voor de figuren krijgen de elektrische "
+    "sonderingen voorrang, hoe ver ze ook liggen, en pas daarna de dichtstbijzijnde mechanische. "
+    "Een continu elektrische sondering meet de conusweerstand over de volledige diepte; een "
+    "discontinu mechanische meet met stappen en mist wat daartussen ligt.")
 
 DISCLAIMER = (
     "<p>Deze desktopstudie verzamelt open data van DOV en geopunt op het moment van opmaak. "
@@ -625,13 +624,15 @@ def _chapter_grondonderzoek(result: StudyResult) -> Chapter:
     inv = Chapter(5, "Grondonderzoek DOV")
     inv.pages.append(MapPage("grb", "Overzicht beschikbaar grondonderzoek", scale=5000, extent_factor=1.0,
                              show_investigations=True, show_section_line=True))
+    figured = [c for c in result.cpts if f"cpt_{c.permkey}" in result.figures]
     inv.pages.append(TablePage(
         f"Sonderingen binnen {z.radius_m:.0f} m",
         ["Nummer", "Afst. (m)", "Diepte (m)", "Datum", "Methode", "Conus", "Uitvoerder", "Opdracht",
          "DOV-fiche"],
         [[c.number, _s(c.distance_m, 0), _s(c.depth_m, 1), _s(c.date), _s(c.method), _s(c.cone), _s(c.contractor),
           _s(c.project), c.permkey] for c in result.cpts],
-        note="Geen sonderingen binnen de straal." if not result.cpts else "",
+        note=FIGURE_CHOICE if figured else ("Geen sonderingen binnen de straal."
+                                            if not result.cpts else ""),
         links=[c.url for c in result.cpts]))
     inv.pages.append(TablePage(
         f"Boringen binnen {z.radius_m:.0f} m",
@@ -650,11 +651,6 @@ def _chapter_grondonderzoek(result: StudyResult) -> Chapter:
           f.gw_id] for f in result.gw_filters],
         note="Geen peilputten binnen de straal." if not result.gw_filters else "",
         links=[f.url for f in result.gw_filters]))
-    figured = [c for c in result.cpts if f"cpt_{c.permkey}" in result.figures]
-    if figured:
-        # Why THESE soundings: a reader who sees an electrical test from 300 m drawn and a
-        # mechanical one from 40 m left out has to be told the rule, not left to guess it.
-        inv.pages.append(TextPage("Keuze van de sonderingen met een figuur", FIGURE_CHOICE))
     for c in figured:
         inv.pages.append(FigurePage(f"Sondering {c.number}", result.figures[f"cpt_{c.permkey}"],
                                     f"{c.distance_m:.0f} m van de zone - {c.url}"))
