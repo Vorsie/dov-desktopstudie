@@ -358,3 +358,16 @@ def test_only_the_maps_whose_legend_is_a_colour_bar_ask_for_one():
     from desktopstudie.core import catalogue
 
     assert {e.id for e in catalogue.entries() if e.ramp} == {"dhmv_dtm", "gxg_ghg", "gxg_glg"}
+
+
+def test_a_map_carries_the_answer_format_its_own_service_speaks():
+    """Niet elke dienst kent hetzelfde antwoordformaat voor GetFeatureInfo. De GeoServer van DOV
+    antwoordt op `application/json` en geeft op `application/geo+json` een ServiceExceptionReport;
+    de ArcGIS-dienst van de watertoets kent juist wel `application/geo+json`. Live gecontroleerd op
+    2026-09-17, beide diensten en beide formaten - dus reist het formaat mee met de kaart.
+    """
+    from desktopstudie.core import catalogue
+
+    assert catalogue.by_id("gxg_ghg").gfi_format == "application/json"
+    assert catalogue.by_id("gxg_glg").gfi_format == "application/json"
+    assert catalogue.by_id("watertoets_pluviaal").gfi_format == "application/geo+json"
