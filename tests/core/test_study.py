@@ -30,7 +30,7 @@ def _client():
         ("typeNames=bodemkaart", "wfs_bodemtypes_intersects.json"),
         ("typeNames=quartair%3Aquartair_samengesteld", "wfs_quartair_samengesteld_intersects.json"),
         ("typeNames=quartair%3Aquartair_200k", "wfs_quartair_200k_intersects.json"),
-        ("typeNames=dov-pub%3AQuartair_Isopachen", "wfs_quartair_isopachen_intersects.json"),
+        ("typeNames=dov-pub%3AQuartair_Isopachen", "wfs_quartair_isopachen_dwithin.json"),
         ("typeNames=neo_paleo", "wfs_tertiair_50k_intersects.json"),
         ("typeNames=hcov", "wfs_hcov_0100_vk_intersects.json"),
         ("typeNames=gw_bescherming", "wfs_gwkwb_kwbschaal_intersects.json"),
@@ -444,3 +444,33 @@ def test_the_overview_table_keeps_every_sounding_in_distance_order(gent_ring, tm
 
     distances = [c.distance_m for c in result.cpts]
     assert distances == sorted(distances)
+
+
+def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
+    """Een object zonder geometrie werd stil overgeslagen - en de fixture van de isopachen had op
+    beide objecten `"geometry": null`, dus liep die hele weg in geen enkele test. Wat wegvalt
+    wordt geteld en gemeld; wat wel een lijn heeft komt dichtstbij eerst terug."""
+    from desktopstudie.core import catalogue, study
+
+    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
+
+    class _Wfs:
+        def within_distance(self, *args, **kwargs):
+            return [{"properties": {"dikte": 25}, "geometry": None},
+                    {"properties": {"dikte": 20}, "geometry":
+                        {"type": "LineString", "coordinates": [[105426.0, 192506.0]]}},
+                    {"properties": {"dikte": 15}, "geometry":
+                        {"type": "LineString", "coordinates": [[104526.0, 192506.0]]}}]
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.zone = StudyZone(ring=gent_ring, name="z")
+    runner.wfs = _Wfs()
+    runner.s = study.Settings()
+    lines = []
+    runner.log = Log("test", sink=lines.append)
+
+    rows = runner._nearest_rows(entry)
+
+    assert [row["dikte"] for row in rows] == [15, 20], "dichtstbij eerst"
+    assert rows[0][catalogue.DISTANCE_FIELD] == 100
+    assert any("zonder geometrie" in line and "WARNING" in line for line in lines)
