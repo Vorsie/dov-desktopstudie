@@ -78,13 +78,13 @@ def _footers_on(lay, index):
 
 # --- paginastructuur -------------------------------------------------------------------------
 
-# Het standaardrapport van deze tests: titelblad, kaartblad, een blad dat de figuur en de tabel
-# delen, en een blad met de tekst. De kaart vraagt bovendien een legendablad.
-STANDARD_SHEETS = 1 + 3
+# Het standaardrapport van deze tests: titelblad, kaartblad, en een blad waarop de figuur, de
+# tabel en de tekst samen passen. De kaart vraagt bovendien een legendablad.
+STANDARD_SHEETS = 1 + 2
 
 
 def test_a_sheet_per_piece_of_content_plus_a_title_page_and_a_legend_page(make_layout):
-    """Titelblad, kaartblad, een gedeeld blad en een tekstblad - en een legendablad, want de kaart
+    """Titelblad, kaartblad en een blad dat de rest draagt - en een legendablad, want de kaart
     vraagt een legenda."""
     lay = make_layout()
     assert lay.pageCollection().pageCount() == STANDARD_SHEETS + 1
@@ -515,12 +515,12 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
             asked.append((url, timeout, retries))
             return blob
 
-    entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("gxg_ghg")]
+    entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("tertiair")]
     images, missing = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
 
-    assert list(images) == ["gxg_ghg"]
+    assert list(images) == ["tertiair"]
     assert missing == []
-    assert len(asked) == 1 and "ghg_mmv_main" in asked[0][0]
+    assert len(asked) == 1 and "tertiair_50k" in asked[0][0]
     # Een legenda is één plaatje van veertien: een korte adem, net als een fiche. Drie keer een
     # volle minuut wachten op een dienst die plat ligt, kost het rapport zijn legendapagina's.
     assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
@@ -722,7 +722,7 @@ def test_the_table_page_has_a_frame_the_columns_and_runs_on(make_layout):
 
     lay = make_layout()
     frames = _items_of(lay, 3, QgsLayoutFrame)
-    assert frames, "geen tabelframe op het blad dat de figuur en de tabel delen"
+    assert frames, "geen tabelframe op het blad dat de rest van het rapport draagt"
     table = frames[0].multiFrame()
     assert table.frameCount() >= 1
     assert [column.heading() for column in table.columns()] == TABLE_COLUMNS
