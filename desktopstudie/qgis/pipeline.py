@@ -230,6 +230,9 @@ def _study_overlays(result: StudyResult) -> Dict[str, List[QgsMapLayer]]:
             "investigations": [layers.points_layer("sondering", result.cpts, figured),
                                layers.points_layer("boring", result.boreholes, figured),
                                layers.points_layer("peilput", result.gw_filters, figured),
+                               # Where the model was asked, next to where the ground was really
+                               # tested: the overview map of chapter 5 shows both at once.
+                               layers.virtual_boreholes_layer(result),
                                layers.circle_layer(result.zone)]}
 
 
