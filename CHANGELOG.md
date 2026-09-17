@@ -32,9 +32,8 @@ zegt waar ze genomen is.
 ### Gewijzigd
 - **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
   ernaast: vier regels leeswijzer of twee legenda-regels op een A4 is een blad vol wit. Eerst de
-  leeswijzer, dan de legenda. Het kaartkader krimpt met precies wat
-  de legenda nodig heeft en nooit verder dan een halve bladhoogte; wat dan nog niet past loopt door
-  op het volgende blad. De uitsnede houdt haar breedte, dus de schaal in het infovak, de schaalbalk
+  leeswijzer, dan de legenda. Het kaartkader krimpt met precies wat ze samen nodig hebben en
+  nooit verder dan een halve bladhoogte; wat dan nog niet past loopt door op het volgende blad. De uitsnede houdt haar breedte, dus de schaal in het infovak, de schaalbalk
   en het opgehaalde kaartbeeld blijven ongewijzigd. Geldt ook voor de profieltypestrookjes van het
   Quartair; alleen de eenhedentabel van een kaartblad houdt haar eigen blad. Past de leeswijzer
   zelf niet meer onder een leesbare kaart, dan begint het hele blok op het blad erachter.
@@ -42,8 +41,8 @@ zegt waar ze genomen is.
   ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
   Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
   die blijft - dan weer op een blad van zichzelf.
-- **Korte stukken delen een blad**: een korte tabel, een kleine figuur en de leeswijzer erna komen
-  samen op een blad zolang ze passen (standaard twee per blad). Kaartbladen niet: die blijven
+- **Korte stukken delen een blad**: een korte tabel en de tekst of figuur erna komen samen op een
+  blad zolang ze passen (standaard twee per blad, en nooit twee hoofdstukken onder een kop). Kaartbladen niet: die blijven
   alleen. Een figuur wordt niet langer opgeblazen tot bladbreedte maar hoogstens op ware grootte
   getekend. De voettekst wordt per blad geschreven in plaats van per rapportpagina.
 - **De aparte legendapagina's staan standaard UIT.** Het vinkje "Legenda's op aparte pagina's"
