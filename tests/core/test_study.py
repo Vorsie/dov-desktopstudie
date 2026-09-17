@@ -394,3 +394,53 @@ def test_every_map_is_asked_in_the_format_its_service_speaks(gent_ring, tmp_path
     for entry in catalogue.entries():
         if entry.fact_mode == "gfi":
             assert formats.get(entry.wms_layer) == {entry.gfi_format}, entry.id
+
+
+def _sounding(number, distance, method, cone):
+    from desktopstudie.core.model import Cpt
+
+    return Cpt(permkey=number, number=number, x=0.0, y=0.0, z_mtaw=8.0, depth_m=20.0,
+               date="2020-01-01", method=method, cone=cone, contractor=None, project=None,
+               url=f"https://www.dov.vlaanderen.be/data/sondering/{number}",
+               distance_m=distance)
+
+
+def test_an_electrical_sounding_gets_a_figure_before_a_nearer_mechanical_one():
+    """Een elektrische sondering krijgt een figuur voor een dichterbije mechanische.
+
+    Een continu elektrische sondering meet de conusweerstand over de hele diepte; een discontinu
+    mechanische springt met stappen. Voor een qc-diagram is de elektrische dus meer waard dan een
+    paar honderd meter kortere afstand."""
+    from desktopstudie.core.study import for_figures
+
+    soundings = [_sounding("M1", 10.0, "discontinu mechanisch", "M4"),
+                 _sounding("M2", 40.0, "discontinu mechanisch", "M4"),
+                 _sounding("E1", 300.0, "continu elektrisch", "E"),
+                 _sounding("E2", 120.0, "continu elektrisch", "E")]
+
+    chosen = for_figures(soundings, 3)
+
+    assert [c.number for c in chosen] == ["E2", "E1", "M1"]
+
+
+def test_without_electrical_soundings_the_nearest_mechanical_ones_are_left():
+    """Zonder elektrische sonderingen blijven de dichtste mechanische over."""
+    from desktopstudie.core.study import for_figures
+
+    soundings = [_sounding("M3", 90.0, "discontinu mechanisch", "M4"),
+                 _sounding("M1", 10.0, "discontinu mechanisch", "M4"),
+                 _sounding("M2", 40.0, "discontinu mechanisch", "M4")]
+
+    assert [c.number for c in for_figures(soundings, 2)] == ["M1", "M2"]
+
+
+def test_the_overview_table_keeps_every_sounding_in_distance_order(gent_ring, tmp_path):
+    """Alleen de figuurkeuze verandert: de tabel blijft elke sondering binnen de straal tonen, op
+    afstand gesorteerd."""
+    client = _client()
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+
+    distances = [c.distance_m for c in result.cpts]
+    assert distances == sorted(distances)
