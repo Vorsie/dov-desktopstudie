@@ -201,12 +201,31 @@ def _fact_rows(entry: catalogue.MapEntry, result: StudyResult) -> Optional[List[
     return next((mf.rows for mf in result.map_facts if mf.map_id == entry.id), None)
 
 
-def _rows_note(rows_src: Optional[List[Dict[str, Any]]]) -> str:
+# A sentence in a reading guide that describes the table under it. When there is no table, such a
+# sentence promises the reader something the sheet does not hold, so it is left out.
+TABLE_SENTENCE = re.compile(r"(?:De|Deze) (?:tabel|kolom|kolommen) ")
+
+
+def _rows_note(rows_src: Optional[List[Dict[str, Any]]],
+               entry: Optional[catalogue.MapEntry] = None) -> str:
     """Why a table is empty. An unreachable source must never read as an empty zone: "geen
-    kaarteenheden" about a flood map that is down would tell the reader there is no flood risk."""
+    kaarteenheden" about a flood map that is down would tell the reader there is no flood risk.
+
+    For a hazard map an empty answer IS the answer - the zone is not in flood-prone land - so the
+    map says it in its own words (`MapEntry.empty_meaning`) instead of in the generic one.
+    """
     if rows_src is None:
         return "Bron niet beschikbaar."
-    return "Geen kaarteenheden binnen de zone." if not rows_src else ""
+    if rows_src:
+        return ""
+    return (entry.empty_meaning if entry and entry.empty_meaning
+            else "Geen kaarteenheden binnen de zone.")
+
+
+def _without_table_sentences(guide: str) -> str:
+    """The guide with the sentences about its table taken out, for a map that prints none."""
+    kept = [part for part in re.split(r"(?<=\.)\s+", guide) if not TABLE_SENTENCE.match(part)]
+    return " ".join(kept)
 
 
 def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str]) -> List[str]:
@@ -237,25 +256,30 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
 LINK = re.compile(r"https?://\S+")
 
 
-def _guide_html(entry: catalogue.MapEntry) -> str:
+def _guide_html(entry: catalogue.MapEntry, guide: Optional[str] = None) -> str:
     """The reading guide as one paragraph, with its URL made clickable.
 
     The URL lives in the guide text itself (one field per map, `MapEntry.reading_guide`) and points
     at the DOV page that carries the whole legend - all four were checked live on 2026-09-16.
     """
     return "<p>" + LINK.sub(lambda m: f'<a href="{m.group(0)}">{m.group(0)}</a>',
-                            entry.reading_guide) + "</p>"
+                            entry.reading_guide if guide is None else guide) + "</p>"
 
 
-def _guide_text(entry: catalogue.MapEntry) -> Optional[TextPage]:
+def _guide_text(entry: catalogue.MapEntry, has_rows: bool = True) -> Optional[TextPage]:
     """How to read this map's codes, or None for a map that needs no explaining.
 
     It rides along on the map page (`MapPage.guide`); a map without a guide simply carries none,
-    which is the difference between a shorter map frame and an empty one.
+    which is the difference between a shorter map frame and an empty one. When the map prints no
+    table, the sentences that describe one go with it: a guide that explains the columns of a
+    table nobody can see reads as a missing page.
     """
     if not entry.reading_guide:
         return None
-    return TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry))
+    guide = entry.reading_guide if has_rows else _without_table_sentences(entry.reading_guide)
+    if not guide:
+        return None
+    return TextPage(f"Leeswijzer - {entry.title}", _guide_html(entry, guide))
 
 
 # What "Legenda voor de zone" shows per map: (field, header). Not the fact fields, because the
@@ -331,7 +355,7 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
             continue
         entries.append(LegendEntry(code, quartair_sheet(code),
                                    images.get(profile_image_key(code), "")))
-    return LegendPage(f"Legenda voor de zone - {entry.title}", entries, _rows_note(rows_src))
+    return LegendPage(f"Legenda voor de zone - {entry.title}", entries, _rows_note(rows_src, entry))
 
 
 ISOPACH_ID = "quartair_dikte"
@@ -407,7 +431,7 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         if cells not in rows:
             rows.append(cells)
     if entry.id == ISOPACH_ID:
-        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src)
+        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
         return TablePage(f"Dichtstbijzijnde isopachen - {entry.title}", headers, rows[:5], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
@@ -415,8 +439,8 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         # does not. The first is the representative point - the one the virtual borehole stands on
         # and the one the bar under the map names (`_gfi_points` asks it first).
         return TablePage(f"Waarde op {_point_name(next(iter(rows_src or []), None))} - "
-                         f"{entry.title}", headers, rows[:1], _rows_note(rows_src))
-    return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src))
+                         f"{entry.title}", headers, rows[:1], _rows_note(rows_src, entry))
+    return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src, entry))
 
 
 def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
@@ -600,11 +624,16 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
     geo = Chapter(3, "Geologie en bodem")
     for entry in catalogue.entries("geologie", only=result.map_ids):
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
-                       note=entry.note, guide=_guide_text(entry))
+                       note=entry.note)
         if entry.ramp:
             page.ramp = _ramp_for(entry, result, zone_legend_images)
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
+        # A LegendPage carries `entries`, a TablePage `rows`; either way an empty one means the
+        # sheet holds no table for the guide to describe.
+        legend = page.zone_legend
+        shown = getattr(legend, "rows", None) or getattr(legend, "entries", None)
+        page.guide = _guide_text(entry, bool(shown) or entry.fact_mode is None)
         geo.pages.append(page)
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
