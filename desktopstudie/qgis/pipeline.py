@@ -45,7 +45,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 from qgis.core import QgsMapLayer, QgsProject
 
 from ..core import catalogue, checks
-from ..core.catalogue import DHMV_WCS_URL
+from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
 from ..core.report_content import (
@@ -76,8 +76,8 @@ CHAPTER_GROUPS = {"ligging": "1 Ligging en topografie", "historisch": "2 Histori
 STUDY_GROUP = "DOV Desktopstudie"
 # The one catalogue map that opens checked in the project: a base map to see the zone on. The
 # other fourteen sit ready but unchecked - fifteen WMS layers rendering at once is a canvas that
-# loads for a minute and a user who cannot tell the zone from the noise.
-BASE_MAP_ID = "grb"
+# loads for a minute and a user who cannot tell the zone from the noise. The same map goes UNDER
+# a thematic overlay on paper, so it is named once, in the catalogue.
 PDF_NAME = "rapport.pdf"
 PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
