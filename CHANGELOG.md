@@ -54,6 +54,12 @@ zegt waar ze genomen is.
   alles wat daar niet op staat vlagt. Een onvolledige lijst geeft dus ruis, nooit een gemiste
   vondst. De lijst is gecureerd op 3630 lagen uit 512 boringen rond twaalf punten verspreid over
   Vlaanderen; `scripts/lithology_vocabulary.py` telt ze opnieuw wanneer DOV verandert.
+  Twee dingen bepalen wat er van dat alles op papier komt zonder de vlagregel aan te raken.
+  Een kort brokstuk met een punt is een afkorting en wordt niet gedrukt: "Num. planulatus" zette
+  eerst het zinloze "num" in het rapport. En de soortnamen staan samen op één regel
+  ("fossielen: nummulites, planulatus, turbinolia (22.50-25.00 m)"), omdat ze zeggen in welke
+  formatie je zit en niet dat je iets hards raakt; los opgesomd verdrongen ze de opmerkingen die
+  er wel toe doen. Groeperen is presentatie - er wordt niets weggelaten.
 - **De diktekaart van het Quartair werkt weer.** Het zijn contourlijnen, geen vlakken: de
   feitenvraag zocht overlap met de zone en vond nooit iets, en op 1:25 000 lag er geen lijn in
   beeld. De kaart vraagt nu de dichtstbijzijnde lijnen binnen tien kilometer op
