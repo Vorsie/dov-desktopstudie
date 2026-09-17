@@ -243,6 +243,10 @@ class MapEntry:
     # as a strip (`report_content.ColourRamp`), where a sheet of its own would be a sheet holding a
     # picture of three centimetres.
     ramp: bool = False
+    # Which end of the service's own colour bar is the SMALLEST value. The height model draws its
+    # maximum at the top, the groundwater depths their minimum; on paper both have to run small to
+    # large from left to right, so one of the two is turned the other way (`layout.ramp_strip`).
+    ramp_low_at_top: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
@@ -293,7 +297,8 @@ def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
     high = f"Bovenkant_80_procent_betrouwbaarheidsinterval_{level}_m-mv"
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style="gxg:gxg",
-                    licence=DOV_LICENCE, opacity=0.7, legend=False, ramp=True, fact_mode="gfi",
+                    licence=DOV_LICENCE, opacity=0.7, legend=False, ramp=True,
+                    ramp_low_at_top=True, fact_mode="gfi",
                     fact_fields=(value, spread, low, high),
                     field_labels={value: f"{level} (m onder maaiveld)",
                                   spread: "Standaardafwijking (m)",
