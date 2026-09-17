@@ -1095,3 +1095,21 @@ def test_a_value_from_a_ring_vertex_is_not_called_the_representative_point(gent_
     assert "representatieve punt" not in ghg.ramp.summary
     assert "punt 3" in ghg.zone_legend.title and "rand" in ghg.zone_legend.title
     assert "punt 3" in ghg.ramp.summary
+
+
+def test_an_empty_answer_says_what_it_means_and_promises_no_table(gent_ring):
+    """Twee fouten op één blad. De leeswijzer beloofde een tabel die er niet stond ("De tabel geeft
+    de klasse van de bevraagde punten"), en de reden eronder was de algemene "Geen kaarteenheden
+    binnen de zone" - terwijl leeg bij de watertoets juist het antwoord IS: niet in
+    overstromingsgevoelig gebied."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("watertoets_pluviaal",
+                                    "Watertoets - overstromingsgevoelige gebieden pluviaal", []))
+
+    page = next(p for p in _geologie(result).pages
+                if isinstance(p, rc.MapPage) and p.map_id == "watertoets_pluviaal")
+
+    assert "overstromingsgevoelig" in page.zone_legend.note
+    assert "Geen kaarteenheden" not in page.zone_legend.note
+    assert "De tabel" not in page.guide.html
+    assert "vier klassen" in page.guide.html, "de uitleg zelf blijft staan"
