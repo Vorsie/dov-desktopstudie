@@ -634,3 +634,18 @@ def test_the_virtual_boreholes_are_one_of_the_geopackage_groups(qgs_app):
 
     names = [name for _title, group in layers.GPKG_GROUPS for name in group]
     assert layers.VB_NAME in names
+
+
+def test_the_virtual_boreholes_lose_their_labels_on_a_report_map(qgs_app, gent_zone):
+    """Elf doorprikpunten met dezelfde modelnaam ernaast zijn een grijze vlek over de
+    doorsnedelijn. Op papier tekent de laag dus alleen haar ruitjes; in QGIS, waar de lezer kan
+    inzoomen en klikken, blijft het model als label staan."""
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+    assert layer.labelsEnabled()
+
+    overlay = layers.style_virtual_boreholes_layer(layer.clone(), labels=False)
+
+    assert not overlay.labelsEnabled()
+    assert overlay.renderer().symbol().color().name() == layer.renderer().symbol().color().name()
