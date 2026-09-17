@@ -44,6 +44,12 @@ BASE_MAP_ID = "grb"
 # The one fact field the study computes instead of reading: how far the feature lies from
 # the zone. Only a `fact_within_m` map has it, and no recorded answer ever contains it.
 DISTANCE_FIELD = "afstand_m"
+# Which of the GetFeatureInfo sample points a row came from: 0 is the representative point of the
+# zone, the rest are vertices of its ring. Also computed, never read from a service. Without it a
+# row from a vertex hundreds of metres away was printed as the value AT the representative point,
+# and the conversion to mTAW was anchored to the wrong place.
+POINT_FIELD = "punt_index"
+REPRESENTATIVE_POINT = 0
 
 # The printed width of a map frame, in millimetres. It lives here and not in the layout because
 # the report text reasons about it: what "within the map view" means for a fact depends on how
