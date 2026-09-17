@@ -426,15 +426,13 @@ def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
 
 
 def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
-    """The chosen historical maps, and after them the slots that are switched off in the catalogue.
+    """The chosen historical maps, and the manual check that belongs with them.
 
-    Those last ones are not part of the choice: they cannot be checked in the dialog (the entry is
-    disabled), so the line that says why they are missing stays whatever the user picked.
+    The maps that are switched off get no sheet here. A page saying "Niet opgenomen" between the
+    historical maps tells the reader nothing the sources chapter does not tell better, and for the
+    bombs it said twice over what the manual check below says once.
     """
     hist = Chapter(2, "Historische kaarten", _map_pages("historisch", only))
-    for e in catalogue.entries("historisch", enabled_only=False):
-        if not e.enabled:
-            hist.pages.append(TextPage(e.title, f"<p>Niet opgenomen: {e.note}</p>"))
     hist.pages.append(TextPage(
         "Manuele controle historische kaarten",
         "<p>Controleer op elke kaart: vroegere waterlopen, vijvers en moerassen; verdwenen bebouwing en "
@@ -598,6 +596,14 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
     sources.pages.append(TablePage(
         "Kaartbronnen en licenties", ["Kaart", "Bron", "Licentie"],
         [[e.title, e.attribution, e.licence] for e in catalogue.entries(only=result.map_ids)]))
+    # What the study could NOT look at, and why. Here rather than between the maps themselves: a
+    # reader who misses a map looks it up in the sources, and a sheet per absent map is a sheet
+    # about nothing. The reason is the catalogue's own note, written for a reader.
+    left_out = [entry for entry in catalogue.entries(enabled_only=False) if not entry.enabled]
+    if left_out:
+        sources.pages.append(TablePage(
+            "Niet opgenomen kaarten", ["Kaart", "Reden"],
+            [[entry.title, entry.note] for entry in left_out]))
     return sources
 
 
