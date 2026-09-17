@@ -99,7 +99,7 @@ def offline_shell(monkeypatch, gent_zone):
             write_png(path, 60, 60)
             layout._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
-        return images, set()
+        return images, set(), {}
 
     monkeypatch.setattr(layout_mod, "prepare_map_images", fake_map_images)
     return RELIEF
@@ -507,7 +507,7 @@ def test_a_map_with_one_failed_image_is_a_failed_source(qgs_app, core_result, ge
 
     def only_the_second(reqs, out_dir, client, log=None, should_cancel=None):
         write_png(Path(out_dir) / "kaarten" / "tweede.png")
-        return {reqs[1].key: Path(out_dir) / "kaarten" / "tweede.png"}, set()
+        return {reqs[1].key: Path(out_dir) / "kaarten" / "tweede.png"}, set(), {}
 
     monkeypatch.setattr(layout_mod, "prepare_map_images", only_the_second)
 
@@ -733,9 +733,10 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
     real = layout.prepare_map_images
 
     def empty_ferraris(requests, out_dir, client, log=None, should_cancel=None):
-        images, _empty = real(requests, out_dir, client, log, should_cancel)
+        images, _empty, backdrops = real(requests, out_dir, client, log, should_cancel)
         # per kader leeg, want dat is wat de dienst per GetMap antwoordt
-        return images, {request.key for request in requests if request.map_id == "ferraris"}
+        return (images, {request.key for request in requests if request.map_id == "ferraris"},
+                backdrops)
 
     monkeypatch.setattr(layout, "prepare_map_images", empty_ferraris)
 
@@ -836,7 +837,7 @@ def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
             images[request.key] = path
             if request.map_id in empty_maps:
                 empty.add(request.key)
-        return images, empty
+        return images, empty, {}
 
     monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
 
@@ -902,7 +903,7 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
             if request.map_id == "grb" and not seen:
                 seen.append(request.key)
                 empty.add(request.key)
-        return images, empty
+        return images, empty, {}
 
     monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
 
