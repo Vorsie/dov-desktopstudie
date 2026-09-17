@@ -118,15 +118,18 @@ def test_meta_has_no_none_values(gent_ring):
 
 
 def test_the_bomb_map_slot_and_the_manual_check_name_the_explosives_risk(gent_ring):
+    """De bommenkaart krijgt geen blad tussen de historische kaarten - de manuele controle zegt al
+    wat de lezer moet doen - maar de bronnenlijst noemt haar met de reden."""
     report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
     hist = report.chapters[1]
-    texts = [p for p in hist.pages if isinstance(p, rc.TextPage)]
-    slot = next(p for p in texts if p.title.startswith("Bommenkaart"))
-    assert "geen open data" in slot.html and "explosieven" in slot.html
     assert not any(isinstance(p, rc.MapPage) and p.map_id == "bommenkaart" for p in hist.pages)
-    manual = next(p for p in texts if p.title.startswith("Manuele controle"))
+    manual = next(p for p in hist.pages if p.title.startswith("Manuele controle"))
     assert "conventionele en toxische explosieven" in manual.html
     assert "bommenkaart.be" in manual.html and "DOVO" in manual.html
+
+    left_out = next(p for p in report.chapters[7].pages if p.title.startswith("Niet opgenomen"))
+    bombs = next(row for row in left_out.rows if "ommenkaart" in row[0])
+    assert "geen open data" in bombs[1] and "explosieven" in bombs[1]
 
 
 def test_the_new_geology_maps_get_a_map_page_and_a_zone_legend(gent_ring):
@@ -777,7 +780,7 @@ def test_a_disabled_map_gets_no_sheet_but_stands_in_the_sources(gent_ring):
     hist = report.chapters[1]
     assert not [p for p in hist.pages if p.title.startswith("Historische topografische kaarten NGI")]
     assert not [p for p in hist.pages if p.title.startswith("Bommenkaart")]
-    assert not any("Niet opgenomen" in text for text in _all_text(report))
+    assert not any("Niet opgenomen" in getattr(p, "html", "") for p in hist.pages)
 
     left_out = next(p for p in report.chapters[7].pages if p.title.startswith("Niet opgenomen"))
     assert left_out.columns == ["Kaart", "Reden"]
