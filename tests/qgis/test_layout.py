@@ -2059,3 +2059,128 @@ def test_a_zone_label_near_the_right_end_stays_on_the_sheet(make_layout, tmp_pat
                  if "zone gemiddeld" in item.text())
     right = label.pagePositionWithUnits().x() + label.sizeWithUnits().width()
     assert right <= layout.CONTENT_RIGHT + 0.1
+
+# --- een thema krijgt de basiskaart eronder -----------------------------------------------------
+
+def _tile(colour, size=40, alpha=255):
+    """Een GetMap-antwoord: een effen tegel, desnoods volledig doorzichtig."""
+    from qgis.PyQt.QtCore import QBuffer, QByteArray
+    from qgis.PyQt.QtGui import QColor, QImage
+
+    image = QImage(size, size, QImage.Format.Format_ARGB32)
+    image.fill(QColor(*colour, alpha))
+    store = QByteArray()
+    buffer = QBuffer(store)
+    buffer.open(QBuffer.OpenModeFlag.WriteOnly)
+    assert image.save(buffer, "PNG")
+    return bytes(store)
+
+
+class _TileClient:
+    """Een client die per laagnaam een vaste tegel teruggeeft en de opgevraagde lagen onthoudt."""
+
+    def __init__(self, tiles, failing=()):
+        self.tiles, self.failing, self.asked = tiles, set(failing), []
+
+    def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+        from desktopstudie.core.services.http import HttpError
+
+        layer = url.split("LAYERS=")[1].split("&")[0]
+        self.asked.append(layer)
+        if layer in self.failing:
+            raise HttpError(url, 500, "dienst plat")
+        return self.tiles[layer]
+
+
+def _one_request(map_id, gent_zone):
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    entry = catalogue.by_id(map_id)
+    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
+    return layout.MapRequest(layout.map_image_key(map_id, extent), map_id, extent, 40, 40)
+
+
+def _pixels(path):
+    from qgis.PyQt.QtGui import QImage
+
+    image = QImage(str(path))
+    assert not image.isNull()
+    return image
+
+
+def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_path):
+    """Een thema dat bijna niets tekent, levert op wit papier een leeg blad. Het beeld dat de
+    pagina afdrukt draagt daarom de basiskaart eronder: straten en gebouwen onder het thema."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    theme_id = "grondverschuiving_gekarteerd"
+    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0), alpha=0),
+             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
+    request = _one_request(theme_id, gent_zone)
+
+    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path,
+                                                          _TileClient(tiles))
+
+    assert backdrops == {theme_id: ""}, "de ondergrond hoort als eigen bron gemeld te worden"
+    drawn = _pixels(images[request.key]).pixelColor(20, 20)
+    assert (drawn.red(), drawn.green(), drawn.blue()) == (0, 0, 255), (
+        "waar het thema niets tekent, hoort de basiskaart te staan")
+
+
+def test_a_map_that_fills_the_sheet_itself_asks_for_no_base_map(qgs_app, gent_zone, tmp_path):
+    """De bodemkaart bedekt de hele uitsnede; een ondergrond eronder is werk dat niemand ziet."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    tiles = {catalogue.by_id("bodemkaart").wms_layer: _tile((0, 200, 0))}
+    request = _one_request("bodemkaart", gent_zone)
+    client = _TileClient(tiles)
+
+    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path, client)
+
+    assert backdrops == {}
+    assert client.asked == [catalogue.by_id("bodemkaart").wms_layer], client.asked
+    assert images
+
+
+def test_a_backdrop_that_fails_costs_the_theme_its_background_not_its_page(qgs_app, gent_zone,
+                                                                           tmp_path):
+    """Valt de basiskaart weg, dan wordt het thema alleen getekend - het blad blijft - en de
+    bronnenlijst zegt dat de ondergrond ontbrak."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.logging_util import Log
+    from desktopstudie.qgis import layout
+
+    theme_id = "watertoets_pluviaal"
+    base = catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer
+    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)), base: b""}
+    request = _one_request(theme_id, gent_zone)
+    lines = []
+
+    images, _empty, backdrops = layout.prepare_map_images(
+        [request], tmp_path, _TileClient(tiles, failing={base}),
+        Log("kaarten", lines.append))
+
+    assert request.key in images, "het thema houdt zijn blad"
+    assert backdrops[theme_id], "de reden hoort bewaard te blijven"
+    assert any("ondergrond" in line.lower() for line in lines), lines
+
+
+def test_the_theme_keeps_its_own_colours_over_the_backdrop(qgs_app, gent_zone, tmp_path):
+    """Waar het thema wel tekent, blijft het thema zichtbaar - de basiskaart schemert eronder door
+    met de doorzichtigheid die de catalogus voor die kaart kiest."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    theme_id = "grondverschuiving_gekarteerd"
+    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)),
+             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
+    request = _one_request(theme_id, gent_zone)
+
+    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path, _TileClient(tiles))
+
+    drawn = _pixels(images[request.key]).pixelColor(20, 20)
+    assert drawn.red() > drawn.blue(), "het thema hoort bovenop te liggen"
+    assert drawn.blue() > 0, "en de basiskaart hoort er doorheen te schemeren"
