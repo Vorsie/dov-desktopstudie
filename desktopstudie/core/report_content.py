@@ -21,6 +21,8 @@ from .catalogue import MODEL_TITLES
 from .model import StudyResult
 from .services.http import short_url
 
+FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
+
 DISCLAIMER = (
     "<p>Deze desktopstudie verzamelt open data van DOV en geopunt op het moment van opmaak. "
     "Ze bevat geen eigen geologische interpretatie, geen berekeningen en geen ontwerp. "
@@ -208,7 +210,10 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
     for col in columns:
         raw = row.get(col)
         label = entry.value_labels.get(col, {}).get(str(raw))
-        cell = f"{label} [{raw}]" if label else _s(raw)
+        # A measured value arrives as a double: the GxG service answers 2.8499999046325684 metres.
+        # Printed in full it is unreadable and claims a precision nobody has, so a float gets the
+        # two decimals a depth or a thickness is worth. What the service sent stays in the JSON.
+        cell = f"{label} [{raw}]" if label else _s(raw, FACT_DECIMALS if isinstance(raw, float) else None)
         out.append(short_url(cell) if cell.startswith("http") else cell)
     return out
 
