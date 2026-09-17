@@ -189,7 +189,10 @@ levert `data/studie.json` en `figuren/`, geen kaarten en geen PDF; dezelfde afsl
 ## Prestaties
 
 Reken op ongeveer een minuut per studie in de plugin; de eerste run op een locatie duurt langer
-omdat elke bron dan echt opgehaald wordt. Gemeten op 2026-09-16 voor een zone in Gent (115 bladen):
+omdat elke bron dan echt opgehaald wordt. Dezelfde zone in Gent telde 115 bladen in v0.1.0 en 81
+sinds de compactere opmaak (gemeten 2026-09-17): de legendabladen staan uit, de legenda's voor de
+zone staan onder hun kaart, een kaart zonder dekking krijgt geen blad en korte stukken delen er
+een. Gemeten op 2026-09-16 voor diezelfde zone (toen 115 bladen):
 in de plugin 149 s met koude cache, waarvan PDF-export 60 s, layout 24 s, lagen 8 s en de
 profieltypetekeningen 21 s (het documentportaal van DOV antwoordde traag); headless op een warme
 cache 46–48 s voor de schil, waarvan PDF-export 28 s, layout 9 s en GeoPackage plus projectbestand
