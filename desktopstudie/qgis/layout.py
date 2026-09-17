@@ -58,10 +58,17 @@ from qgis.core import (
     QgsTextFormat,
 )
 from qgis.PyQt.QtCore import Qt
-from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF, QImage, QTransform
+from qgis.PyQt.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QPainter,
+    QTransform,
+)
 
 from ..core import catalogue, geometry, parallel
-from ..core.catalogue import MapEntry
+from ..core.catalogue import BASE_MAP_ID, MapEntry
 from ..core.geometry import BBox
 from ..core.model import StudyResult
 from ..core.report_content import (
@@ -212,6 +219,10 @@ MAP_IMAGE_WORKERS = 8
 # a legend - but one retry only: the page can be printed without its background.
 MAP_IMAGE_TIMEOUT_S = 30.0
 MAP_IMAGE_RETRIES = 1
+# A theme that paints a few percent of the sheet is a white rectangle with a red circle on it
+# unless something recognisable lies under it. `MapEntry.backdrop` asks for the base map at the
+# very same box and pixel size, and the theme is painted over it into the one PNG the page draws -
+# at the opacity the catalogue gives that map, so the streets stay readable through it.
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
@@ -978,9 +989,45 @@ def _write_world_file(path: Path, request: MapRequest) -> None:
                     encoding="utf-8")
 
 
+def _load_tile(data: bytes) -> Optional[QImage]:
+    """The bytes of a GetMap as an image, or None when the service sent something else."""
+    image = QImage()
+    return image if data and image.loadFromData(data) else None
+
+
+def _over_backdrop(theme: QImage, backdrop: QImage, opacity: float) -> QImage:
+    """The theme painted over the base map, at the opacity the catalogue gives the theme.
+
+    Both come from the same box at the same pixel size, so they line up by construction - the
+    page draws ONE picture and nothing has to be registered afterwards.
+    """
+    canvas = backdrop.convertToFormat(QImage.Format.Format_ARGB32)
+    painter = QPainter(canvas)
+    painter.setOpacity(opacity)
+    painter.drawImage(0, 0, theme)
+    painter.end()
+    return canvas
+
+
+def _backdrop_for(request: MapRequest, client: HttpClient, log=None) -> Tuple[Optional[QImage], str]:
+    """The base map under one theme: (image, why not). A backdrop that does not come back costs
+    the theme its background, never its page."""
+    base = catalogue.by_id(BASE_MAP_ID)
+    url = wms_map_url(base, request.extent, request.width, request.height)
+    try:
+        image = _load_tile(client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES))
+    except HttpError as exc:
+        image, reason = None, str(exc)
+    else:
+        reason = "" if image is not None else "antwoord van de basiskaart is geen afbeelding"
+    if image is None and log:
+        log.warning(f"Ondergrond voor {request.map_id} niet opgehaald: {reason}")
+    return image, reason
+
+
 def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClient, log=None,
                        should_cancel: Optional[Callable[[], bool]] = None
-                       ) -> Tuple[Dict[str, Path], Set[str]]:
+                       ) -> Tuple[Dict[str, Path], Set[str], Dict[str, str]]:
     """({key -> PNG}, keys whose service drew nothing here), fetched in parallel.
 
     This is the phase that used to be spread over ninety sheets of rendering: the WMS provider
@@ -995,25 +1042,41 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
     Emptiness is reported per REQUEST, not per map: one map carries several framings (the GRB base
     map three), and a mosaic that has no sheet for the wide frame may well cover the narrow one.
     Keyed per map, one empty tile would print "geen dekking" on every other sheet of that map.
+
+    The third answer is the backdrops: map id -> "" when the base map went under that theme, or
+    the reason it did not. Only for `MapEntry.backdrop` maps, and only ever as an extra request -
+    a theme whose backdrop failed is still drawn, on white paper, and says so in the sources.
     """
     out_dir = Path(out_dir)
     images: Dict[str, Path] = {}
     empty: Set[str] = set()
+    backdrops: Dict[str, str] = {}
 
     def fetch(request: MapRequest) -> None:
         entry = catalogue.by_id(request.map_id)
         url = wms_map_url(entry, request.extent, request.width, request.height)
         data = client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES)
-        image = QImage()
-        if not data or not image.loadFromData(data):
+        image = _load_tile(data)
+        if image is None:
             raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
                                        f"({len(data)} bytes)")
+        # Asked of the THEME, before anything is painted under it: a backdrop would answer the
+        # coverage question with the base map's own ink.
+        blank = entry.fact_mode is None and _is_empty(image)
         path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{_image_name(request.key)}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        if entry.backdrop:
+            under, reason = _backdrop_for(request, client, log)
+            backdrops[request.map_id] = reason
+            if under is not None:
+                data = None
+                if not _over_backdrop(image, under, entry.opacity).save(str(path)):
+                    raise HttpError(url, None, f"beeld van {request.map_id} niet weggeschreven")
+        if data is not None:
+            path.write_bytes(data)
         _write_world_file(path.with_suffix(".pgw"), request)
         images[request.key] = path
-        if entry.fact_mode is None and _is_empty(image):
+        if blank:
             empty.add(request.key)
 
     parallel.load_each(list(requests), fetch, "kaartbeeld", MAP_IMAGE_WORKERS, log, should_cancel)
@@ -1024,7 +1087,10 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
         missing = [request.map_id for request in requests if request.key not in images]
         if missing:
             log.warning(f"Geen kaartbeeld voor: {', '.join(sorted(set(missing)))}")
-    return images, empty
+        under = sorted(map_id for map_id, reason in backdrops.items() if not reason)
+        if under:
+            log.info(f"Basiskaart als ondergrond onder: {', '.join(under)}")
+    return images, empty, backdrops
 
 
 def _is_empty(image: QImage) -> bool:
