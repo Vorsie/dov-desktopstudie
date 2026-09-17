@@ -13,7 +13,10 @@ zegt waar ze genomen is.
   onder de DTM-kaart, met de uiteinden van de dienst (-50 en 300 mTAW) en de laagste, gemiddelde
   en hoogste hoogte van de zone eronder. Komt de balk niet binnen of ziet de legenda er anders
   uit, dan worden er geen kleuren getekend - een verzonnen schaal hoort niet bij de kaart erboven -
-  en zegt de regel eronder waarom.
+  en zegt de regel eronder waarom. De zone staat op die balk gemarkeerd: een beugel tussen haar
+  laagste en hoogste hoogte, of - als die op papier te dicht bij elkaar liggen, wat op een schaal
+  van 350 m het gewone geval is - een streepje op het gemiddelde met een aanwijslijn. Zonder die
+  markering zegt een balk over heel Vlaanderen niets over een bouwzone van vier meter.
 - **Compacte opmaak**: `Settings.compact`, het vinkje "Compacte opmaak (meer op een blad)" op het
   tabblad Instellingen en `--compact` in `run_headless.py`. Uit levert de voorspelbare opmaak:
   hoogstens twee korte stukken per blad. Aan gaat er zoveel op een blad als erop past.
@@ -27,12 +30,14 @@ zegt waar ze genomen is.
   het aantal rapportpagina's.
 
 ### Gewijzigd
-- **De "Legenda voor de zone" staat onder haar eigen kaart**, niet meer op een blad ernaast: een
-  blad voor een of twee legenda-regels is een blad vol wit. Het kaartkader krimpt met precies wat
+- **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
+  ernaast: vier regels leeswijzer of twee legenda-regels op een A4 is een blad vol wit. Eerst de
+  leeswijzer, dan de legenda. Het kaartkader krimpt met precies wat
   de legenda nodig heeft en nooit verder dan een halve bladhoogte; wat dan nog niet past loopt door
   op het volgende blad. De uitsnede houdt haar breedte, dus de schaal in het infovak, de schaalbalk
   en het opgehaalde kaartbeeld blijven ongewijzigd. Geldt ook voor de profieltypestrookjes van het
-  Quartair; alleen de eenhedentabel van een kaartblad houdt haar eigen blad.
+  Quartair; alleen de eenhedentabel van een kaartblad houdt haar eigen blad. Past de leeswijzer
+  zelf niet meer onder een leesbare kaart, dan begint het hele blok op het blad erachter.
 - **Een kaart zonder kaartbeeld krijgt geen blad meer.** Geen dekking op deze locatie, of een
   ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
   Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
