@@ -35,6 +35,8 @@ def test_fact_fields_exist_in_recorded_fixtures():
         features = data["features"]
         assert features, f"{e.id}: fixture {FIXTURE_FOR[e.id]} has no features"
         for field_name in e.fact_fields:
+            if field_name == c.DISTANCE_FIELD:
+                continue  # de studie rekent dit veld zelf uit; het staat in geen enkel antwoord
             assert field_name in features[0]["properties"], f"{e.id}: missing field {field_name!r}"
 
 
