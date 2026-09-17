@@ -213,11 +213,15 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     return layer
 
 
-def style_virtual_boreholes_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
+def style_virtual_boreholes_layer(layer: QgsVectorLayer, labels: bool = True) -> QgsVectorLayer:
     """The virtual boreholes: a purple diamond, labelled with the model it came from.
 
     Deliberately unlike the three investigation kinds. A reader who cannot tell a modelled column
     from a real sounding at a glance reads the map wrong, and no legend fixes that.
+
+    `labels=False` is the version the report maps draw: a dozen doorprik points along one section
+    line all carry the same model name, and a dozen copies of "g3dv3_F" over that line is a grey
+    smudge. In QGIS the label stays - there the reader can zoom and click.
     """
     colour, marker = VB_STYLE
     symbol = QgsMarkerSymbol.createSimple(
@@ -232,7 +236,7 @@ def style_virtual_boreholes_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
     settings.setFormat(text_format)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(True)
+    layer.setLabelsEnabled(labels)
     return layer
 
 
