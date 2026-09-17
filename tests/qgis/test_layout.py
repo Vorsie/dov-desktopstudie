@@ -2024,3 +2024,38 @@ def test_without_a_strip_the_zone_is_not_marked_either(make_layout):
     lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
 
     assert _rules_on(lay, 1) == []
+
+
+def test_the_zone_label_stands_at_its_mark_and_not_at_the_left_margin(make_layout, tmp_path):
+    """Een aanwijslijn die naar rechts wijst met het label linksboven aan de marge wijst nergens
+    naar. Het label begint waar de markering staat - en blijft binnen het blad."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    lay = make_layout(pages=[_zone_legend_page(
+        None, ramp=_marked_ramp((0.59, 0.61), 0.6), title="DHMV II - DTM 1 m")])
+
+    label = next(item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+                 if "zone gemiddeld" in item.text())
+    mark = min(rule.pagePositionWithUnits().x() for rule in _rules_on(lay, 1))
+    assert label.pagePositionWithUnits().x() == pytest.approx(mark, abs=2.0)
+    assert mark > MARGIN + 0.5 * layout.RAMP_STRIP_W, "de markering ligt rechts van het midden"
+
+
+def test_a_zone_label_near_the_right_end_stays_on_the_sheet(make_layout, tmp_path):
+    """Een zone bovenaan de schaal zet haar markering bij het rechteruiteinde; het label mag dan
+    niet van het papier af lopen."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    lay = make_layout(pages=[_zone_legend_page(
+        None, ramp=_marked_ramp((0.99, 1.0), 1.0), title="DHMV II - DTM 1 m")])
+
+    label = next(item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+                 if "zone gemiddeld" in item.text())
+    right = label.pagePositionWithUnits().x() + label.sizeWithUnits().width()
+    assert right <= layout.CONTENT_RIGHT + 0.1
