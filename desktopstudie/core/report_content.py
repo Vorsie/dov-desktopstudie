@@ -330,6 +330,38 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
     return LegendPage(f"Legenda voor de zone - {entry.title}", entries, _rows_note(rows_src))
 
 
+ISOPACH_ID = "quartair_dikte"
+QUARTAIR_UNIT = "quartair"
+# The map is drawn at this scale, so a contour further away than half the paper width is not in
+# the picture and the reader deserves to be told rather than left with an empty sheet.
+IN_VIEW_M = 4000.0
+
+
+def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]]) -> str:
+    """What the thickness map can say about THIS point, and about its own empty picture.
+
+    The isopachs are contour lines across the whole of Flanders; around a building plot there is
+    usually none in view. Two sentences then earn the sheet: the thickness the G3Dv3 model gives
+    at the representative point - named as a model value, because it is a calculation and not a
+    borehole - and where the nearest contour actually lies, read from the lines that were fetched.
+    """
+    parts = []
+    borehole = result.virtual_boreholes.get("g3dv3_P")
+    layers = [layer for layer in (borehole.layers if borehole else [])
+              if layer.name.lower().startswith(QUARTAIR_UNIT)]
+    if layers:
+        layer = layers[0]
+        parts.append(f"Modelwaarde G3Dv3 op het representatieve punt: {layer.thickness_m:.2f} m "
+                     f"Quartair ({layer.top_mtaw:.2f} tot {layer.base_mtaw:.2f} mTAW). "
+                     f"Een modelwaarde, geen boring.")
+    nearest = min((row.get(catalogue.DISTANCE_FIELD) or 0) for row in rows) if rows else None
+    if nearest is not None and nearest > IN_VIEW_M:
+        closest = min(rows, key=lambda row: row.get(catalogue.DISTANCE_FIELD) or 0)
+        parts.append(f"Geen isopachen binnen het kaartbeeld; dichtstbijzijnde contour op "
+                     f"{nearest / 1000:.1f} km ({_s(closest.get('dikte'))} m).")
+    return " ".join(parts)
+
+
 def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
                      images: Dict[str, str]) -> Union[TablePage, LegendPage]:
     """The classes that lie inside the zone, once each.
@@ -347,6 +379,9 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         cells = _cells(entry, row, fields)  # `_cells` already prints a bare URL in its short form
         if cells not in rows:
             rows.append(cells)
+    if entry.id == ISOPACH_ID:
+        note = _isopach_note(result, rows_src) or _rows_note(rows_src)
+        return TablePage(f"Dichtstbijzijnde isopachen - {entry.title}", headers, rows[:5], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
         # number, and nine near-identical rows cost two sheets while saying nothing the first row
