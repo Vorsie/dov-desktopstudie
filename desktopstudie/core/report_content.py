@@ -332,12 +332,20 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
 
 ISOPACH_ID = "quartair_dikte"
 QUARTAIR_UNIT = "quartair"
-# The map is drawn at this scale, so a contour further away than half the paper width is not in
-# the picture and the reader deserves to be told rather than left with an empty sheet.
-IN_VIEW_M = 4000.0
+def _in_view_m(entry: catalogue.MapEntry) -> float:
+    """How far from the zone the map frame still reaches, in metres.
+
+    Not a fixed number: it is the paper itself. A frame of 180 mm at 1:100 000 covers 18 km, so
+    everything within 9 km of the centre is on the sheet; the same frame at 1:25 000 covers 4,5 km
+    and reaches 2,25 km. Measuring against a constant made the report deny a contour that was
+    plainly drawn on its own map (live at Gent: the nearest contour at 5,7 km sits well inside the
+    1:100 000 view). The width is the narrow side of the frame, so this is the careful answer.
+    """
+    return catalogue.MAP_WIDTH_MM / 1000.0 * entry.scale / 2.0
 
 
-def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]]) -> str:
+def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
+                  entry: catalogue.MapEntry) -> str:
     """What the thickness map can say about THIS point, and about its own empty picture.
 
     The isopachs are contour lines across the whole of Flanders; around a building plot there is
@@ -355,7 +363,7 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]]) -> 
                      f"Quartair ({layer.top_mtaw:.2f} tot {layer.base_mtaw:.2f} mTAW). "
                      f"Een modelwaarde, geen boring.")
     nearest = min((row.get(catalogue.DISTANCE_FIELD) or 0) for row in rows) if rows else None
-    if nearest is not None and nearest > IN_VIEW_M:
+    if nearest is not None and nearest > _in_view_m(entry):
         closest = min(rows, key=lambda row: row.get(catalogue.DISTANCE_FIELD) or 0)
         parts.append(f"Geen isopachen binnen het kaartbeeld; dichtstbijzijnde contour op "
                      f"{nearest / 1000:.1f} km ({_s(closest.get('dikte'))} m).")
@@ -380,7 +388,7 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         if cells not in rows:
             rows.append(cells)
     if entry.id == ISOPACH_ID:
-        note = _isopach_note(result, rows_src) or _rows_note(rows_src)
+        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src)
         return TablePage(f"Dichtstbijzijnde isopachen - {entry.title}", headers, rows[:5], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
