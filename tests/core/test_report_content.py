@@ -44,7 +44,7 @@ def test_map_pages_come_from_catalogue_and_tables_from_data(gent_ring):
     geo = report.chapters[2]
     # chapter 3 interleaves: map page, how to read its codes, then what lies in the zone
     assert isinstance(geo.pages[0], rc.MapPage) and geo.pages[0].map_id == "bodemkaart"
-    assert isinstance(geo.pages[1], rc.TextPage) and geo.pages[1].title.startswith("Leeswijzer")
+    assert geo.pages[0].guide.title.startswith("Leeswijzer")
     legend = geo.pages[0].zone_legend  # onder de kaart, niet op een blad ernaast
     assert legend.title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
     assert legend.rows[0][0] == "OB"
@@ -200,18 +200,18 @@ def test_the_zone_legend_lists_only_the_classes_that_lie_in_the_zone(gent_ring):
     assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
 
 
-def test_the_reading_guide_stands_right_behind_its_map(gent_ring):
-    """De volgorde waarin de lezer het nodig heeft: eerst de kaart met de klassen die in de zone
-    liggen eronder, dan hoe die codes te lezen zijn (de leeswijzer)."""
+def test_the_reading_guide_travels_on_its_own_map(gent_ring):
+    """De volgorde waarin de lezer het nodig heeft, en allemaal op een blad: de kaart, hoe haar
+    codes te lezen zijn (de leeswijzer) en welke klassen er in de zone liggen."""
     geo = _geologie(_result(gent_ring))
 
-    titles = [p.title for p in geo.pages]
-    guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
-    assert titles.index("Bodemkaart van Vlaanderen") == guide - 1
-    page = geo.pages[guide]
+    bodemkaart = next(p for p in geo.pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    page = bodemkaart.guide
     assert isinstance(page, rc.TextPage)
     assert "Z zand" in page.html and "drainage" in page.html
     assert '<a href="https://www.dov.vlaanderen.be/page/' in page.html, "de link hoort klikbaar te zijn"
+    assert bodemkaart.zone_legend is not None
 
 
 def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
@@ -253,7 +253,6 @@ def test_the_quartair_block_is_two_pages_not_four(gent_ring):
     quartair = [title for title in titles if "1/50 000 (samengesteld)" in title
                 or title.startswith("Eenheden op kaartblad")]
     assert quartair == ["Quartairgeologische kaart 1/50 000 (samengesteld)",
-                        "Leeswijzer - Quartairgeologische kaart 1/50 000 (samengesteld)",
                         "Eenheden op kaartblad 22"]
 
 
@@ -293,13 +292,15 @@ def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent
 
 def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
     """Het hoogtemodel somt niets op - er zijn geen kaarteenheden - maar de kleurschaal vraagt wel
-    uitleg. De leeswijzer staat dan direct achter de kaartpagina."""
+    uitleg. Die leeswijzer staat onder het kaartkader; een kaart zonder codes krijgt er geen."""
     report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
 
-    titles = [p.title for p in report.chapters[0].pages]
-    dtm = titles.index("Digitaal Hoogtemodel Vlaanderen II - DTM 1 m")
-    assert titles[dtm + 1] == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
-    assert "Leeswijzer - Ferrariskaart (1777)" not in [p.title for p in report.chapters[1].pages]
+    pages = report.chapters[0].pages
+    dtm = next(p for p in pages if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.guide.title == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
+    ferraris = next(p for p in report.chapters[1].pages
+                    if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+    assert ferraris.guide is None
 
 
 def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
@@ -642,3 +643,55 @@ def test_without_a_virtual_borehole_there_is_no_place_to_print(gent_ring):
                          rc.ReportMeta(project="P", author="A", company="C")).chapters[3]
 
     assert not [p for p in vb.pages if isinstance(p, rc.TablePage)]
+
+
+# --- de leeswijzer staat onder haar kaart -------------------------------------------------------
+
+def test_the_reading_guide_stands_under_its_map_and_not_on_a_sheet_of_its_own(gent_ring):
+    """Vier regels tekst op een verder leeg blad, elf keer in een rapport: dat is het wit waar de
+    gebruiker over viel. De leeswijzer hoort onder het kaartkader, boven de legenda voor de zone."""
+    geo = _geologie(_result(gent_ring))
+
+    assert not [p for p in geo.pages if p.title.startswith("Leeswijzer")], \
+        "de leeswijzer hoort geen eigen blad meer te zijn"
+    bodemkaart = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    assert isinstance(bodemkaart.guide, rc.TextPage)
+    assert bodemkaart.guide.title == "Leeswijzer - Bodemkaart van Vlaanderen"
+    assert "Z zand" in bodemkaart.guide.html
+
+
+def test_a_map_with_a_guide_but_no_zone_legend_carries_the_text_all_the_same(gent_ring):
+    """Het hoogtemodel, HCOV en de Quartairkaart 1/200 000 hebben geen tabel met klassen onder hun
+    kaart; hun leeswijzer hoort er toch te staan in plaats van op een blad ernaast."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.zone_legend is None
+    assert isinstance(dtm.guide, rc.TextPage) and "meter TAW" in dtm.guide.html
+    assert not [p for p in report.chapters[0].pages if p.title.startswith("Leeswijzer")]
+
+
+def test_a_map_without_a_reading_guide_carries_none(gent_ring):
+    """Een orthofoto heeft geen codes om uit te leggen en krijgt dus geen leeswijzer."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ferraris = next(p for p in report.chapters[1].pages
+                    if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+    assert ferraris.guide is None
+
+
+def test_a_dropped_map_hands_back_its_guide_before_its_legend(gent_ring):
+    """Valt het kaartbeeld weg, dan blijven de leeswijzer en de klassen in de zone staan - allebei
+    op een eigen blad, in de volgorde waarin ze onder de kaart stonden."""
+    result = _result(gent_ring)
+    bodemkaart = next(p for p in _geologie(result).pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+
+    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                          unavailable={rc.map_page_key(bodemkaart)}).chapters[2]
+
+    titles = [p.title for p in geo.pages]
+    guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
+    legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
+    assert guide < legend
