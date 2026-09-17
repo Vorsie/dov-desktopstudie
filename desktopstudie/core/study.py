@@ -92,6 +92,28 @@ class Settings:
 
 _now = now_iso  # one spelling of "now" for every provenance stamp; the shell stamps with it too
 
+# Which soundings get a qc figure. An electrical cone outranks a mechanical one whatever the
+# distance: a continu elektrische sondering measures the cone resistance over the whole depth
+# while a discontinu mechanische one steps through it, so for a diagram the electrical test is
+# worth more than a few hundred metres of proximity. Distance decides inside each group.
+# The word lives in `sondeermethode` ("continu elektrisch" / "discontinu mechanisch"), not in
+# `conus`: both were filled on all 133 Gent soundings and agreed exactly (110 mechanical, 23
+# electrical, live 2026-09-17), but `conus` is a device code ("M4", "E") whose vocabulary is
+# open, while the method is the sentence that says what was done.
+ELECTRICAL = "elektrisch"
+
+
+def is_electrical(sounding) -> bool:
+    """Whether this sounding was pushed with an electrical cone, read from its own method."""
+    return ELECTRICAL in (sounding.method or "").lower()
+
+
+def for_figures(soundings: Sequence[Cpt], count: int) -> List[Cpt]:
+    """The soundings that get a qc figure: the electrical ones first, nearest first within each
+    group. The overview table keeps every sounding in distance order - only this choice changes."""
+    ranked = sorted(soundings, key=lambda c: (not is_electrical(c), c.distance_m))
+    return ranked[:count]
+
 
 def _prop(props, key, cast=None):
     value = props.get(key)
@@ -186,14 +208,15 @@ class _Runner:
         out.sort(key=lambda c: c.distance_m)
         self.result.cpts = out
         self._note_municipality(feats)
-        nearest = [c for c in out if c.url][: self.s.n_cpt_figures]
+        nearest = for_figures([c for c in out if c.url], self.s.n_cpt_figures)
 
         def load(c: Cpt) -> None:
             c.profile = dov_xml.parse_cpt_profile(self._item(c.url + ".xml"), log=self.xml_log)
 
         failed = self._load_each(nearest, load, "sondering")
+        electrical = sum(1 for c in nearest if is_electrical(c))
         self.log.info(f"{len(out)} sonderingen binnen {self.s.radius_m:.0f} m, "
-                      f"{len(nearest) - failed} opgehaald, {failed} mislukt")
+                      f"{len(nearest) - failed} opgehaald ({electrical} elektrisch), {failed} mislukt")
 
     def boreholes(self) -> None:
         feats = self.wfs.within_distance("dov-pub:Boringen", self.zone.wkt, self.s.radius_m, self.s.max_features)
