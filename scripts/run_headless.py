@@ -6,6 +6,9 @@ Run it with the Python of a QGIS installation, not with the plain venv:
       --adres "Kortrijksesteenweg 100 Gent" --buffer 50 --out uitvoer\\gent
   python3 scripts/run_headless.py --x 104326 --y 192506 --buffer 50 --out uitvoer/gent
 
+De aparte legendapagina's staan uit; `--legendas` maakt ze wel. `--compact` zet zoveel korte
+tabellen en figuren op een blad als erop passen.
+
 Afsluitcodes: 0 = volledig, 2 = geen bruikbare locatie (adres niet gevonden of niets opgegeven),
 3 = klaar maar met gaten (een mislukt product of een bron die niet antwoordde).
 
@@ -53,9 +56,16 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--auteur", default="", help="auteur op het titelblad en in de voettekst")
     ap.add_argument("--bedrijf", default="", help="bedrijf op het titelblad en in de voettekst")
     ap.add_argument("--logo", default="", help="pad naar een logo voor het titelblad")
+    ap.add_argument("--legendas", action="store_true",
+                    help="wel aparte legendapagina's aanmaken (standaard niet); de klassen die in "
+                         "de zone liggen staan sowieso onder hun eigen kaart")
+    # De oude schakelaar van v0.1, toen de legendabladen standaard aan stonden. Ze doet niets meer
+    # maar blijft bestaan, zodat een script uit die tijd niet afbreekt op een onbekend argument.
     ap.add_argument("--geen-legendas", action="store_true",
-                    help="geen aparte legendapagina's aanmaken; de quartairtekeningen worden wel "
-                         "opgehaald, die zijn rapportinhoud")
+                    help="verouderd: legendapagina's staan al uit; dit argument doet niets")
+    ap.add_argument("--compact", action="store_true",
+                    help="compacte opmaak: zoveel korte tabellen en figuren op een blad als erop "
+                         "passen (standaard hoogstens twee)")
     ap.add_argument("--paginas", action="store_true",
                     help="elk blad ook als PNG wegschrijven in paginas/ (rendert het rapport een "
                          "tweede keer)")
@@ -73,7 +83,10 @@ def run(args: argparse.Namespace, log: Log) -> int:
     zone = _cli.zone_of(args, *located)
     meta = ReportMeta(project=args.project, project_number=args.projectnummer, author=args.auteur,
                       company=args.bedrijf, logo_path=args.logo)
-    settings = Settings(radius_m=args.straal)
+    settings = Settings(radius_m=args.straal, compact=args.compact)
+    if args.geen_legendas:
+        log.warning("--geen-legendas is verouderd en doet niets: legendapagina's staan standaard "
+                    "uit; gebruik --legendas om ze wel te maken")
 
     # The two halves are run separately rather than through `run_pipeline` for one reason: the
     # summary can then say where the time went. They share one client, so also one disk cache.
@@ -84,8 +97,8 @@ def run(args: argparse.Namespace, log: Log) -> int:
     core_done = time.monotonic()
     outcome = pipeline.finish(QgsProject.instance(), result, meta, out, log,
                               progress=pipeline.part_of(_print_progress, pipeline.CORE_SHARE, 1.0),
-                              legends=not args.geen_legendas, client=client, cache_mode=args.cache,
-                              pngs=args.paginas,
+                              legends=args.legendas, client=client, cache_mode=args.cache,
+                              pngs=args.paginas, compact=args.compact,
                               # Niemand kijkt hier ooit naar het geopende QgsProject: de kaartlagen
                               # daarin bouwen kost een GetCapabilities per kaart en levert niets
                               # op. Het geleverde studie.qgz krijgt ze wel.
@@ -97,7 +110,8 @@ def run(args: argparse.Namespace, log: Log) -> int:
     print(f"pdf: {outcome.pdf}")
     print(f"project: {outcome.project_file}")
     print(f"geopackage: {outcome.geopackage}")
-    print(f"pagina's: {pages} rapportpagina's, {len(outcome.page_pngs)} PNG's")
+    print(f"pagina's: {outcome.sheets} bladen uit {pages} rapportpagina's, "
+          f"{len(outcome.page_pngs)} PNG's")
     print(f"duur: {finished - started:.0f} s totaal ({core_done - started:.0f} s kern, "
           f"{finished - core_done:.0f} s schil)")
     # Per fase, want "de schil duurde 1736 s" zegt niet waar die tijd heen ging.
