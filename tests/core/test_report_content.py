@@ -613,3 +613,32 @@ def test_two_framings_of_one_map_are_dropped_apart(gent_ring):
     left = [p for ch in dropped.chapters for p in ch.pages
             if isinstance(p, rc.MapPage) and p.map_id == "grb"]
     assert len(left) == len(grb_pages) - 1
+
+
+# --- waar de virtuele boring genomen is --------------------------------------------------------
+
+def test_the_virtual_borehole_chapter_says_where_the_borehole_was_taken(gent_ring):
+    """Een virtuele boring is een punt, en de lezer hoort te zien welk punt: X en Y in Lambert 72
+    en het maaiveld daar, per model - want twee modellen kunnen op een ander punt of op een ander
+    maaiveld uitkomen."""
+    result = _result(gent_ring)
+    result.virtual_boreholes["g3dv3_F"] = VirtualBorehole(x=104326.4, y=192506.1, model="g3dv3_F", layers=[
+        VbLayer("g3dv3_F_2", "Formatie van Gent", 8.38, 4.0, 4.38, "#FFFF00", "dekzand")])
+    result.virtual_boreholes["hcovv2_S"] = VirtualBorehole(x=104326.4, y=192506.1, model="hcovv2_S", layers=[
+        VbLayer("0100", "Quartair", 8.40, 2.0, 6.40, "#00FF00", "")])
+
+    vb = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[3]
+
+    place = next(p for p in vb.pages if isinstance(p, rc.TablePage) and p.title.startswith("Plaats"))
+    assert place.columns == ["Model", "X (Lambert 72)", "Y (Lambert 72)", "Maaiveld (mTAW)", "Lagen"]
+    assert place.rows == [["G3Dv3 - formaties", "104326.4", "192506.1", "8.38", "1"],
+                          ["HCOV v2 - subeenheden", "104326.4", "192506.1", "8.40", "1"]]
+
+
+def test_without_a_virtual_borehole_there_is_no_place_to_print(gent_ring):
+    """Geen boring, geen punt: het hoofdstuk zegt dan dat de boring niet beschikbaar is en drukt
+    geen tabel af met een plaats die niemand bevraagd heeft."""
+    vb = rc.build_report(_result(gent_ring),
+                         rc.ReportMeta(project="P", author="A", company="C")).chapters[3]
+
+    assert not [p for p in vb.pages if isinstance(p, rc.TablePage)]
