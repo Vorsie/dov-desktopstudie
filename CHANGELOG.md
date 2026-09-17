@@ -4,6 +4,52 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
 
 ## [Unreleased]
 
+Compactere opmaak na de eerste gebruikersronde: minder wit, minder bladen, en de virtuele boring
+zegt waar ze genomen is.
+
+### Toegevoegd
+- **Kleurschaal onder het hoogtemodel**: de GetLegendGraphic van het DHMV is een kleurbalk over
+  heel Vlaanderen. De schil knipt die balk eruit, legt hem op zijn kant en zet hem als strookje
+  onder de DTM-kaart, met de uiteinden van de dienst (-50 en 300 mTAW) en de laagste, gemiddelde
+  en hoogste hoogte van de zone eronder. Komt de balk niet binnen of ziet de legenda er anders
+  uit, dan worden er geen kleuren getekend - een verzonnen schaal hoort niet bij de kaart erboven -
+  en zegt de regel eronder waarom.
+- **Compacte opmaak**: `Settings.compact`, het vinkje "Compacte opmaak (meer op een blad)" op het
+  tabblad Instellingen en `--compact` in `run_headless.py`. Uit levert de voorspelbare opmaak:
+  hoogstens twee korte stukken per blad. Aan gaat er zoveel op een blad als erop past.
+- **Laag "Virtuele boringen"**: elke virtuele boring die de studie nam - die op het representatieve
+  punt, per model, en de doorprikpunten langs de doorsnedelijn - als punt met model, X, Y, maaiveld
+  en aantal lagen. Paars ruitje, duidelijk anders dan de sonderingen en boringen, gelabeld met het
+  model; in het GeoPackage, in de studiegroep en in `studie.qgz`.
+- **Hoofdstuk 4 zegt waar de boring genomen is**: een tabel "Plaats van de virtuele boringen" met
+  X en Y in Lambert 72 en het maaiveld, per model.
+- `PipelineResult.sheets` en de samenvatting van `run_headless.py` noemen het aantal bladen naast
+  het aantal rapportpagina's.
+
+### Gewijzigd
+- **De "Legenda voor de zone" staat onder haar eigen kaart**, niet meer op een blad ernaast: een
+  blad voor een of twee legenda-regels is een blad vol wit. Het kaartkader krimpt met precies wat
+  de legenda nodig heeft en nooit verder dan een halve bladhoogte; wat dan nog niet past loopt door
+  op het volgende blad. De uitsnede houdt haar breedte, dus de schaal in het infovak, de schaalbalk
+  en het opgehaalde kaartbeeld blijven ongewijzigd. Geldt ook voor de profieltypestrookjes van het
+  Quartair; alleen de eenhedentabel van een kaartblad houdt haar eigen blad.
+- **Een kaart zonder kaartbeeld krijgt geen blad meer.** Geen dekking op deze locatie, of een
+  ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
+  Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
+  die blijft - dan weer op een blad van zichzelf.
+- **Korte stukken delen een blad**: een korte tabel, een kleine figuur en de leeswijzer erna komen
+  samen op een blad zolang ze passen (standaard twee per blad). Kaartbladen niet: die blijven
+  alleen. Een figuur wordt niet langer opgeblazen tot bladbreedte maar hoogstens op ware grootte
+  getekend. De voettekst wordt per blad geschreven in plaats van per rapportpagina.
+- **De aparte legendapagina's staan standaard UIT.** Het vinkje "Legenda's op aparte pagina's"
+  begint leeg, `PluginSettings.legendas` is standaard `False`, en `run_headless.py` heeft
+  `--legendas` om ze wel te maken. De profieltypetekeningen van het Quartair komen er hoe dan ook:
+  dat is rapportinhoud, geen legendablad.
+
+### Verouderd
+- `--geen-legendas` in `run_headless.py` doet niets meer (de legendapagina's staan al uit) en logt
+  een waarschuwing. Het argument blijft bestaan zodat een script uit v0.1 er niet op afbreekt.
+
 ## [0.1.0] - 2026-09-16
 
 Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packages.
