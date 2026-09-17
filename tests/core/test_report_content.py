@@ -530,3 +530,86 @@ def test_only_the_height_model_gets_a_colour_ramp(gent_ring):
     with_ramp = [p.map_id for ch in report.chapters for p in ch.pages
                  if isinstance(p, rc.MapPage) and p.ramp is not None]
     assert with_ramp == ["dhmv_dtm"]
+
+
+# --- een kaart zonder beeld krijgt geen blad ---------------------------------------------------
+
+def test_a_map_without_coverage_gets_no_sheet_but_stays_in_the_sources(gent_ring):
+    """Een kaart zonder dekking krijgt geen blad maar staat wel in de bronnen.
+
+    Een wit blad met een regel eronder is een blad dat de lezer omslaat. Dat de kaart wel degelijk
+    geprobeerd is, hoort in het hoofdstuk Bronnen, met de reden erbij."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [Provenance("Kaartbeeld Popp-kaart (1842-1879)",
+                                    "https://geo.api.vlaanderen.be/HISTCART/wms",
+                                    "2026-09-17T08:00:00", True, "geen dekking op deze locatie")]
+    popp = next(p for p in rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+                .chapters[1].pages if isinstance(p, rc.MapPage) and p.map_id == "popp")
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={rc.map_page_key(popp)})
+
+    maps = [p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)]
+    assert "popp" not in maps and "ferraris" in maps
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Geraadpleegde"))
+    assert sources.rows[0][3] == "ok - geen dekking op deze locatie"
+    licences = next(p for p in report.chapters[7].pages if p.title.startswith("Kaartbronnen"))
+    assert any("Popp" in row[0] for row in licences.rows), "de kaart blijft in de bronnenlijst staan"
+
+
+def test_a_map_whose_image_failed_gets_no_sheet_but_stays_a_failed_source(gent_ring):
+    """Een kaart waarvan het beeld mislukte krijgt geen blad maar staat wel als mislukte bron."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [Provenance("Kaartbeeld Ferrariskaart (1777)",
+                                    "https://geo.api.vlaanderen.be/HISTCART/wms",
+                                    "2026-09-17T08:00:00", False,
+                                    "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond")]
+    ferraris = next(p for p in rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+                    .chapters[1].pages if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={rc.map_page_key(ferraris)})
+
+    maps = [p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)]
+    assert "ferraris" not in maps
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Geraadpleegde"))
+    assert sources.rows[0][3].startswith("fout: kaartbeeld niet opgehaald")
+
+
+def test_a_dropped_map_hands_its_zone_legend_back_to_a_sheet_of_its_own(gent_ring):
+    """De legenda voor de zone komt uit de WFS, niet uit het kaartbeeld: valt het beeld weg, dan
+    blijven die klassen waar. Ze staan dan weer op een eigen blad, want er is geen kaart meer om
+    ze onder te zetten."""
+    result = _result(gent_ring)
+    bodemkaart = next(p for p in _geologie(result).pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+
+    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                          unavailable={rc.map_page_key(bodemkaart)}).chapters[2]
+
+    assert not [p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart"]
+    legend = next(p for p in geo.pages if p.title == "Legenda voor de zone - Bodemkaart van Vlaanderen")
+    assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
+
+
+def test_two_framings_of_one_map_are_dropped_apart(gent_ring):
+    """Een kaart draagt meerdere kaders - de GRB-basiskaart drie - en een mozaiek kan het smalle
+    kader wel dekken en het brede niet. De sleutel van een kaartpagina is dus de kaart plus haar
+    kader, niet de kaart alleen."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"))
+    grb_pages = [p for ch in report.chapters for p in ch.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "grb"]
+    assert len(grb_pages) > 1
+    keys = {rc.map_page_key(p) for p in grb_pages}
+    assert len(keys) == len(grb_pages), "elk kader heeft een eigen sleutel"
+
+    dropped = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"),
+                              unavailable={rc.map_page_key(grb_pages[0])})
+
+    left = [p for ch in dropped.chapters for p in ch.pages
+            if isinstance(p, rc.MapPage) and p.map_id == "grb"]
+    assert len(left) == len(grb_pages) - 1
