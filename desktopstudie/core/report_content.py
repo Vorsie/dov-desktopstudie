@@ -16,12 +16,22 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
-from . import catalogue
+from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
 from .model import StudyResult
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
+
+# Why one sounding is drawn and another is not. The rule itself lives in `study.for_figures`.
+FIGURE_CHOICE = (
+    "<p>Niet elke sondering binnen de straal krijgt een diagram. De tabel hierboven toont ze "
+    "allemaal, op afstand gesorteerd; voor de figuren krijgen de <b>elektrische</b> sonderingen "
+    "voorrang, hoe ver ze ook liggen, en pas daarna de dichtstbijzijnde mechanische.</p>"
+    "<p>Een continu elektrische sondering meet de conusweerstand over de volledige diepte; een "
+    "discontinu mechanische meet met stappen en mist wat daartussen ligt. Voor het beoordelen van "
+    "een laagopbouw is een elektrische sondering op enkele honderden meters dus meer waard dan "
+    "een mechanische vlak naast de zone.</p>")
 
 DISCLAIMER = (
     "<p>Deze desktopstudie verzamelt open data van DOV en geopunt op het moment van opmaak. "
@@ -597,16 +607,23 @@ def _chapter_grondonderzoek(result: StudyResult) -> Chapter:
           f.gw_id] for f in result.gw_filters],
         note="Geen peilputten binnen de straal." if not result.gw_filters else "",
         links=[f.url for f in result.gw_filters]))
-    for c in result.cpts:
-        key = f"cpt_{c.permkey}"
-        if key in result.figures:
-            inv.pages.append(FigurePage(f"Sondering {c.number}", result.figures[key],
-                                        f"{c.distance_m:.0f} m van de zone - {c.url}"))
+    figured = [c for c in result.cpts if f"cpt_{c.permkey}" in result.figures]
+    if figured:
+        # Why THESE soundings: a reader who sees an electrical test from 300 m drawn and a
+        # mechanical one from 40 m left out has to be told the rule, not left to guess it.
+        inv.pages.append(TextPage("Keuze van de sonderingen met een figuur", FIGURE_CHOICE))
+    for c in figured:
+        inv.pages.append(FigurePage(f"Sondering {c.number}", result.figures[f"cpt_{c.permkey}"],
+                                    f"{c.distance_m:.0f} m van de zone - {c.url}"))
     for b in result.boreholes:
         key = f"boring_{b.permkey}"
         if key in result.figures:
-            inv.pages.append(FigurePage(f"Boring {b.number}", result.figures[key],
-                                        f"{b.distance_m:.0f} m van de zone - {b.url}"))
+            caption = f"{b.distance_m:.0f} m van de zone - {b.url}"
+            remarks = lithology.summarise(lithology.notable_terms(b.lithology))
+            if remarks:
+                # What the description itself says, quoted: never what it means for the ground.
+                caption += f" - Opmerkingen uit de beschrijving: {remarks}"
+            inv.pages.append(FigurePage(f"Boring {b.number}", result.figures[key], caption))
     return inv
 
 
