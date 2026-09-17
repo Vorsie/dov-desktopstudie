@@ -28,6 +28,22 @@ zegt waar ze genomen is.
   X en Y in Lambert 72 en het maaiveld, per model.
 - `PipelineResult.sheets` en de samenvatting van `run_headless.py` noemen het aantal bladen naast
   het aantal rapportpagina's.
+- **De grondwaterstanden dragen hun getal en hun legenda.** GHG en GLG hadden een gekleurde kaart
+  en verder niets. Ze vragen hun waarde nu op bij de dienst (GetFeatureInfo op het representatieve
+  punt: `GHG-waarde_m-mv` 2,85 en `GLG-waarde_m-mv` 3,54 voor Gent, live geverifieerd 2026-09-17)
+  en zetten die met de standaardafwijking en het 80 %-betrouwbaarheidsinterval in een tabel onder
+  de kaart. De dienst antwoordt in meter ONDER MAAIVELD; de regel eronder rekent dat om naar mTAW
+  met het gemeten gemiddelde maaiveld van de zone en noemt die aanname. De kleurbalk van de dienst
+  staat er als strookje onder, met haar klassegrenzen (0-1-2-3-4-5-10-15-20 m) erbij: die klassen
+  zijn niet even breed, dus wie ze niet uitschrijft leest de helft van de balk als tien meter waar
+  ze vijf is. Beide kaarten kregen een leeswijzer die uitlegt wat een gemiddeld hoogste en een
+  gemiddeld laagste grondwaterstand zijn.
+- **Een dun thema krijgt de basiskaart eronder.** Een kaart die enkele procenten van de uitsnede
+  tekent - grondverschuivingen, watertoets, PFAS, OVAM, erosie, dikte van het Quartair - leverde
+  een wit blad met een rode cirkel. `MapEntry.backdrop` laat de basiskaart bij dezelfde uitsnede en
+  hetzelfde pixelformaat ophalen en tekent het thema erover in het ene beeld dat de pagina
+  afdrukt, met de doorzichtigheid die de catalogus voor dat thema kiest. Elke ondergrond is een
+  eigen bron; valt ze weg, dan wordt het thema alleen getekend en houdt het blad zijn plaats.
 
 ### Gewijzigd
 - **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
@@ -41,14 +57,22 @@ zegt waar ze genomen is.
   ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
   Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
   die blijft - dan weer op een blad van zichzelf.
-- **Korte stukken delen een blad**: een korte tabel en de tekst of figuur erna komen samen op een
-  blad zolang ze passen (standaard twee per blad, en nooit twee hoofdstukken onder een kop). Kaartbladen niet: die blijven
+- **Een blad vult zich**: een korte tabel, een kleine figuur en de tekst erna komen op hetzelfde
+  blad zolang er iets bij past - niet meer tot twee stukken, want een blad met een tabel van vier
+  regels erop is nog altijd een blad vol wit. Een blad draagt een hoofdstukkop, dus een stuk uit
+  het volgende hoofdstuk begint een nieuw blad; met `compact` mag het mee, met die kop er klein
+  bij. Kaartbladen niet: die blijven
   alleen. Een figuur wordt niet langer opgeblazen tot bladbreedte maar hoogstens op ware grootte
   getekend. De voettekst wordt per blad geschreven in plaats van per rapportpagina.
 - **De aparte legendapagina's staan standaard UIT.** Het vinkje "Legenda's op aparte pagina's"
   begint leeg, `PluginSettings.legendas` is standaard `False`, en `run_headless.py` heeft
   `--legendas` om ze wel te maken. De profieltypetekeningen van het Quartair komen er hoe dan ook:
   dat is rapportinhoud, geen legendablad.
+
+- **Een uitgeschakelde kaart krijgt geen blad meer** tussen de historische kaarten. Ze staat in
+  het hoofdstuk Bronnen, in de tabel "Niet opgenomen kaarten", met de reden erbij. De reden zelf
+  is herschreven voor een lezer: de NGI-regel gaf een instructie aan wie de plugin onderhoudt
+  ("vul de kaartdienst in"), en dat hoort niet in het rapport van een klant.
 
 ### Verouderd
 - `--geen-legendas` in `run_headless.py` doet niets meer (de legendapagina's staan al uit) en logt
