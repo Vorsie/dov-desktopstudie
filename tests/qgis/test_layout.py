@@ -1597,11 +1597,19 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
 
 # --- de legenda voor de zone staat onder haar eigen kaart ----------------------------------------
 
-def _zone_legend_page(zone_legend, ramp=None, title="Bodemkaart van Vlaanderen"):
+def _zone_legend_page(zone_legend, ramp=None, title="Bodemkaart van Vlaanderen", guide=None):
     from desktopstudie.core.report_content import MapPage
 
     return MapPage(MAP_ID, title, legend=False, scale=2500, extent_factor=3.0,
-                   zone_legend=zone_legend, ramp=ramp)
+                   zone_legend=zone_legend, ramp=ramp, guide=guide)
+
+
+def _guide(sentences=4):
+    from desktopstudie.core.report_content import TextPage
+
+    body = " ".join("De bodemcode leest u letter voor letter en zegt wat er in de zone ligt."
+                    for _ in range(sentences))
+    return TextPage("Leeswijzer - Bodemkaart van Vlaanderen", f"<p>{body}</p>")
 
 
 def _legend_table(rows):
@@ -1873,3 +1881,146 @@ def test_a_piece_from_another_chapter_starts_its_own_sheet(project, gent_zone, t
     lay = layout.build_layout(project, report, {}, tmp_path, gent_zone.ring, _meta(), compact=True)
 
     assert lay.pageCollection().pageCount() == 1 + 2
+
+
+# --- de leeswijzer staat onder haar kaart -------------------------------------------------------
+
+def test_the_reading_guide_lands_under_the_map_above_the_zone_legend(make_layout):
+    """Vier regels tekst op een verder leeg blad is het wit waar de gebruiker over viel. De
+    leeswijzer hoort onder het kaartkader, en de legenda voor de zone eronder."""
+    from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table([["OB", "OB", "Bebouwde zones"]]),
+                                               guide=_guide())])
+
+    assert lay.pageCollection().pageCount() == 1 + 1, "titelblad plus het kaartblad, verder niets"
+    guide = next(item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+                 if "letter voor letter" in item.text())
+    frame = _items_of(lay, 1, QgsLayoutFrame)[0]
+    assert _bottom_of(_map_item(lay, 1)) < guide.pagePositionWithUnits().y()
+    assert guide.pagePositionWithUnits().y() < frame.pagePositionWithUnits().y()
+
+
+def test_a_map_with_a_guide_and_no_legend_still_shortens_for_the_text(make_layout):
+    """Het hoogtemodel en HCOV hebben geen klassentabel; hun leeswijzer hoort er toch onder te
+    staan, en het kaartkader maakt er plaats voor."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    lay = make_layout(pages=[_zone_legend_page(None, guide=_guide(sentences=12))])
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+    assert _map_item(lay, 1).sizeWithUnits().height() < layout.MAP_H
+    assert any("letter voor letter" in item.text()
+               for item in _items_of(lay, 1, QgsLayoutItemLabel))
+
+
+def test_the_map_keeps_its_floor_when_the_guide_and_the_legend_are_long(make_layout):
+    """Tekst en legenda samen mogen het kaartkader nooit onder de ondergrens duwen; wat dan niet
+    meer past, loopt door op het volgende blad."""
+    from desktopstudie.qgis import layout
+
+    rows = [[f"Z{i}", f"Z{i}c", f"Omschrijving van bodemserie {i}"] for i in range(40)]
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table(rows), guide=_guide(sentences=10))])
+
+    assert _map_item(lay, 1).sizeWithUnits().height() >= layout.MAP_MIN_H
+    assert lay.pageCollection().pageCount() > 1 + 1
+
+
+def test_a_guide_that_does_not_even_fit_takes_the_whole_block_to_the_next_sheet(make_layout):
+    """Past de tekst zelf niet onder een leesbare kaart, dan verhuist het hele blok - tekst en
+    legenda - naar het volgende blad in plaats van half afgekapt onder de kaart te staan."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    lay = make_layout(pages=[_zone_legend_page(_legend_table([["OB", "OB", "Bebouwde zones"]]),
+                                               guide=_guide(sentences=90))])
+
+    assert _map_item(lay, 1).sizeWithUnits().height() == pytest.approx(layout.MAP_H, abs=0.1)
+    assert lay.pageCollection().pageCount() == 1 + 2
+    assert not [item for item in _items_of(lay, 1, QgsLayoutItemLabel)
+                if "letter voor letter" in item.text()], "de tekst hoort niet op het kaartblad"
+    assert any("letter voor letter" in item.text()
+               for item in _items_of(lay, 2, QgsLayoutItemLabel))
+
+
+# --- de kleurbalk zegt waar de zone ligt --------------------------------------------------------
+
+def _marked_ramp(band, mean_at, image_path="legendas/dhmv_dtm_schaal.png"):
+    from desktopstudie.core.report_content import ColourRamp
+
+    return ColourRamp("Hoogte maaiveld (m TAW)", "-50 mTAW", "300 mTAW",
+                      "Zone: laagste 12.52 - gemiddeld 14.74 - hoogste 16.25 mTAW",
+                      image_path, "", band, "zone 12.52 - 16.25 mTAW", mean_at,
+                      "zone gemiddeld 14.74 mTAW")
+
+
+def _rules_on(lay, index):
+    from qgis.core import QgsLayoutItemShape
+
+    return _items_of(lay, index, QgsLayoutItemShape)
+
+
+def test_a_zone_too_narrow_to_bracket_gets_one_mark_at_its_mean(make_layout, tmp_path):
+    """Vier meter op een schaal van 350 is een millimeter papier: geen beugel, maar een streepje
+    op het gemiddelde met de waarden ernaast."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    ramp = _marked_ramp((62.52 / 350.0, 66.25 / 350.0), 64.74 / 350.0)
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    rules = _rules_on(lay, 1)
+    assert len(rules) == 2, "een streepje plus zijn aanwijslijn"
+    expected = MARGIN + 64.74 / 350.0 * layout.RAMP_STRIP_W
+    assert rules[0].pagePositionWithUnits().x() == pytest.approx(expected, abs=0.5)
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "zone gemiddeld 14.74 mTAW" in texts
+    assert "-50 mTAW" in texts and "300 mTAW" in texts, "de uiteinden blijven staan"
+
+
+def test_a_zone_wide_enough_gets_a_bracket_between_its_two_ends(make_layout, tmp_path):
+    """Een zone die wel een meetbaar stuk van de schaal beslaat krijgt twee streepjes met een
+    beugel ertussen, op de plaats van haar laagste en hoogste hoogte."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    ramp = _marked_ramp((0.2, 0.6), 0.4)
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    rules = _rules_on(lay, 1)
+    assert len(rules) == 3, "twee streepjes en de beugel ertussen"
+    left = min(rule.pagePositionWithUnits().x() for rule in rules)
+    right = max(rule.pagePositionWithUnits().x() for rule in rules)
+    assert left == pytest.approx(MARGIN + 0.2 * layout.RAMP_STRIP_W, abs=0.5)
+    assert right == pytest.approx(MARGIN + 0.6 * layout.RAMP_STRIP_W, abs=0.5)
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "zone 12.52 - 16.25 mTAW" in texts
+
+
+def test_a_ramp_with_nothing_measured_is_marked_nowhere(make_layout, tmp_path):
+    """Zonder gemeten hoogtes staat er geen streepje op de balk."""
+    _png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 400, 20)
+    ramp = _marked_ramp(None, None)
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    assert _rules_on(lay, 1) == []
+
+
+def test_without_a_strip_the_zone_is_not_marked_either(make_layout):
+    """Geen kleurbalk, geen markering erop: een streepje zonder balk wijst nergens naar."""
+    ramp = _marked_ramp((0.2, 0.6), 0.4, image_path="")
+
+    lay = make_layout(pages=[_zone_legend_page(None, ramp=ramp, title="DHMV II - DTM 1 m")])
+
+    assert _rules_on(lay, 1) == []
