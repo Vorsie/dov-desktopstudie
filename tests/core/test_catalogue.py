@@ -371,3 +371,20 @@ def test_a_map_carries_the_answer_format_its_own_service_speaks():
     assert catalogue.by_id("gxg_ghg").gfi_format == "application/json"
     assert catalogue.by_id("gxg_glg").gfi_format == "application/json"
     assert catalogue.by_id("watertoets_pluviaal").gfi_format == "application/geo+json"
+
+
+def test_a_line_layer_asks_for_the_nearest_feature_instead_of_an_overlap():
+    """De isopachen van het Quartair zijn CONTOURLIJNEN, geen vlakken: een INTERSECTS met een
+    zonecirkel van 50 m raakt er nooit een. Live gemeten op 2026-09-17 rond het Gent-testpunt:
+    INTERSECTS 0 objecten, DWITHIN 2 km 0, DWITHIN 5 km 0, DWITHIN 8 km 8 - de dichtstbijzijnde
+    contour ligt op 5,68 km en draagt dikte 20 m. Zo'n kaart bevraagt dus de dichtstbijzijnde
+    lijn binnen een ruime straal, en toont ze op een schaal waar contouren in beeld komen."""
+    from desktopstudie.core import catalogue
+
+    entry = catalogue.by_id("quartair_dikte")
+    assert entry.fact_within_m == 10000.0
+    assert entry.scale == 100000
+    assert "dikte" in entry.fact_fields and "afstand_m" in entry.fact_fields
+    # de andere kaarten zijn vlakken en blijven op overlap zoeken
+    assert catalogue.by_id("bodemkaart").fact_within_m is None
+    assert catalogue.by_id("tertiair").fact_within_m is None
