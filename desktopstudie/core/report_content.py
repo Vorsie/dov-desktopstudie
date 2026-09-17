@@ -1,10 +1,11 @@
 """Builds the report tree (chapters -> pages) from a StudyResult. No rendering here; the QGIS
 shell turns MapPage/FigurePage/TablePage/TextPage into layout pages.
 
-A coded map carries more than one page. The fact table says WHAT lies in the zone, the
-"Leeswijzer" says how to read those codes (`MapEntry.reading_guide`), and "Legenda voor de zone"
-is the legend the reader actually needs: the handful of classes inside the zone instead of the hundreds
-on the full sheet, and it is the ONLY table for that map. The quartair map adds the drawings DOV
+A coded map carries more than one page. "Legenda voor de zone" is the legend the reader actually
+needs - the handful of classes inside the zone instead of the hundreds on the full sheet, and the
+ONLY table for that map - and it travels ON the map page (`MapPage.zone_legend`), printed under
+the map frame, because a sheet holding two legend rows is a sheet of white paper. The "Leeswijzer"
+behind it says how to read those codes (`MapEntry.reading_guide`). The quartair map adds the drawings DOV
 publishes - those drawings ARE its legend - but this module fetches nothing: the shell hands the
 files it already downloaded in through `build_report(..., zone_legend_images=...)`, keyed by
 `profieltype:<code>` and `kaartblad:<nn>`.
@@ -40,7 +41,13 @@ class MapPage:
     """A rendered catalogue map. `scale` is the target scale (1:scale); the shell actually draws
     at the larger (more zoomed-out) of `scale` and whatever scale is needed to fit
     `extent_factor` times the zone's extent, so a small zone is never shown at an unreadably
-    tight crop."""
+    tight crop.
+
+    `zone_legend` is the legend of THIS map's classes inside the zone, and it travels WITH the
+    map instead of on a page of its own: a sheet carrying two legend rows is a sheet of white
+    paper. The shell prints it directly under the map frame and shrinks that frame by exactly
+    what the legend needs; what still does not fit runs on to the next sheet.
+    """
     map_id: str
     title: str
     legend: bool = False
@@ -49,6 +56,7 @@ class MapPage:
     show_investigations: bool = False
     show_section_line: bool = False
     note: str = ""
+    zone_legend: Optional[Page] = None
 
 
 @dataclass
@@ -352,7 +360,13 @@ def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
 
 
 def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -> Chapter:
-    """Per map: the map, how to read its codes, and the classes that lie in the zone.
+    """Per map: the map with the classes that lie in the zone printed under it, then how to read
+    its codes.
+
+    The zone legend rides along on the map page (`MapPage.zone_legend`) rather than following it
+    on a sheet of its own: it is usually one or two rows, and a sheet for that is a sheet of
+    white paper. Only the quartair units table of a whole map sheet stays a page, because that
+    one is a drawing of half an A4.
 
     One table per map, not two. The fact table and the zone legend used to say the same thing -
     the same soil type on two sheets, and for the quartair map a column of download links no
@@ -361,13 +375,12 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
     """
     geo = Chapter(3, "Geologie en bodem")
     for entry in catalogue.entries("geologie", only=result.map_ids):
-        geo.pages.append(MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
-                                 note=entry.note))
-        if entry.fact_mode is None:
-            geo.pages.extend(_guide_page(entry))
-            continue
+        page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
+                       note=entry.note)
+        if entry.fact_mode is not None:
+            page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
+        geo.pages.append(page)
         geo.pages.extend(_guide_page(entry))
-        geo.pages.append(_zone_legend_for(entry, result, zone_legend_images))
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
 
