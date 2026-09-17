@@ -32,12 +32,14 @@ so the French matrix, colours and modifiers are ordinary too.
 produces "bijmenging" over and over. Those layers are skipped; the codes stay untranslated (see
 the known debt in CLAUDE.md), so nothing is claimed about them.
 
-*A bed is a rarity, an admixture is not.* Shells are named 400+ times in the sample and almost all
-of them are admixtures ("zeer weinig schelpgruis", "met schelpen", "resten schelpen", "avec
-coquilles"); the beds read "laag van verbrijzelde schelpen" or "coherente bank". There is no
-"schelpenbank" compound anywhere in the sample. So the shell words themselves are ordinary and the
-bed is caught by the word that marks it - `bank`, `niveau` - while `laag`/`lagen`/`laagje` stay
-ordinary, because they are used constantly for ordinary clay laminae in sand.
+*A bed is a rarity, an admixture is not.* Shells are named some 380 times in the sample and almost
+all of them are admixtures: "schelpen" 141, "coquilles" 124, "schelpengruis" 92, "schelpgruis" 16,
+against 21 for the French "banc"/"bancs" that marks a bed. There is no "schelpenbank" compound
+anywhere in the sample - the bed carries its own word instead. So the plain shell words are
+ordinary and the bed is caught by the word that marks it (`bank`, `banc`, `bancs`, and every
+compound built on a flagged material such as "zandsteenniveau"), while `laag`/`lagen`/`laagje` and
+the singular `niveau` stay ordinary: they are used constantly for ordinary clay laminae in sand and
+for plain depth levels.
 
 *"geen kalk" is not a report of kalk.* A description that denies a material must not be quoted as
 if it named one, so a word preceded by a denial is skipped (`DENIALS`).
