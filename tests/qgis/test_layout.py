@@ -1837,12 +1837,12 @@ def test_a_sheet_that_two_pieces_share_still_carries_exactly_one_footer(make_lay
     assert len(_footers_on(lay, 1)) == 1
 
 
-def test_by_default_no_more_than_two_pieces_share_a_sheet(make_layout):
-    """Standaard blijft de opmaak voorspelbaar: hoogstens twee stukken per blad, ook al zouden er
-    vier op passen."""
-    lay = make_layout(pages=[_short_table(f"Tabel {i}") for i in range(4)])
+def test_a_sheet_keeps_taking_what_fits_on_it(make_layout):
+    """Een blad met een tabel van vier regels erop en verder niets is het wit waar de gebruiker
+    over viel. Standaard blijft het blad dus nemen zolang er iets bij past."""
+    lay = make_layout(pages=[_short_table(f"Tabel {i}") for i in range(6)])
 
-    assert lay.pageCollection().pageCount() == 1 + 2
+    assert lay.pageCollection().pageCount() == 1 + 1
 
 
 def test_with_compact_on_everything_that_fits_goes_on_one_sheet(make_layout):
@@ -1859,6 +1859,13 @@ def test_a_map_never_shares_its_sheet_with_the_page_after_it(make_layout):
     assert lay.pageCollection().pageCount() == 1 + 2
 
 
+def test_a_sheet_that_is_full_hands_the_rest_to_the_next_one(make_layout):
+    """Vullen is geen persen: wat er niet meer bij past, begint gewoon op het volgende blad."""
+    lay = make_layout(pages=[_short_table(f"Tabel {i}", rows=24) for i in range(4)])
+
+    assert lay.pageCollection().pageCount() > 1 + 1
+
+
 def test_a_portrait_piece_never_lands_on_a_landscape_sheet(make_layout):
     """Een liggende tabel en een staande tekst delen geen blad: het blad heeft maar een stand."""
     from desktopstudie.core.report_content import TablePage
@@ -1870,20 +1877,40 @@ def test_a_portrait_piece_never_lands_on_a_landscape_sheet(make_layout):
     assert lay.pageCollection().pageCount() == 1 + 2
 
 
-def test_a_piece_from_another_chapter_starts_its_own_sheet(project, gent_zone, tmp_path):
-    """Een blad draagt een hoofdstukkop. Twee stukken uit verschillende hoofdstukken op een blad
-    zetten het ene onder de kop van het andere - de lezer leest dan de tabel van hoofdstuk 4 onder
-    "3. Geologie en bodem"."""
+def _two_chapters():
     from desktopstudie.core.report_content import Chapter, Report
-    from desktopstudie.qgis import layout
 
-    report = Report(title="Desktopstudie testproject", meta={}, chapters=[
+    return Report(title="Desktopstudie testproject", meta={}, chapters=[
         Chapter(3, "Geologie en bodem", [_short_text("Leeswijzer")]),
         Chapter(4, "Virtuele boring", [_short_table("Plaats van de virtuele boringen")])])
 
-    lay = layout.build_layout(project, report, {}, tmp_path, gent_zone.ring, _meta(), compact=True)
+
+def test_a_piece_from_another_chapter_starts_its_own_sheet(project, gent_zone, tmp_path):
+    """Een blad draagt een hoofdstukkop. Standaard zetten twee stukken uit verschillende
+    hoofdstukken het ene niet onder de kop van het andere - de lezer zou de tabel van hoofdstuk 4
+    onder "3. Geologie en bodem" lezen."""
+    from desktopstudie.qgis import layout
+
+    lay = layout.build_layout(project, _two_chapters(), {}, tmp_path, gent_zone.ring, _meta())
 
     assert lay.pageCollection().pageCount() == 1 + 2
+
+
+def test_compact_lets_two_chapters_share_a_sheet_and_repeats_the_heading(project, gent_zone,
+                                                                         tmp_path):
+    """Compact gaat een stap verder: ook stukken uit een volgend hoofdstuk mogen op het blad, maar
+    dan staat de kop van dat hoofdstuk er klein bij - anders leest de lezer ze onder de verkeerde."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.qgis import layout
+
+    lay = layout.build_layout(project, _two_chapters(), {}, tmp_path, gent_zone.ring, _meta(),
+                              compact=True)
+
+    assert lay.pageCollection().pageCount() == 1 + 1
+    texts = [item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel)]
+    assert "3. Geologie en bodem" in texts
+    assert "4. Virtuele boring" in texts, texts
 
 
 # --- de leeswijzer staat onder haar kaart -------------------------------------------------------
