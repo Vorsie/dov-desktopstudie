@@ -2288,3 +2288,19 @@ def test_the_class_boundaries_are_written_under_the_bar(make_layout, tmp_path):
     assert places == sorted(places) and places[0] < places[-1]
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "2.85 m onder maaiveld" in texts
+
+
+def test_a_note_under_a_filled_zone_legend_is_printed_too(make_layout):
+    """De regel bij een legenda die wel rijen heeft - de modelwaarde onder de diktekaart, de
+    reden dat er geen contour in beeld ligt - werd stilzwijgend weggelaten."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import TablePage
+
+    legend = TablePage("Dichtstbijzijnde isopachen", ["Dikte", "Afstand"], [["20", "5680"]],
+                       note="Modelwaarde G3Dv3 op het representatieve punt: 3.78 m Quartair.")
+
+    lay = make_layout(pages=[_zone_legend_page(legend)])
+
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Modelwaarde G3Dv3" in texts
