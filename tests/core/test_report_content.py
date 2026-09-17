@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from desktopstudie.core import report_content as rc
 from desktopstudie.core.model import (
     Cpt,
@@ -695,3 +697,44 @@ def test_a_dropped_map_hands_back_its_guide_before_its_legend(gent_ring):
     guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
     legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
     assert guide < legend
+
+
+def test_the_colour_ramp_marks_where_the_zone_lies_on_it(gent_ring):
+    """Een balk van -50 tot 300 mTAW zegt over een bouwzone van vier meter niets: alles is een
+    tint. De zone hoort er dus op gemarkeerd te staan, op de plaats waar haar laagste en hoogste
+    hoogte vallen, met het gemiddelde als terugval voor een span dat te smal is om te tekenen."""
+    result = _result(gent_ring)
+    result.relief = (12.52, 16.25, 14.74)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    # -50..300 is 350 m breed; 12,52 mTAW ligt dus op (12,52 + 50) / 350 van links.
+    assert ramp.band == (pytest.approx(62.52 / 350.0), pytest.approx(66.25 / 350.0))
+    assert ramp.band_label == "zone 12.52 - 16.25 mTAW"
+    assert ramp.mean_at == pytest.approx(64.74 / 350.0)
+    assert ramp.mean_label == "zone gemiddeld 14.74 mTAW"
+
+
+def test_a_zone_outside_the_service_range_is_marked_on_the_strip_not_beside_it(gent_ring):
+    """Een hoogte buiten het bereik van de dienst zou de markering van het papier af zetten; ze
+    wordt op het uiteinde van de balk gelegd."""
+    result = _result(gent_ring)
+    result.relief = (-80.0, 400.0, 20.0)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    assert ramp.band == (0.0, 1.0)
+
+
+def test_a_ramp_without_measured_relief_has_nothing_to_mark(gent_ring):
+    """Geen gemeten hoogtes, geen markering: een streepje op een balk zonder getal erachter zou
+    een meting suggereren die er niet is."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    assert ramp.band is None and ramp.mean_at is None
