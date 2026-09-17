@@ -870,3 +870,17 @@ def test_a_groundwater_point_the_service_knows_nothing_about_says_so(gent_ring):
 
     ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
     assert "geen waarde" in ramp.summary and "2.85" not in ramp.summary
+
+
+def test_a_measured_number_is_printed_to_two_decimals(gent_ring):
+    """De dienst antwoordt met een dubbele-precisiegetal: 2.8499999046325684 m. Zo'n rij in een
+    rapport is onleesbaar en suggereert een nauwkeurigheid die er niet is - twee decimalen is wat
+    een grondwaterstand waard is."""
+    result = _with_gxg(_result(gent_ring), value=2.8499999046325684)
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").zone_legend
+    assert table.rows[0][0] == "2.85"
+    assert table.rows[0][1] == "1.37"
