@@ -160,3 +160,17 @@ def test_a_stump_at_the_very_end_of_a_description_is_a_truncation_too():
     ends_in_peat = [_layer(0.0, 1.0, "Grijze leem, onderaan veen.")]
 
     assert [term.word for term in lithology.notable_terms(ends_in_peat)] == ["veen"]
+
+
+def test_a_word_that_merely_ends_in_geen_is_not_a_denial():
+    """"geen kalk" ontkent kalk; "heterogeen puin" ontkent niets. De ontkenning werd op ruwe tekst
+    getoetst, dus elk woord dat op "geen" eindigt wiste het woord erna - en "heterogeen" en
+    "homogeen" staan zelf op de lijst van gewone woorden. Zo verdwenen puin en veen geruisloos,
+    precies de richting die niet mag."""
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "heterogeen puin met zand")])] == ["puin"]
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "homogeen veen")])] == ["veen"]
+    assert "baksteen" in [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "bijzonder veel baksteen")])]
+    assert lithology.notable_terms([_layer(0.0, 1.0, "zand, geen veen")]) == []
