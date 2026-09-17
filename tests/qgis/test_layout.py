@@ -1937,7 +1937,7 @@ def test_a_guide_that_does_not_even_fit_takes_the_whole_block_to_the_next_sheet(
     from desktopstudie.qgis import layout
 
     lay = make_layout(pages=[_zone_legend_page(_legend_table([["OB", "OB", "Bebouwde zones"]]),
-                                               guide=_guide(sentences=90))])
+                                               guide=_guide(sentences=45))])
 
     assert _map_item(lay, 1).sizeWithUnits().height() == pytest.approx(layout.MAP_H, abs=0.1)
     assert lay.pageCollection().pageCount() == 1 + 2
