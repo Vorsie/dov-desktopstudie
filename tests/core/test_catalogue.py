@@ -21,6 +21,8 @@ FIXTURE_FOR = {
     "pfas_no_regret": "wfs_pfas_no_regret_intersects.json",
     "watertoets_pluviaal": "watertoets_fluviaal_hit.json",
     "watertoets_fluviaal": "watertoets_fluviaal_hit.json",
+    "gxg_ghg": "gxg_ghg_hit.json",
+    "gxg_glg": "gxg_glg_hit.json",
 }
 
 
@@ -199,7 +201,7 @@ def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
     assert glg.wms_style == "gxg:gxg"
     assert glg.chapter == ghg.chapter == "geologie"
     assert glg.attribution == ghg.attribution and glg.licence == ghg.licence
-    assert glg.legend is True and glg.scale == 25000
+    assert glg.legend is False and glg.scale == 25000  # de kleurbalk staat onder de kaart
     # they stay neighbours, so the report shows the highest and the lowest level side by side
     ids = [e.id for e in c.entries("geologie")]
     assert ids.index("gxg_glg") == ids.index("gxg_ghg") + 1
