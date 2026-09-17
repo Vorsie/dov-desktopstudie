@@ -1352,7 +1352,8 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
     requests = layout.plan_map_images(_report([MapPage("grb", "Ligging", scale=2500)]),
                                       gent_zone.ring, {})
 
-    images, empty = layout.prepare_map_images(requests, tmp_path, _Client(cache_dir=None))
+    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
+                                                          _Client(cache_dir=None))
 
     path = images[requests[0].key]
     assert path.parent.name == layout.MAP_IMAGE_DIR and path.suffix == ".png"
@@ -1386,7 +1387,8 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
                                                           scale=10000)]
     requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
 
-    _images, empty = layout.prepare_map_images(requests, tmp_path, _Client(cache_dir=None))
+    _images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
+                                                           _Client(cache_dir=None))
 
     assert empty == {requests[0].key}, "per kader, niet per kaart"
 
@@ -1413,7 +1415,8 @@ def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
     extent = QgsRectangle(104226.0, 192406.0, 104426.0, 192606.0)
     request = layout.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
 
-    images, _empty = layout.prepare_map_images([request], tmp_path, _Client(cache_dir=None))
+    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path,
+                                                           _Client(cache_dir=None))
 
     assert request.key == "grb:104226:192406:104426:192606"
     assert images[request.key].name == "grb_84a197c3.png"
@@ -1433,7 +1436,7 @@ def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, ge
                                       gent_zone.ring, {})
     lines = []
 
-    images, empty = layout.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
+    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
                                               Log("layout", lines.append, scope="qgis"))
 
     assert images == {} and empty == set(), "een mislukte ophaling zegt niets over dekking"
