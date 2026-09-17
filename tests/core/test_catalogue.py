@@ -51,7 +51,7 @@ def test_enabled_entries_have_a_wms_url_and_layer():
 def test_ngi_historic_is_a_documented_empty_slot():
     slot = c.by_id("ngi_hist")
     assert slot.enabled is False
-    assert "WMS" in slot.note
+    assert "kaartdienst" in slot.note, "de reden hoort in de taal van de lezer te staan"
 
 
 def test_fact_entries_declare_fields():
@@ -135,7 +135,7 @@ def test_bommenkaart_is_a_documented_empty_slot_naming_the_explosives_risk():
     slot = c.by_id("bommenkaart")
     assert slot.chapter == "historisch"
     assert slot.enabled is False
-    assert "geen open data" in slot.note and "WMS" in slot.note
+    assert "geen open data" in slot.note and "kaartdienst" in slot.note
     assert "explosieven" in slot.note
 
 
@@ -291,3 +291,33 @@ def test_the_legend_options_ask_for_a_readable_font_and_two_columns():
     assert c.MapEntry.legend_options == "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
     for entry in c.CATALOGUE:
         assert "fontSize:9" in entry.legend_options, entry.id
+
+
+def test_a_sparse_theme_asks_for_a_base_map_under_it_and_a_full_cover_map_does_not():
+    """Een thema dat maar enkele procenten van de uitsnede bedekt - gekarteerde
+    grondverschuivingen, watertoets, PFAS - levert zonder ondergrond een wit blad met een rood
+    cirkeltje: de lezer ziet niet waar iets ligt. Die kaarten vragen de basiskaart eronder; een
+    kaart die de hele uitsnede vult (bodemkaart, tertiair) zou ze alleen maar verbergen.
+
+    Gemeten op de Gent-uitsnede (2026-09-17, doorzichtig deel van de GetMap): gekarteerde
+    grondverschuivingen 100 %, erosie 100 %, watertoets fluviaal 100 %, dikte van het Quartair
+    100 %, watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het
+    Tertiair, HCOV en de kwetsbaarheidskaart.
+    """
+    from desktopstudie.core import catalogue
+
+    over = {e.id for e in catalogue.entries() if e.backdrop}
+    assert over == {"quartair_dikte", "watertoets_pluviaal", "watertoets_fluviaal", "erosie",
+                    "ovam", "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd",
+                    "pfas_no_regret"}
+    for map_id in ("grb", "ortho", "ferraris", "dhmv_dtm", "bodemkaart", "tertiair", "hcov"):
+        assert not catalogue.by_id(map_id).backdrop, map_id
+
+
+def test_the_base_map_is_named_once():
+    """De kaart die als ondergrond dient en de kaart die in het project aanstaat zijn dezelfde;
+    twee constanten met dezelfde waarde drijven uit elkaar."""
+    from desktopstudie.core import catalogue
+
+    assert catalogue.BASE_MAP_ID == "grb"
+    assert catalogue.by_id(catalogue.BASE_MAP_ID).chapter == "ligging"
