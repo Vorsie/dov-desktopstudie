@@ -38,7 +38,13 @@ eerst de leeswijzer, dan de legenda: het kader krimpt met wat ze nodig hebben (n
 halve bladhoogte) en wat dan nog niet past loopt door op het volgende blad. Het hoogtemodel krijgt
 op dezelfde plaats de kleurbalk van de dienst zelf, met de zone erop gemarkeerd - een beugel tussen
 de laagste en de hoogste hoogte, of een streepje op het gemiddelde als die te dicht bij elkaar
-liggen om te tekenen - en de drie waarden eronder. Een kaart waarvan de
+liggen om te tekenen - en de drie waarden eronder. De twee grondwaterstanden (GHG en GLG) dragen
+op dezelfde manier hun kleurbalk met haar klassegrenzen, en in de tabel erboven de gemeten diepte
+onder het maaiveld met haar standaardafwijking en betrouwbaarheidsinterval.
+
+Een kaart die maar enkele procenten van haar uitsnede tekent - grondverschuivingen, watertoets,
+PFAS, OVAM, erosie - krijgt de GRB-basiskaart eronder gecomposeerd, zodat de lezer straten en
+gebouwen ziet onder het thema in plaats van een wit blad met een rode cirkel. Een kaart waarvan de
 dienst hier geen beeld levert krijgt geen blad; ze staat wel in het hoofdstuk Bronnen, met de reden.
 De historische NGI-reeks (1873–1989) en de bommenkaart staan in de catalogus maar uitgeschakeld;
 zie *Bekende beperkingen*.
@@ -94,9 +100,9 @@ Eén van vier modi, gekozen met de keuzerondjes:
   hun eigen kaart. In de layout zelf schakelt de variabele `legendas` die bladen bij het
   exporteren. De profieltypetekeningen van het Quartair komen er altijd, ook uitgevinkt: dat is
   rapportinhoud.
-- **Compacte opmaak (meer op een blad)**: staat **uit**. Standaard delen hoogstens twee korte
-  stukken (een tabel, een figuur, een leeswijzer) een blad; aangevinkt gaat er zoveel op een blad
-  als erop past. Kaartbladen blijven altijd alleen.
+- **Compacte opmaak (meer op een blad)**: staat **uit**. Standaard vult een blad zich met alles
+  wat erop past zolang het uit hetzelfde hoofdstuk komt; aangevinkt mogen ook stukken uit het
+  volgende hoofdstuk mee, met die hoofdstukkop er klein bij. Kaartbladen blijven altijd alleen.
 
 ### Rapport
 
@@ -131,7 +137,7 @@ Elke run schrijft in een eigen map `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>`:
 | `studie.qgz` | een zelfstandig QGIS-project: de studielagen uit het GeoPackage plus de WMS-kaarten |
 | `data/studie.gpkg` | zone, doorsnedelijn, proefpunten en de virtuele boringen |
 | `data/studie.json` | alle verzamelde feiten, signaleringen en bronnen, machineleesbaar |
-| `data/kaarten/` | de kaartbeelden van het rapport als PNG met wereldbestand |
+| `data/kaarten/` | de kaartbeelden van het rapport als PNG met wereldbestand, dunne thema's al over de basiskaart |
 | `figuren/` | sondering-, boring-, virtuele-boring- en doorsnedefiguren (PNG) |
 | `legendas/` | opgehaalde WMS-legenda's, de profieltypetekeningen van het Quartair en de kleurbalk van het hoogtemodel |
 
@@ -171,7 +177,7 @@ duur af:
 |---|---|
 | Legendas | GetLegendGraphic per kaart |
 | Tekeningen van de profieltypes | de Quartair-tekeningen van het DOV-documentportaal |
-| Kleurschaal hoogtemodel | de GetLegendGraphic van het DHMV, waar de kleurbalk uit geknipt wordt |
+| Kleurschalen | de GetLegendGraphic van het hoogtemodel en de twee grondwaterstanden, waar de kleurbalk uit geknipt wordt |
 | Kaartbeelden | één GetMap per kaartblad, acht tegelijk |
 | Relief uit DHMV | WCS-uitsnede en zonale statistiek op de zone |
 | Lagen | de studielagen en de WMS-lagen in het project |
