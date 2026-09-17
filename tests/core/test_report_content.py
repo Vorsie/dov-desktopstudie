@@ -803,3 +803,69 @@ def test_no_report_text_addresses_the_developer(gent_ring):
     for text in _all_text(report):
         for word in forbidden:
             assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
+
+
+# --- de grondwaterstand onder haar eigen kaart --------------------------------------------------
+
+def _with_gxg(result, value=2.85):
+    """De GetFeatureInfo-rij zoals de dienst hem teruggeeft (live 2026-09-17)."""
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", [{
+        "GHG-waarde_m-mv": value, "Standaardafwijking_GHG_m": 1.37,
+        "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.96,
+        "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 4.74}]))
+    return result
+
+
+def test_the_groundwater_map_carries_its_value_and_its_colour_bar(gent_ring):
+    """De GHG-kaart droeg geen getal en geen legenda. Nu staat de gemeten waarde in de tabel onder
+    de kaart en de kleurbalk van de dienst eronder, met haar klassegrenzen erbij."""
+    result = _with_gxg(_result(gent_ring))
+    result.relief = (12.52, 16.25, 14.74)
+
+    geo = _geologie(result, zone_legend_images={rc.ramp_image_key("gxg_ghg"):
+                                                "legendas/gxg_ghg_schaal.png"})
+
+    ghg = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg")
+    table = ghg.zone_legend
+    assert table.columns[0] == "GHG (m onder maaiveld)"
+    assert table.rows[0][0] == "2.85"
+    ramp = ghg.ramp
+    assert ramp.image_path == "legendas/gxg_ghg_schaal.png"
+    assert [label for _at, label in ramp.ticks] == ["0", "1", "2", "3", "4", "5", "10", "15", "20"]
+    assert ramp.ticks[0][0] == 0.0 and ramp.ticks[-1][0] == 1.0
+
+
+def test_the_groundwater_depth_is_also_given_as_a_level(gent_ring):
+    """Een diepte onder het maaiveld zegt een funderingsontwerper minder dan een peil. De regel
+    onder de balk rekent om met het gemeten maaiveld en noemt die aanname."""
+    result = _with_gxg(_result(gent_ring))
+    result.relief = (12.52, 16.25, 14.74)
+
+    geo = _geologie(result)
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "2.85 m onder maaiveld" in ramp.summary
+    assert "11.89 mTAW" in ramp.summary
+    assert "gemiddelde maaiveld" in ramp.summary, "de aanname hoort erbij te staan"
+
+
+def test_without_a_measured_ground_level_the_depth_is_not_converted(gent_ring):
+    """Zonder gemeten maaiveld wordt er niets omgerekend: een peil uit een verzonnen maaiveld is
+    een getal dat niemand kan narekenen."""
+    geo = _geologie(_with_gxg(_result(gent_ring)))
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "2.85 m onder maaiveld" in ramp.summary
+    assert "mTAW" not in ramp.summary
+
+
+def test_a_groundwater_point_the_service_knows_nothing_about_says_so(gent_ring):
+    """Buiten het model antwoordt de dienst met niets; de balk blijft, de regel zegt dat er geen
+    waarde is in plaats van een nul te suggereren."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", []))
+
+    geo = _geologie(result)
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "geen waarde" in ramp.summary and "2.85" not in ramp.summary
