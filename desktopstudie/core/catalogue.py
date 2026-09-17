@@ -30,6 +30,12 @@ WATERINFO_WMS_URL = (
 # Reserved for the QGIS shell (plan 2): it loads the DTM as a WCS coverage to fill StudyResult.relief.
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
+# What the two ends of the DTM's colour ramp mean, in mTAW. Read off the service's own
+# GetLegendGraphic and not out of a document: it answers with a 102 x 68 px image holding the title
+# "Hoogte (m TAW)", a vertical gradient of 16 x 48 px and the range "300 - -50" printed beside it
+# (live 2026-09-17). The report prints that gradient as a horizontal strip under the map and needs
+# the two ends as numbers; the colours themselves stay the service's, never invented ones.
+DHMV_RAMP_MTAW = (-50.0, 300.0)
 
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
