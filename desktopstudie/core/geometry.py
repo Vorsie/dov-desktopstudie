@@ -185,3 +185,35 @@ def distance_to_ring(pt: Point, ring: Sequence[Point]) -> float:
     if point_in_ring(pt[0], pt[1], ring):
         return 0.0
     return min(_distance_to_segment(pt, ring[i], ring[(i + 1) % len(ring)]) for i in range(len(ring)))
+
+
+def vertices(geojson) -> List[Point]:
+    """Every (x, y) in a GeoJSON geometry, whatever its nesting depth.
+
+    A contour layer answers with LineStrings and a soil map with Polygons; the distance to either
+    is measured against the same flat list of corners, so nothing here needs to know which it got.
+    """
+    found: List[Point] = []
+    stack = [(geojson or {}).get("coordinates") or []]
+    while stack:
+        item = stack.pop()
+        if not item:
+            continue
+        if isinstance(item[0], (int, float)):
+            found.append((float(item[0]), float(item[1])))
+        else:
+            stack.extend(item)
+    return found
+
+
+def distance_to_geometry(geojson, ring: Sequence[Point]) -> Optional[float]:
+    """How far the nearest corner of `geojson` lies from `ring`, or None for an empty geometry.
+
+    Corner to ring, not edge to edge: a contour is sampled every few metres, so the nearest corner
+    is within that of the true distance - and the number is printed to the metre in a table about
+    kilometres.
+    """
+    points = vertices(geojson)
+    if not points:
+        return None
+    return min(distance_to_ring(point, ring) for point in points)
