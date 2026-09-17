@@ -337,6 +337,13 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         cells = _cells(entry, row, fields)  # `_cells` already prints a bare URL in its short form
         if cells not in rows:
             rows.append(cells)
+    if entry.ramp:
+        # A continuous field has no "classes in the zone": every sample point answers with its own
+        # number, and nine near-identical rows cost two sheets while saying nothing the first row
+        # does not. The first is the representative point - the one the virtual borehole stands on
+        # and the one the bar under the map names (`_gfi_points` asks it first).
+        return TablePage(f"Waarde op het representatieve punt - {entry.title}", headers,
+                         rows[:1], _rows_note(rows_src))
     return TablePage(f"Legenda voor de zone - {entry.title}", headers, rows, _rows_note(rows_src))
 
 
