@@ -963,3 +963,59 @@ def test_a_plain_borehole_gets_no_remarks_line(gent_ring):
 
     figure = next(p for p in inv.pages if isinstance(p, rc.FigurePage) and "kb22-B2" in p.title)
     assert "Opmerkingen" not in figure.caption
+
+
+# --- de isopachen van het Quartair --------------------------------------------------------------
+
+def _with_isopachs(result, rows):
+    result.map_facts.append(MapFact("quartair_dikte", "Dikte van het Quartair (isopachen)", rows))
+    return result
+
+
+def _with_quartair_model(result, top=14.62, base=10.84):
+    from desktopstudie.core.model import VbLayer, VirtualBorehole
+
+    result.virtual_boreholes["g3dv3_P"] = VirtualBorehole(
+        x=104326.8, y=192506.7, model="g3dv3_P",
+        layers=[VbLayer("Q", "Quartair", top, base, top - base, "#FFFF00", "zand")])
+    return result
+
+
+def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
+    """Wat een lezer van een diktekaart wil weten is de dikte hier. De contouren liggen kilometers
+    ver, dus staat de modelwaarde van G3Dv3 op het representatieve punt erbij - als modelwaarde
+    benoemd, niet als meting."""
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+
+    geo = _geologie(result)
+
+    page = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte")
+    assert "3.78 m" in page.zone_legend.note
+    assert "G3Dv3" in page.zone_legend.note and "model" in page.zone_legend.note.lower()
+
+
+def test_no_contour_in_view_says_where_the_nearest_one_is(gent_ring):
+    """Een leeg kaartbeeld zonder uitleg laat de lezer denken dat er data ontbreekt. De regel zegt
+    dat er geen contour in beeld is en waar de dichtstbijzijnde ligt - uit de opgehaalde lijnen
+    zelf, niet uit een vast getal."""
+    rows = [{"dikte": 20, "afstand_m": 5680}, {"dikte": 25, "afstand_m": 6570}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+
+    geo = _geologie(result)
+
+    note = next(p for p in geo.pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
+    assert "5.7 km" in note and "20 m" in note
+
+
+def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
+    """Ligt er wel een contour binnen het kaartbeeld, dan hoort die regel er niet te staan."""
+    rows = [{"dikte": 10, "afstand_m": 120}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+
+    geo = _geologie(result)
+
+    note = next(p for p in geo.pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
+    assert "dichtstbijzijnde" not in note
+    assert "3.78 m" in note
