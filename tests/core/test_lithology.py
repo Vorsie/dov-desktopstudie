@@ -115,3 +115,48 @@ def test_filler_is_widened_away_but_the_rarity_beside_it_still_flags():
     found = lithology.notable_terms(layers)
 
     assert [term.word for term in found] == ["zandsteenconcreties"]
+
+
+def test_an_abbreviation_is_not_printed_as_a_three_letter_fragment():
+    """"Num. planulatus" is de afkorting van Nummulites. De tokeniser brak hem op de punt en zette
+    "num" in het rapport van een klant - een brokstuk, geen waarneming. Een kort woord met een punt
+    midden in de zin is een afkorting en wordt niet gedrukt; het soortnaampje ernaast wel."""
+    layers = [_layer(22.5, 25.0, "zeer fijn glauconiethoudend zand met Num. planulatus")]
+
+    words = [term.word for term in lithology.notable_terms(layers)]
+
+    assert "num" not in words
+    assert "planulatus" in words
+
+
+def test_a_word_that_ends_a_sentence_keeps_its_place():
+    """Een punt die een zin afsluit hoort niet bij het woord: "glauconiethoudend." is een
+    waarneming, geen afkorting, en mag niet met de brokstukken meeverdwijnen."""
+    layers = [_layer(0.0, 1.0, "Fijn zand, glauconiethoudend. Daaronder leem.")]
+
+    assert [term.word for term in lithology.notable_terms(layers)] == ["glauconiethoudend"]
+
+
+def test_fossils_are_named_together_instead_of_one_line_each():
+    """Nummulites, planulatus en turbinolia zeggen in welke formatie je zit, niet dat je iets hards
+    raakt. Los opgesomd verdringen ze de opmerkingen die er wel toe doen, dus staan ze samen als
+    "fossielen: ..." - een presentatiekeuze: er wordt niets weggelaten."""
+    layers = [_layer(22.5, 25.0, "zand met Nummulites planulatus - Turbinolia, en steenbrokken")]
+
+    found = lithology.notable_terms(layers)
+
+    assert {"nummulites", "planulatus", "turbinolia", "steenbrokken"} == {t.word for t in found}
+    assert lithology.summarise(found) == (
+        "fossielen: nummulites, planulatus, turbinolia (22.50-25.00 m); "
+        "steenbrokken (22.50-25.00 m)")
+
+
+def test_a_stump_at_the_very_end_of_a_description_is_a_truncation_too():
+    """"met vaste lagen afw." is "afwisselend", afgekapt - er volgt geen zin meer om het aan te
+    zien. Een kort brokstuk met een punt is ook daar geen waarneming; een materiaal dat de
+    gebruiker bij naam vroeg blijft wel staan, ook als de beschrijving ermee eindigt."""
+    assert lithology.notable_terms([_layer(0.0, 1.0, "Groen waterzand, met vaste lagen afw.")]) == []
+
+    ends_in_peat = [_layer(0.0, 1.0, "Grijze leem, onderaan veen.")]
+
+    assert [term.word for term in lithology.notable_terms(ends_in_peat)] == ["veen"]
