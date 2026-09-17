@@ -528,3 +528,109 @@ def test_a_peilput_keeps_its_number_on_a_report_map(qgs_app):
     assert peilput.labeling().settings().fieldName == "nummer"
     assert not peilput.labeling().settings().isExpression
     assert sondering.labeling().settings().isExpression
+
+
+# --- de virtuele boringen als laag --------------------------------------------------------------
+
+def _virtual_result(gent_zone):
+    """Een studie met een virtuele boring per model op het representatieve punt en twee
+    doorprikpunten langs de doorsnedelijn."""
+    from desktopstudie.core.model import (
+        Section,
+        StudyResult,
+        VbLayer,
+        VirtualBorehole,
+    )
+
+    def borehole(x, y, model, tops):
+        return VirtualBorehole(x=x, y=y, model=model, layers=[
+            VbLayer(f"{model}_{i}", f"Eenheid {i}", top, top - 1.0, 1.0, "#FFFF00", "zand")
+            for i, top in enumerate(tops)])
+
+    result = StudyResult(zone=gent_zone, created_at="2026-09-17T10:00:00")
+    result.virtual_boreholes = {
+        "g3dv3_F": borehole(104326.0, 192506.0, "g3dv3_F", [8.38, 7.38]),
+        "hcovv2_S": borehole(104326.0, 192506.0, "hcovv2_S", [8.40]),
+    }
+    result.section = Section(line=((104000.0, 192000.0), (104600.0, 193000.0)),
+                             boreholes=[borehole(104100.0, 192200.0, "g3dv3_F", [9.10]),
+                                        borehole(104500.0, 192800.0, "g3dv3_F", [7.20])],
+                             projected=[], zone_from_m=0.0, zone_to_m=100.0)
+    return result
+
+
+def test_every_virtual_borehole_the_study_took_lands_in_one_layer(qgs_app, gent_zone):
+    """Een virtuele boring is een punt, en de lezer hoort te kunnen zien waar. Elke boring die de
+    studie nam staat in de laag: die op het representatieve punt, per model, en de doorprikpunten
+    langs de doorsnedelijn - met het model, de coordinaten, het maaiveld en het aantal lagen."""
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+
+    assert layer.name() == "Virtuele boringen"
+    assert layer.featureCount() == 4
+    rows = sorted((f["model"], round(f["x"], 1), round(f["y"], 1), round(f["maaiveld_mtaw"], 2),
+                   f["aantal_lagen"]) for f in layer.getFeatures())
+    assert rows == [("g3dv3_F", 104100.0, 192200.0, 9.10, 1),
+                    ("g3dv3_F", 104326.0, 192506.0, 8.38, 2),
+                    ("g3dv3_F", 104500.0, 192800.0, 7.20, 1),
+                    ("hcovv2_S", 104326.0, 192506.0, 8.40, 1)]
+    first = next(layer.getFeatures())
+    assert first.geometry().asPoint().x() == pytest.approx(first["x"], abs=0.01)
+
+
+def test_the_virtual_boreholes_are_drawn_apart_from_the_real_ones(qgs_app, gent_zone):
+    """Een gemodelleerde boring mag op de kaart niet voor een echte sondering of boring worden
+    aangezien: een eigen vorm, een eigen kleur, en een label zoals de andere proeflagen."""
+    from qgis.core import Qgis
+
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+
+    symbol = layer.renderer().symbol()
+    marker, colour = symbol.symbolLayer(0).properties()["name"], symbol.color().name()
+    others = {layers.POINT_STYLE[kind] for kind in layers.POINT_STYLE}
+    assert (colour, marker) not in others, "dezelfde vorm en kleur als een echte proef"
+    assert symbol.sizeUnit() == Qgis.RenderUnit.Millimeters
+    settings = layer.labeling().settings()
+    assert settings.fieldName == "model" and layer.labelsEnabled()
+    assert settings.format().sizeUnit() == Qgis.RenderUnit.Points
+
+
+def test_a_study_without_a_virtual_borehole_still_gets_a_valid_layer(qgs_app, gent_zone):
+    """Geen boring is geen ontbrekende laag: het GeoPackage en het projectbestand dragen altijd
+    dezelfde laagnamen, anders meldt `standalone_project` er een als zoek."""
+    from desktopstudie.core.model import StudyResult
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(StudyResult(zone=gent_zone, created_at="t"))
+
+    assert layer.isValid() and layer.featureCount() == 0
+
+
+def test_the_virtual_boreholes_keep_their_style_out_of_the_geopackage(qgs_app, gent_zone, tmp_path):
+    """De laag uit het GeoPackage - dat is wat studie.qgz opent - krijgt dezelfde huisstijl als de
+    laag waarmee de studie tekende; de naam is het enige dat het bestand overleeft."""
+    from qgis.core import QgsVectorLayer
+
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+    gpkg = tmp_path / "studie.gpkg"
+    layers.write_geopackage([layer], gpkg)
+
+    reopened = QgsVectorLayer(f"{gpkg}|layername={layers.VB_NAME}", layers.VB_NAME, "ogr")
+    assert reopened.isValid() and reopened.featureCount() == 4
+    styled = layers.style_by_name(reopened)
+    assert styled.renderer().symbol().color().name() == layer.renderer().symbol().color().name()
+    assert styled.labeling().settings().fieldName == "model"
+
+
+def test_the_virtual_boreholes_are_one_of_the_geopackage_groups(qgs_app):
+    """De laag hoort bij de proeflagen in het GeoPackage, zodat `standalone_project` haar
+    terugvindt en studie.qgz haar toont."""
+    from desktopstudie.qgis import layers
+
+    names = [name for _title, group in layers.GPKG_GROUPS for name in group]
+    assert layers.VB_NAME in names
