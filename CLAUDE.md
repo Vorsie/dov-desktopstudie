@@ -496,7 +496,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   antwoord). De isopachen van het Quartair zijn zo'n laag: contouren over heel Vlaanderen, en een
   INTERSECTS met een zone van 50 m raakt er nooit een (live 2026-09-17 bij Gent: 0 objecten,
   DWITHIN 5 km 0, DWITHIN 8 km 8, dichtstbijzijnde op 5,68 km met dikte 20 m). Zo'n kaart krijgt
-  ook haar eigen ruime schaal, anders blijft het blad leeg.
+  ook haar eigen ruime schaal, anders blijft het blad leeg. En "binnen het kaartbeeld" is het
+  kaartblad zelf (`catalogue.MAP_WIDTH_MM` op de schaal van de kaart, gedeeld door twee), nooit een
+  vast getal: de kern rekent erover, dus staat de breedte in de catalogus en tekent de schil ermee.
 - **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
   (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
   `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
