@@ -904,3 +904,62 @@ def test_a_continuous_map_prints_the_representative_point_not_nine_samples(gent_
     assert len(table.rows) == 1
     assert table.rows[0][0] == "2.85", "de eerste bevraging is het representatieve punt"
     assert "representatieve punt" in table.title
+
+
+# --- waarom deze sonderingen een figuur kregen, en wat de boringen vermelden --------------------
+
+def test_the_chapter_says_why_an_electrical_sounding_was_chosen(gent_ring):
+    """Een lezer die een elektrische sondering van 300 m ziet afgebeeld en een mechanische van
+    40 m niet, hoort te weten waarom."""
+    from desktopstudie.core.model import Cpt
+
+    result = _result(gent_ring)
+    result.cpts.append(Cpt("e1", "E-1", 104000.0, 192000.0, 8.0, 20.0, "2020-01-01",
+                           "continu elektrisch", "E", None, None,
+                           "https://www.dov.vlaanderen.be/data/sondering/e1", 300.0))
+    result.figures["cpt_e1"] = "figuren/cpt_e1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    texts = " ".join(getattr(p, "html", "") + p.title for p in inv.pages)
+    assert "elektrische" in texts and "figuur" in texts
+
+
+def test_a_borehole_description_with_something_notable_says_so_under_its_figure(gent_ring):
+    """Een korte "Opmerkingen"-regel onder de boring: wat de beschrijving vermeldt en op welke
+    diepte, in de woorden van de beschrijving zelf."""
+    from desktopstudie.core.model import Borehole, LithologyLayer
+
+    result = _result(gent_ring)
+    result.boreholes.append(Borehole("b1", "kb22-B1", 104000.0, 192000.0, 8.0, 10.0, "1970-01-01",
+                                     "spoelboring", "geologie", None,
+                                     "https://www.dov.vlaanderen.be/data/boring/b1", 80.0,
+                                     lithology=[
+                                         LithologyLayer(0.0, 0.2, "Straatsteen"),
+                                         LithologyLayer(2.6, 4.2, "veenhoudende leem")]))
+    result.figures["boring_b1"] = "figuren/boring_b1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    figure = next(p for p in inv.pages if isinstance(p, rc.FigurePage) and "kb22-B1" in p.title)
+    assert "Opmerkingen" in figure.caption
+    assert "straatsteen (0.00-0.20 m)" in figure.caption
+    assert "veenhoudende (2.60-4.20 m)" in figure.caption
+
+
+def test_a_plain_borehole_gets_no_remarks_line(gent_ring):
+    """Een gewone zandbeschrijving levert geen opmerking op; anders staat er onder elke boring een
+    regel die niets zegt."""
+    from desktopstudie.core.model import Borehole, LithologyLayer
+
+    result = _result(gent_ring)
+    result.boreholes.append(Borehole("b2", "kb22-B2", 104000.0, 192000.0, 8.0, 10.0, "1970-01-01",
+                                     "spoelboring", "geologie", None,
+                                     "https://www.dov.vlaanderen.be/data/boring/b2", 80.0,
+                                     lithology=[LithologyLayer(0.0, 2.0, "matig fijn zand")]))
+    result.figures["boring_b2"] = "figuren/boring_b2.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    figure = next(p for p in inv.pages if isinstance(p, rc.FigurePage) and "kb22-B2" in p.title)
+    assert "Opmerkingen" not in figure.caption
