@@ -49,7 +49,6 @@ from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import Provenance, StudyResult, StudyZone, now_iso
 from ..core.report_content import (
-    DEM_MAP_ID,
     MapPage,
     MapPageKey,
     Report,
@@ -377,26 +376,29 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
 RAMP_SOURCE = "Kleurschaal"
 
 
-def _ramp_entry(result: StudyResult):
-    """The catalogue entry whose legend is a colour ramp, if this study chose it."""
-    return next((e for e in catalogue.entries(only=result.map_ids) if e.id == DEM_MAP_ID), None)
+def _ramp_entries(result: StudyResult):
+    """The catalogue entries whose legend is a colour bar, as far as this study chose them."""
+    return [entry for entry in catalogue.entries(only=result.map_ids) if entry.ramp]
 
 
-def _fetch_ramp(result: StudyResult, entry, out_dir: Path, client: HttpClient,
-                log: Log) -> Dict[str, str]:
-    """The colour strip of the height model, keyed as `report_content` looks it up.
+def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient,
+                 log: Log) -> Dict[str, str]:
+    """The colour strips, keyed as `report_content` looks them up.
 
-    Report content and not a legend page, so it is fetched whatever the legend switch says: the
-    DTM's own legend is a ramp over the whole of Flanders, which as a sheet of its own is a sheet
-    nobody reads and under the map is exactly what the three measured heights need beside them.
+    Report content and not legend pages, so they are fetched whatever the legend switch says: the
+    DTM's own legend is a ramp over the whole of Flanders and the groundwater maps' is a bar of
+    depth classes. As a sheet of its own each is a sheet nobody reads; under the map each is what
+    the measured number beside it needs to mean anything.
     """
-    strip = layout_mod.fetch_ramp(entry, out_dir, client, log.child("legendas"))
-    record_source(result, f"{RAMP_SOURCE} {entry.title}",
-                  layout_mod.wms_legend_url(entry, entry.legend_options), strip is not None,
-                  "" if strip is not None else "kleurschaal niet opgehaald of niet herkend")
-    if strip is None:
-        return {}
-    return {ramp_image_key(entry.id): Path(strip).relative_to(out_dir).as_posix()}
+    strips: Dict[str, str] = {}
+    for entry in entries:
+        strip = layout_mod.fetch_ramp(entry, out_dir, client, log.child("legendas"))
+        record_source(result, f"{RAMP_SOURCE} {entry.title}",
+                      layout_mod.wms_legend_url(entry, entry.legend_options), strip is not None,
+                      "" if strip is not None else "kleurschaal niet opgehaald of niet herkend")
+        if strip is not None:
+            strips[ramp_image_key(entry.id)] = Path(strip).relative_to(out_dir).as_posix()
+    return strips
 
 
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
@@ -591,12 +593,12 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
 
-    ramp_entry = _ramp_entry(result)
-    if ramp_entry is not None:
+    ramp_entries = _ramp_entries(result)
+    if ramp_entries:
         _stop_if_cancelled(should_cancel)
-        clock.begin(0.13, "Kleurschaal hoogtemodel")
+        clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images.update(_fetch_ramp(result, ramp_entry, out_dir, client, log))
+        zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
 
     _stop_if_cancelled(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
