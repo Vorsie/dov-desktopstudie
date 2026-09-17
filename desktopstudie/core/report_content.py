@@ -64,6 +64,11 @@ class ColourRamp:
     band_label: str = ""
     mean_at: Optional[float] = None  # the mean of the zone, 0..1
     mean_label: str = ""
+    # Where the scale changes class, as (position 0..1, label). A bar whose classes are not of
+    # equal width - the groundwater depths run 0..5 in steps of one and then 10, 15, 20 - is only
+    # readable with its boundaries written under it, and a value may never be interpolated along
+    # such a bar. Empty for a bar that is linear between its two ends.
+    ticks: List[Tuple[float, str]] = field(default_factory=list)
 
 
 @dataclass
@@ -405,6 +410,54 @@ def _dem_ramp(result: StudyResult, images: Dict[str, str]) -> ColourRamp:
     return ramp
 
 
+GXG_RAMP_TITLE = "Grondwaterstand (m onder maaiveld)"
+
+
+def _gxg_level(entry: catalogue.MapEntry) -> str:
+    """"GHG" or "GLG", read off the field the service answers with."""
+    return entry.fact_fields[0].split("-", 1)[0]
+
+
+def _gxg_ramp(entry: catalogue.MapEntry, result: StudyResult, images: Dict[str, str]) -> ColourRamp:
+    """The groundwater bar under its map, with the depth measured at this point under it.
+
+    The class boundaries are written out (`catalogue.GXG_DEPTH_TICKS`) because they are NOT evenly
+    spaced in value while they are drawn at equal height: without them the middle of the bar reads
+    as ten metres where it is five. For the same reason nothing is marked ON the bar - the number
+    stands in the table above it, where it cannot be misread.
+
+    The service answers in metres below ground level. A designer thinks in mTAW, so the depth is
+    also given as a level - but only with a ground level that was actually measured, and with the
+    assumption named: the zone's mean from the DHMV, not the height of this one point.
+    """
+    ticks = catalogue.GXG_DEPTH_TICKS
+    steps = len(ticks) - 1
+    path = images.get(ramp_image_key(entry.id), "")
+    level = _gxg_level(entry)
+    row = next(iter(_fact_rows(entry, result) or []), None)
+    depth = row.get(entry.fact_fields[0]) if row else None
+    if depth is None:
+        summary = f"{level}: geen waarde op dit punt (zie hoofdstuk Bronnen)."
+    else:
+        summary = f"{level} op het representatieve punt: {float(depth):.2f} m onder maaiveld"
+        if result.relief is not None:
+            mean = result.relief[2]
+            summary += (f"; met het gemiddelde maaiveld van de zone ({mean:.2f} mTAW) is dat "
+                        f"ongeveer {mean - float(depth):.2f} mTAW")
+        summary += "."
+    return ColourRamp(GXG_RAMP_TITLE, f"{ticks[0]:.0f} m-mv", f"{ticks[-1]:.0f} m-mv", summary,
+                      path, "" if path else DEM_RAMP_MISSING,
+                      ticks=[(index / steps, f"{value:.0f}") for index, value in enumerate(ticks)])
+
+
+def _ramp_for(entry: catalogue.MapEntry, result: StudyResult,
+              images: Dict[str, str]) -> ColourRamp:
+    """The colour bar of a map whose legend is a scale rather than a list of classes."""
+    if entry.id == DEM_MAP_ID:
+        return _dem_ramp(result, images)
+    return _gxg_ramp(entry, result, images)
+
+
 def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
     z = result.zone
     cx, cy = z.centroid
@@ -412,8 +465,10 @@ def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
     ligging = Chapter(1, "Ligging en topografie",
                       _map_pages("ligging", result.map_ids, show_investigations=False))
     for page in ligging.pages:
-        if isinstance(page, MapPage) and page.map_id == DEM_MAP_ID:
-            page.ramp = _dem_ramp(result, images)
+        if isinstance(page, MapPage):
+            entry = catalogue.by_id(page.map_id)
+            if entry.ramp:
+                page.ramp = _ramp_for(entry, result, images)
     facts = [["Gemeente", _s(result.municipality)], ["Adres", _s(z.address)],
              ["Zwaartepunt (Lambert 72)", f"{cx:.1f} / {cy:.1f}"],
              ["Representatief punt (virtuele boring)", f"{rx:.1f} / {ry:.1f}"],
@@ -462,6 +517,8 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
     for entry in catalogue.entries("geologie", only=result.map_ids):
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                        note=entry.note, guide=_guide_text(entry))
+        if entry.ramp:
+            page.ramp = _ramp_for(entry, result, zone_legend_images)
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
         geo.pages.append(page)
