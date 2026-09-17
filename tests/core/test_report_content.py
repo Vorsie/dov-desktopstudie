@@ -529,13 +529,14 @@ def test_a_zone_without_measured_relief_gets_a_ramp_that_says_that(gent_ring):
     assert "geen hoogtewaarden" in dtm.ramp.summary
 
 
-def test_only_the_height_model_gets_a_colour_ramp(gent_ring):
-    """De kleurbalk hoort bij het hoogtemodel; de andere kaarten dragen er geen."""
+def test_only_the_maps_with_a_scale_for_a_legend_get_a_colour_ramp(gent_ring):
+    """Een kleurbalk hoort bij een kaart waarvan de legenda een doorlopende schaal is - het
+    hoogtemodel en de twee grondwaterstanden - en bij geen enkele andere."""
     report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
 
     with_ramp = [p.map_id for ch in report.chapters for p in ch.pages
                  if isinstance(p, rc.MapPage) and p.ramp is not None]
-    assert with_ramp == ["dhmv_dtm"]
+    assert with_ramp == ["dhmv_dtm", "gxg_ghg", "gxg_glg"]
 
 
 # --- een kaart zonder beeld krijgt geen blad ---------------------------------------------------
