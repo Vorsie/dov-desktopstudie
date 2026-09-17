@@ -151,15 +151,15 @@ def test_fossils_are_named_together_instead_of_one_line_each():
         "steenbrokken (22.50-25.00 m)")
 
 
-def test_a_stump_at_the_very_end_of_a_description_is_a_truncation_too():
-    """"met vaste lagen afw." is "afwisselend", afgekapt - er volgt geen zin meer om het aan te
-    zien. Een kort brokstuk met een punt is ook daar geen waarneming; een materiaal dat de
-    gebruiker bij naam vroeg blijft wel staan, ook als de beschrijving ermee eindigt."""
-    assert lithology.notable_terms([_layer(0.0, 1.0, "Groen waterzand, met vaste lagen afw.")]) == []
+def test_a_short_word_that_closes_a_description_is_still_a_word():
+    """Aan het einde van een beschrijving is er niets meer om een afkorting aan te herkennen, dus
+    wordt er niet geraden: "gips.", "löss." en "grès." zijn waarnemingen van vier letters en
+    blijven staan. Alleen een punt MIDDEN in de zin snijdt een woord af."""
+    for material in ("gips", "löss", "grès"):
+        layers = [_layer(0.0, 1.0, f"Grijze leem, onderaan {material}.")]
+        assert [term.word for term in lithology.notable_terms(layers)] == [material]
 
-    ends_in_peat = [_layer(0.0, 1.0, "Grijze leem, onderaan veen.")]
-
-    assert [term.word for term in lithology.notable_terms(ends_in_peat)] == ["veen"]
+    assert lithology.notable_terms([_layer(0.0, 1.0, "zand met Num. planulatus")])[0].word         == "planulatus"
 
 
 def test_a_word_that_merely_ends_in_geen_is_not_a_denial():
@@ -174,3 +174,13 @@ def test_a_word_that_merely_ends_in_geen_is_not_a_denial():
     assert "baksteen" in [t.word for t in lithology.notable_terms(
         [_layer(0.0, 1.0, "bijzonder veel baksteen")])]
     assert lithology.notable_terms([_layer(0.0, 1.0, "zand, geen veen")]) == []
+
+
+def test_a_material_denied_by_its_own_suffix_is_not_a_report_of_it():
+    """"zandsteenvrij" meldt geen zandsteen, net zomin als "geen kalk" kalk meldt - en toch vlagde
+    het, omdat de stam voorging op de lijst. Een achtervoegsel dat ontkent doet hetzelfde werk als
+    een ontkenning ervoor. De korrels zelf blijven wel een waarneming van glauconiet."""
+    assert lithology.notable_terms([_layer(0.0, 1.0, "fijn zand, zandsteenvrij")]) == []
+    assert lithology.notable_terms([_layer(0.0, 1.0, "fijn zand, glauconietarm")]) == []
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "fijn zand met glauconietkorrels")])] == ["glauconietkorrels"]
