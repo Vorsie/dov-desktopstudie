@@ -22,6 +22,9 @@ from .model import StudyResult
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
+# A service answers a yes/no field with a boolean, and a Dutch table that prints "Risico-inrichting:
+# True" is printing Python at a reader. The words, not the literals.
+BOOLEAN_WORDS = {True: "ja", False: "nee"}
 
 # Why one sounding is drawn and another is not. The rule itself lives in `study.for_figures`.
 # A note on the table, not a page of its own: four lines alone on a sheet is the loose item the
@@ -222,6 +225,8 @@ def _cells(entry: catalogue.MapEntry, row: Dict[str, Any], columns: Sequence[str
         # A measured value arrives as a double: the GxG service answers 2.8499999046325684 metres.
         # Printed in full it is unreadable and claims a precision nobody has, so a float gets the
         # two decimals a depth or a thickness is worth. What the service sent stays in the JSON.
+        if isinstance(raw, bool):  # before any number: a bool IS an int in Python
+            raw = BOOLEAN_WORDS[raw]
         cell = f"{label} [{raw}]" if label else _s(raw, FACT_DECIMALS if isinstance(raw, float) else None)
         out.append(short_url(cell) if cell.startswith("http") else cell)
     return out
