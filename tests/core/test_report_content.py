@@ -474,3 +474,59 @@ def test_a_map_without_a_zone_legend_carries_none(gent_ring):
     ortho = next(p for p in report.chapters[0].pages
                  if isinstance(p, rc.MapPage) and p.map_id == "ortho")
     assert ortho.zone_legend is None
+
+
+# --- de kleurschaal van het hoogtemodel --------------------------------------------------------
+
+def test_the_dem_map_carries_a_colour_ramp_with_the_zone_values_under_it(gent_ring):
+    """De legenda van het DHMV is een kleurbalk over heel Vlaanderen; een heel blad daarvoor leest
+    niemand. Ze hoort als strookje onder de kaart, met de laagste, de gemiddelde en de hoogste
+    hoogte van de zone zelf erbij - die drie staan al in `StudyResult.relief`."""
+    result = _result(gent_ring)
+    result.relief = (6.84, 9.40, 8.12)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
+                             zone_legend_images={rc.ramp_image_key("dhmv_dtm"):
+                                                 "legendas/dhmv_dtm_schaal.png"})
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    ramp = dtm.ramp
+    assert ramp.image_path == "legendas/dhmv_dtm_schaal.png"
+    assert ramp.low == "-50 mTAW" and ramp.high == "300 mTAW", "de uiteinden van de dienst zelf"
+    assert "6.84" in ramp.summary and "8.12" in ramp.summary and "9.40" in ramp.summary
+    assert ramp.note == ""
+
+
+def test_a_colour_ramp_that_was_not_fetched_says_so_instead_of_drawing_colours(gent_ring):
+    """Zonder het strookje van de dienst worden er geen kleuren verzonnen: de regel blijft staan
+    met de drie hoogtes van de zone en zegt dat de schaal er niet is."""
+    result = _result(gent_ring)
+    result.relief = (6.84, 9.40, 8.12)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.ramp.image_path == ""
+    assert "niet opgehaald" in dtm.ramp.note
+    assert "6.84" in dtm.ramp.summary
+
+
+def test_a_zone_without_measured_relief_gets_a_ramp_that_says_that(gent_ring):
+    """Een dienst die plat lag en een vlakke zone laten allebei `relief` leeg. De regel onder de
+    kaart mag dan geen hoogtes suggereren die niemand gemeten heeft."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert "geen hoogtewaarden" in dtm.ramp.summary
+
+
+def test_only_the_height_model_gets_a_colour_ramp(gent_ring):
+    """De kleurbalk hoort bij het hoogtemodel; de andere kaarten dragen er geen."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    with_ramp = [p.map_id for ch in report.chapters for p in ch.pages
+                 if isinstance(p, rc.MapPage) and p.ramp is not None]
+    assert with_ramp == ["dhmv_dtm"]
