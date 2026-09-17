@@ -122,6 +122,22 @@ GUIDE_DHMV_DTM = (
     "nauwelijks. "
     "De kleurbalk onder de kaart is die van de dienst zelf; het gemeten minimum, maximum en "
     "gemiddelde over de zone staan eronder en in de tabel Kerngegevens ligging.")
+# The tick values of the GxG colour bar, read off the service's own GetLegendGraphic (live
+# 2026-09-17: 38 x 272 px, a band against the left edge with nine labels at even spacing). The
+# values are NOT evenly spaced - 0 to 5 in steps of one, then 10, 15, 20 - so the bar is a set of
+# classes of unequal width drawn at equal height, and a depth may never be interpolated along it.
+GXG_DEPTH_TICKS = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0)
+GUIDE_GXG = (
+    "De GHG en de GLG zijn de gemiddeld hoogste en de gemiddeld laagste grondwaterstand: het "
+    "meerjarige gemiddelde van de hoogste, respectievelijk de laagste standen die per jaar "
+    "gemeten worden. "
+    "Beide staan in meter onder het maaiveld, dus een klein getal betekent water dicht onder de "
+    "oppervlakte. "
+    "De GHG hoort bij de natte periode en is de waarde waarmee gerekend wordt voor een bouwput, "
+    "een kelder of het opdrijven van een constructie; de GLG hoort bij de droge periode. "
+    "Het zijn gemodelleerde gemiddelden met een ruime spreiding - de tabel geeft de "
+    "standaardafwijking en de grenzen van het 80 %-betrouwbaarheidsinterval - en geen peilmeting "
+    "op het perceel zelf.")
 GUIDE_GW_KWETSBAARHEID = (
     "De index van twee of drie tekens vat de drie kolommen ernaast samen. "
     "De hoofdletter staat voor de watervoerende laag, de kleine letter voor de deklaag erboven en "
@@ -223,6 +239,10 @@ class MapEntry:
     # False for a map that fills the extent itself (bodemkaart, Tertiair): a backdrop under that
     # one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
     backdrop: bool = False
+    # This map's legend is a continuous colour bar, not a list of classes: it belongs under the map
+    # as a strip (`report_content.ColourRamp`), where a sheet of its own would be a sheet holding a
+    # picture of three centimetres.
+    ramp: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
@@ -263,6 +283,24 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
                     reading_guide=guide, scale=scale, backdrop=backdrop)
 
 
+def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
+    """One of the two mean groundwater levels. Both answer the same four fields under their own
+    name, so the fields are spelled once and the level ("GHG" / "GLG") is filled in."""
+    url, name = dov_wms(layer)
+    value = f"{level}-waarde_m-mv"
+    spread = f"Standaardafwijking_{level}_m"
+    low = f"Onderkant_80_procent_betrouwbaarheidsinterval_{level}_m-mv"
+    high = f"Bovenkant_80_procent_betrouwbaarheidsinterval_{level}_m-mv"
+    return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
+                    attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style="gxg:gxg",
+                    licence=DOV_LICENCE, opacity=0.7, legend=False, ramp=True, fact_mode="gfi",
+                    fact_fields=(value, spread, low, high),
+                    field_labels={value: f"{level} (m onder maaiveld)",
+                                  spread: "Standaardafwijking (m)",
+                                  low: "Ondergrens 80 % (m-mv)", high: "Bovengrens 80 % (m-mv)"},
+                    reading_guide=GUIDE_GXG, scale=25000)
+
+
 def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
     return MapEntry(id=map_id, chapter="historisch", title=title, wms_url=url, wms_layer=layer,
                     attribution="Digitaal Vlaanderen / geopunt", image_format=fmt, scale=scale)
@@ -285,7 +323,7 @@ CATALOGUE: List[MapEntry] = [
     # the colours mean - height in mTAW - is a sentence, and it stands in the reading guide below.
     MapEntry("dhmv_dtm", "ligging", "Digitaal Hoogtemodel Vlaanderen II - DTM 1 m",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMVII_DTM_1m", "Digitaal Vlaanderen - DHMV II", opacity=0.6,
-             legend=False, reading_guide=GUIDE_DHMV_DTM, scale=5000),
+             legend=False, ramp=True, reading_guide=GUIDE_DHMV_DTM, scale=5000),
     # --- historische kaarten ---
     _hist("ferraris", "Ferrariskaart (1777)", "https://geo.api.vlaanderen.be/HISTCART/wms", "ferraris", scale=25000),
     _hist("abw", "Atlas der Buurtwegen (ca. 1840)", "https://geo.api.vlaanderen.be/HISTCART/wms", "abw", scale=5000),
@@ -356,10 +394,13 @@ CATALOGUE: List[MapEntry] = [
     # GxG is a pair - the mean highest (GHG) and the mean lowest (GLG) level - and one page titled
     # "GxG" hides which of the two the reader has in front of him, so each level is its own entry.
     # gxg:glg_mmv_main with gxg:gxg verified live 2026-09-15 (GetMap -> HTTP 200, image/png).
-    _dov("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
-         style="gxg:gxg"),
-    _dov("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", legend=True, scale=25000,
-         style="gxg:gxg"),
+    # GetFeatureInfo gives the level itself, which is what a geotechnical reader came for. The
+    # field names are the service's own, verified live on 2026-09-17 against the Gent
+    # representative point; the "-waarde_m-mv" in them is the unit: metres BELOW GROUND LEVEL.
+    # legend=False and ramp=True: the GetLegendGraphic is a colour bar of depth classes, and under
+    # the map it costs a strip instead of a sheet.
+    _gxg("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", "GHG"),
+    _gxg("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", "GLG"),
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
