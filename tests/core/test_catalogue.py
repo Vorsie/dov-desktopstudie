@@ -321,3 +321,38 @@ def test_the_base_map_is_named_once():
 
     assert catalogue.BASE_MAP_ID == "grb"
     assert catalogue.by_id(catalogue.BASE_MAP_ID).chapter == "ligging"
+
+
+def test_the_groundwater_levels_ask_the_service_for_their_value():
+    """GHG en GLG droegen een kaart zonder getal en zonder legenda. De grondwaterstand is voor een
+    geotechnische studie een van de belangrijkste cijfers, dus vraagt de kaart haar waarde op bij
+    de dienst - met de veldnamen die de dienst echt teruggeeft.
+
+    Live geverifieerd op 2026-09-17 (GetFeatureInfo op het representatieve punt van de Gent-zone,
+    104326.8 / 192506.7, EPSG:31370): `GHG-waarde_m-mv` = 2.85 en `GLG-waarde_m-mv` = 3.54, met de
+    standaardafwijking en de twee grenzen van het 80 %-betrouwbaarheidsinterval ernaast. De naam
+    zegt de eenheid: meter ONDER MAAIVELD, geen peil in mTAW.
+    """
+    from desktopstudie.core import catalogue
+
+    ghg = catalogue.by_id("gxg_ghg")
+    assert ghg.fact_mode == "gfi"
+    assert ghg.fact_fields == ("GHG-waarde_m-mv", "Standaardafwijking_GHG_m",
+                               "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv",
+                               "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv")
+    assert "m onder maaiveld" in ghg.field_labels["GHG-waarde_m-mv"]
+    glg = catalogue.by_id("gxg_glg")
+    assert glg.fact_fields[0] == "GLG-waarde_m-mv"
+    for entry in (ghg, glg):
+        assert "grondwaterstand" in entry.reading_guide
+        assert "onder het maaiveld" in entry.reading_guide
+        assert entry.ramp, "de klassenbalk hoort onder de kaart, niet op een legendablad"
+        assert not entry.legend, "en dus niet ook nog als eigen legendablad"
+
+
+def test_only_the_maps_whose_legend_is_a_colour_bar_ask_for_one():
+    """Een kleurbalk onder de kaart is voor een kaart met een doorlopende schaal; een kaart met
+    klassen in een tabel heeft er geen."""
+    from desktopstudie.core import catalogue
+
+    assert {e.id for e in catalogue.entries() if e.ramp} == {"dhmv_dtm", "gxg_ghg", "gxg_glg"}
