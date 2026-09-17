@@ -289,6 +289,10 @@ class MapEntry:
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
     reading_guide: str = ""
+    # What an EMPTY answer means for THIS map. For most maps nothing is out of the ordinary about
+    # a zone that holds no units, but for a hazard map emptiness IS the answer, and printing the
+    # generic "Geen kaarteenheden binnen de zone" throws that answer away.
+    empty_meaning: str = ""
     # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
     # zone does not fit
     scale: int = 5000
@@ -316,13 +320,15 @@ def dov_wms(layer: str) -> Tuple[str, str]:
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
-         guide: str = "", backdrop: bool = False, within_m: Optional[float] = None) -> MapEntry:
+         guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
+         empty_meaning: str = "") -> MapEntry:
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
-                    reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m)
+                    reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
+                    empty_meaning=empty_meaning)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -454,13 +460,17 @@ CATALOGUE: List[MapEntry] = [
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
              field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
-             backdrop=True),
+             backdrop=True,
+             empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
+                           "pluviaal (klasse A: geen overstroming gemodelleerd)."),
     MapEntry("watertoets_fluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden fluviaal",
              WATERINFO_WMS_URL.format(kind="fluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
              field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
-             backdrop=True),
+             backdrop=True,
+             empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
+                           "fluviaal (klasse A: geen overstroming gemodelleerd)."),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
@@ -485,7 +495,8 @@ CATALOGUE: List[MapEntry] = [
          wfs="grondverschuivingen:grndversch_gekarteerd",
          field_labels={"type": "Type", "naam": "Naam", "gemeente": "Gemeente", "helling": "Helling",
                        "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000,
-         backdrop=True),
+         backdrop=True,
+         empty_meaning="Er is binnen de zone geen grondverschuiving gekarteerd."),
     # The WMS layer is pfas:no_regret_huidig; "no_regret_zones" is one of its named STYLES, not a
     # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
     MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", *dov_wms("pfas:no_regret_huidig"),
