@@ -352,7 +352,13 @@ class _Runner:
                 key = tuple(str(row.get(k)) for k in entry.fact_fields)
                 if key not in seen:
                     seen.add(key)
-                    rows.append({k: row.get(k) for k in entry.fact_fields})
+                    # Which point answered travels WITH the row. Point 0 is the representative
+                    # point; the rest are ring vertices up to the search radius away, and a report
+                    # that calls one of those "the value at the representative point" is wrong
+                    # about where its own number was measured.
+                    kept = {k: row.get(k) for k in entry.fact_fields}
+                    kept[catalogue.POINT_FIELD] = index
+                    rows.append(kept)
         return rows
 
     def _nearest_rows(self, entry: catalogue.MapEntry) -> List[dict]:
