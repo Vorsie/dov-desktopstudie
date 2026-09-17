@@ -1686,17 +1686,24 @@ class LayoutBuilder:
 
             return UnderMap(UNDER_MAP_TITLE_H + NOTE_BLOCK_H, draw_note)
         table, frame, wanted = self._new_table(page, metrics, rows, index)
+        # A note beside a FILLED table is not "why is this empty" but a sentence the table cannot
+        # hold - the modelled thickness under the isopach map, the reason no contour is in view -
+        # and it used to be dropped without a trace.
+        note_h = self._text_height(page.note, CONTENT_W) if page.note else 0.0
 
         def draw(sheet: int, top: float) -> None:
             self._block_title(page.title, sheet, top)
             body = top + UNDER_MAP_TITLE_H
+            if page.note:
+                self.label(page.note, MARGIN, body, CONTENT_W, note_h, sheet, size=7)
+                body += note_h
             room = CONTENT_TOP + metrics.content_h - body
             last = self._place_table(table, frame, sheet, body, min(wanted, room), metrics)
             for extra in range(sheet + 1, last + 1):
                 self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
             self._seal(last, metrics)
 
-        return UnderMap(UNDER_MAP_TITLE_H + wanted, draw)
+        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw)
 
     def _legend_entries_block(self, chapter: Chapter, page: LegendPage) -> UnderMap:
         height = UNDER_MAP_TITLE_H + self._legend_entries_height(page)
