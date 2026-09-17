@@ -228,6 +228,12 @@ class MapEntry:
     # way, and a legend taller than a sheet is cut into page-high strips by the shell anyway.
     legend_options: str = "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
     fact_mode: Optional[str] = None  # None | "wfs" | "gfi"
+    # What a GetFeatureInfo may be asked to answer in. Not one value for everybody: the GeoServer
+    # of DOV answers `application/json` and returns a ServiceExceptionReport on
+    # `application/geo+json`, while the ArcGIS service behind the watertoets wants exactly that
+    # one (live, both services and both formats, 2026-09-17). Asked in the wrong format a map
+    # fails with "geen van de punten antwoordde" and arrives without a number.
+    gfi_format: str = "application/geo+json"
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
@@ -298,7 +304,7 @@ def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style="gxg:gxg",
                     licence=DOV_LICENCE, opacity=0.7, legend=False, ramp=True,
-                    ramp_low_at_top=True, fact_mode="gfi",
+                    ramp_low_at_top=True, fact_mode="gfi", gfi_format="application/json",
                     fact_fields=(value, spread, low, high),
                     field_labels={value: f"{level} (m onder maaiveld)",
                                   spread: "Standaardafwijking (m)",
