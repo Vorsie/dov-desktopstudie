@@ -924,8 +924,28 @@ def test_the_chapter_says_why_an_electrical_sounding_was_chosen(gent_ring):
 
     inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
 
-    texts = " ".join(getattr(p, "html", "") + p.title for p in inv.pages)
-    assert "elektrische" in texts and "figuur" in texts
+    texts = " ".join(getattr(p, "html", "") + getattr(p, "note", "") + p.title for p in inv.pages)
+    assert "elektrische" in texts and "diagram" in texts
+
+
+def test_that_explanation_travels_with_the_table_and_never_gets_its_own_sheet(gent_ring):
+    """Vier regels uitleg alleen op een blad is precies de losse post die de verpakking moest
+    opruimen: de uitleg hoort bij de sonderingstabel, als noot boven de tabel waar hij over
+    gaat - en verwijst dus naar de tabel HIERONDER, niet naar een tabel twee bladen terug."""
+    from desktopstudie.core.model import Cpt
+
+    result = _result(gent_ring)
+    result.cpts.append(Cpt("e1", "E-1", 104000.0, 192000.0, 8.0, 20.0, "2020-01-01",
+                           "continu elektrisch", "E", None, None,
+                           "https://www.dov.vlaanderen.be/data/sondering/e1", 300.0))
+    result.figures["cpt_e1"] = "figuren/cpt_e1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    assert not [p for p in inv.pages if isinstance(p, rc.TextPage)]
+    table = next(p for p in inv.pages
+                 if isinstance(p, rc.TablePage) and p.title.startswith("Sonderingen"))
+    assert "elektrische" in table.note and "hieronder" in table.note
 
 
 def test_a_borehole_description_with_something_notable_says_so_under_its_figure(gent_ring):
