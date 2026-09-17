@@ -50,6 +50,8 @@ def _client():
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
         ("gebieden_fluviaal", "watertoets_fluviaal_hit.json"),
         ("gebieden_pluviaal", "watertoets_pluviaal_empty.json"),
+        ("ghg_mmv_main", "gxg_ghg_hit.json"),
+        ("glg_mmv_main", "gxg_glg_hit.json"),
     ])
 
 
