@@ -195,8 +195,18 @@ def _abbreviated(text: str, match) -> bool:
 
 
 def _denied(text: str, start: int) -> bool:
-    before = text[max(0, start - 24):start].lower()
-    return any(before.rstrip().endswith(denial) for denial in DENIALS)
+    """Whether a denial stands immediately in front of this word.
+
+    The denial has to be a WHOLE word. Tested against raw text it also matched every word ending
+    in one - "heterogeen puin" and "homogeen veen" denied nothing and yet lost their material,
+    and "bijzonder veel baksteen" lost its baksteen through "zonder". Both adjectives are on the
+    ordinary list themselves, so the two materials `ALWAYS_NOTABLE` exists to protect vanished
+    without a trace: the one failure direction this module forbids.
+    """
+    before = text[max(0, start - 24):start].lower().rstrip()
+    return any(before.endswith(denial)
+               and (len(before) == len(denial) or not before[-len(denial) - 1].isalpha())
+               for denial in DENIALS)
 
 
 def is_ordinary(word: str) -> bool:
