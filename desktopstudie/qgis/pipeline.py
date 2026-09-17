@@ -420,8 +420,9 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
     that succeeded overwrite the one that failed with "ok" - while the sheet that lost its image
     prints "Kaartbeeld van deze bron niet opgehaald" all the same.
     """
-    images, empty = layout_mod.prepare_map_images(requests, out_dir, client, log.child("kaarten"),
-                                                  should_cancel)
+    images, empty, backdrops = layout_mod.prepare_map_images(
+        requests, out_dir, client, log.child("kaarten"), should_cancel)
+    _record_backdrops(result, requests, backdrops)
     for map_id, group in _by_map(requests).items():
         entry = catalogue.by_id(map_id)
         failed = [request for request in group if request.key not in images]
@@ -434,6 +435,29 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
                       layout_mod.wms_map_url(entry, told.extent, told.width, told.height),
                       not failed, message)
     return images, empty
+
+
+BACKDROP_SOURCE = "Ondergrond"
+
+
+def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest],
+                      backdrops: Dict[str, str]) -> None:
+    """One provenance row per theme that asked for the base map under it.
+
+    Its own row, because it is its own request: a reader who wonders why one thematic sheet shows
+    streets and another does not has to be able to see that the backdrop was fetched, or why it
+    was not. A failed backdrop is not a failed map - the theme keeps its page.
+    """
+    grouped = _by_map(requests)
+    base = catalogue.by_id(BASE_MAP_ID)
+    for map_id, reason in backdrops.items():
+        group = grouped.get(map_id)
+        if not group:
+            continue
+        told = group[0]
+        record_source(result, f"{BACKDROP_SOURCE} {catalogue.by_id(map_id).title}",
+                      layout_mod.wms_map_url(base, told.extent, told.width, told.height),
+                      not reason, reason or "")
 
 
 def _by_map(requests: List[layout_mod.MapRequest]) -> Dict[str, List[layout_mod.MapRequest]]:
