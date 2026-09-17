@@ -355,8 +355,31 @@ class _Runner:
                     rows.append({k: row.get(k) for k in entry.fact_fields})
         return rows
 
+    def _nearest_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+        """The features of a LINE map around the zone, nearest first, each with its distance.
+
+        A contour never overlaps a building plot - the isopachs of the Quaternary are drawn every
+        five metres of thickness across the whole of Flanders - so asking what intersects the zone
+        answers nothing at all. What a reader can use is the nearest contour and how far away it
+        is, and that is what `MapEntry.fact_within_m` asks for.
+        """
+        feats = self.wfs.within_distance(entry.wfs_typename, self.zone.wkt, entry.fact_within_m,
+                                         self.s.max_features)
+        rows = []
+        for feature in feats:
+            distance = geometry.distance_to_geometry(feature.get("geometry"), self.zone.ring)
+            if distance is None:
+                continue
+            row = {k: feature["properties"].get(k) for k in entry.fact_fields}
+            row[catalogue.DISTANCE_FIELD] = round(distance)
+            rows.append(row)
+        rows.sort(key=lambda row: row[catalogue.DISTANCE_FIELD])
+        return rows
+
     def _fact_rows(self, entry: catalogue.MapEntry) -> List[dict]:
         if entry.fact_mode == "wfs":
+            if entry.fact_within_m:
+                return self._nearest_rows(entry)
             feats = self.wfs.intersecting(entry.wfs_typename, self.zone.wkt, self.s.max_features)
             return [{k: f["properties"].get(k) for k in entry.fact_fields} for f in feats]
         return self._gfi_rows(entry)
