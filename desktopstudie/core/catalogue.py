@@ -45,6 +45,13 @@ BASE_MAP_ID = "grb"
 # the zone. Only a `fact_within_m` map has it, and no recorded answer ever contains it.
 DISTANCE_FIELD = "afstand_m"
 
+# The printed width of a map frame, in millimetres. It lives here and not in the layout because
+# the report text reasons about it: what "within the map view" means for a fact depends on how
+# many metres the paper covers at the map's own scale, and only the catalogue knows that scale.
+# The layout draws to this same number.
+MAP_WIDTH_MM = 180.0
+
+
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
 
