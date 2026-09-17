@@ -168,6 +168,10 @@ RAMP_SPAN_MIN_MM = 6.0
 RAMP_TICK_W = 0.5
 RAMP_TICK_H = 2.5
 RAMP_MARK_H = RAMP_TICK_H + 0.5
+# The line that names the mark stands AT the mark, not at the margin - a leader pointing right
+# with its label away to the left points nowhere. Wide enough for "zone 12.52 - 16.25 mTAW", and
+# slid back onto the paper when the mark sits near the right end.
+RAMP_MARK_LABEL_W = 48.0
 RULE_COLOUR = "#000000"
 RAMP_SUFFIX = "_schaal"
 # A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
@@ -1502,15 +1506,16 @@ class LayoutBuilder:
         shape.attemptMove(point_mm(x, y), page=page)
         shape.attemptResize(size_mm(width, height))
 
-    def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> str:
-        """Put this zone on the colour strip, and answer with the line that names it.
+    def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> Tuple[str, float]:
+        """Put this zone on the colour strip; answer with the line that names it and where it goes.
 
         A bracket between its lowest and highest value when those are far enough apart to tell
-        apart on paper; otherwise one tick at the mean with a leader down to the label, because
-        two ticks half a millimetre apart are one fat tick that means nothing.
+        apart on paper; otherwise one tick at the mean with a leader to the label, because two
+        ticks half a millimetre apart are one fat tick that means nothing. The label starts at the
+        mark and is slid back onto the paper when the mark sits near the right end.
         """
         if ramp.band is None or ramp.mean_at is None:
-            return ""
+            return "", MARGIN
         left = MARGIN + ramp.band[0] * RAMP_STRIP_W
         right = MARGIN + ramp.band[1] * RAMP_STRIP_W
         if right - left >= RAMP_SPAN_MIN_MM:
@@ -1518,11 +1523,11 @@ class LayoutBuilder:
             self._rule(right, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
             self._rule(left, y + RAMP_TICK_H - RAMP_TICK_W, right - left + RAMP_TICK_W,
                        RAMP_TICK_W, sheet)
-            return ramp.band_label
+            return ramp.band_label, left
         middle = MARGIN + ramp.mean_at * RAMP_STRIP_W
         self._rule(middle, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
         self._rule(middle, y + RAMP_TICK_H - RAMP_TICK_W, RAMP_TICK_W * 2, RAMP_TICK_W, sheet)
-        return ramp.mean_label
+        return ramp.mean_label, middle
 
     def _ramp_block(self, ramp: ColourRamp) -> UnderMap:
         """A colour scale as a strip: the service's own band, its two ends named under it and the
@@ -1555,9 +1560,10 @@ class LayoutBuilder:
                 strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
                 y += strip_h
             if marked:
-                zone = self._mark_the_zone(ramp, sheet, y)
+                zone, at = self._mark_the_zone(ramp, sheet, y)
                 y += RAMP_MARK_H
-                self.label(zone, MARGIN, y, CONTENT_W, RAMP_LINE_H, sheet, size=7, bold=True)
+                self.label(zone, min(at, CONTENT_RIGHT - RAMP_MARK_LABEL_W), y,
+                           RAMP_MARK_LABEL_W, RAMP_LINE_H, sheet, size=7, bold=True)
                 y += RAMP_LINE_H
             self.label(ramp.low, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
             high = self.label(ramp.high, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
