@@ -340,7 +340,14 @@ def virtual_boreholes_layer(result: StudyResult) -> QgsVectorLayer:
     if result.section is not None:
         taken += list(result.section.boreholes)
     features = []
+    seen = set()
     for borehole in taken:
+        # One model at one place is one point. The doorprik that lands on the representative point
+        # IS the virtual borehole of chapter 4, and the GeoPackage carried it twice.
+        key = (borehole.model, round(float(borehole.x), 2), round(float(borehole.y), 2))
+        if key in seen:
+            continue
+        seen.add(key)
         feature = QgsFeature(layer.fields())
         feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(borehole.x, borehole.y)))
         feature.setAttributes([borehole.model, float(borehole.x), float(borehole.y),
