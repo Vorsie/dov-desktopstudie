@@ -649,3 +649,20 @@ def test_the_virtual_boreholes_lose_their_labels_on_a_report_map(qgs_app, gent_z
 
     assert not overlay.labelsEnabled()
     assert overlay.renderer().symbol().color().name() == layer.renderer().symbol().color().name()
+
+
+def test_the_same_virtual_borehole_is_one_point_not_two(qgs_app, gent_zone):
+    """Het doorprikpunt op het representatieve punt IS de virtuele boring van hoofdstuk 4: in de
+    GeoPackage stonden er twee identieke rijen voor g3dv3_F op dezelfde coordinaat. Eenzelfde
+    model op eenzelfde plek is een punt."""
+    from desktopstudie.qgis import layers
+
+    result = _virtual_result(gent_zone)
+    result.section.boreholes.insert(
+        0, next(b for b in result.virtual_boreholes.values() if b.model == "g3dv3_F"))
+
+    layer = layers.virtual_boreholes_layer(result)
+
+    keys = [(f["model"], round(f["x"], 2), round(f["y"], 2)) for f in layer.getFeatures()]
+    assert len(keys) == len(set(keys)), f"dubbele punten: {keys}"
+    assert ("g3dv3_F", 104326.0, 192506.0) in keys
