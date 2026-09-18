@@ -1114,3 +1114,21 @@ def test_an_empty_answer_says_what_it_means_and_promises_no_table(gent_ring):
     assert "Geen kaarteenheden" not in page.zone_legend.note
     assert "De tabel" not in page.guide.html
     assert "vier klassen" in page.guide.html, "de uitleg zelf blijft staan"
+
+
+def test_the_studys_own_products_are_not_listed_as_consulted_sources(gent_ring):
+    """"Figuren" en "studie.json" zijn wat deze studie MAAKT, niet wat ze raadpleegde. In de
+    tabel "Geraadpleegde bronnen" lezen ze als een dienst die bevraagd werd."""
+    result = _result(gent_ring)
+    from desktopstudie.core.model import Provenance
+
+    result.provenance = [
+        Provenance("DOV WFS", "https://dov/wfs", "2026-09-18T10:00:00", True),
+        Provenance("Figuren", "", "2026-09-18T10:00:00", True),
+        Provenance("studie.json", "data/studie.json", "2026-09-18T10:00:00", True)]
+
+    sources = rc.build_report(result, rc.ReportMeta(project="P", author="A",
+                                                    company="C")).chapters[7]
+    consulted = next(p for p in sources.pages if p.title == "Geraadpleegde bronnen")
+
+    assert [row[0] for row in consulted.rows] == ["DOV WFS"]
