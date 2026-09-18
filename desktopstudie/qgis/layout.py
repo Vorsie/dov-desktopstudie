@@ -1106,7 +1106,13 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
         path.parent.mkdir(parents=True, exist_ok=True)
         if entry.backdrop:
             under, reason = _backdrop_for(request, client, log)
-            backdrops[request.map_id] = reason
+            # Keyed per MAP while eight threads write it, so two framings of one map race for the
+            # same slot. Both framings ask the same base map, so the two answers are the same
+            # sentence and the winner does not matter; CPython's dict assignment is atomic, so
+            # nothing is lost either. Keep the LOSING one only when it explains a failure that the
+            # winner does not, so a reason never silently becomes "fine".
+            if reason or request.map_id not in backdrops:
+                backdrops[request.map_id] = reason
             if under is not None:
                 data = None
                 if not _over_backdrop(image, under, entry.opacity).save(str(path)):
@@ -1748,12 +1754,20 @@ class LayoutBuilder:
                 strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
                 y += strip_h
             if marked:
-                zone, at = self._mark_the_zone(ramp, sheet, y)
+                # Against the bar, not a gap below it: a pointer that touches nothing points at
+                # nothing. `strip_h` carries the air for the LABELS underneath, not for the mark.
+                zone, at = self._mark_the_zone(ramp, sheet, y - RAMP_LABEL_GAP)
                 y += RAMP_MARK_H
                 self.label(zone, min(at, CONTENT_RIGHT - RAMP_MARK_LABEL_W), y,
                            RAMP_MARK_LABEL_W, RAMP_LINE_H, sheet, size=7, bold=True)
                 y += RAMP_LINE_H
             for at, label in ticks:
+                # A mark ON the bar as well as a number under it. The GxG classes are not evenly
+                # spaced in value while the bar draws them at equal width, so numbers alone still
+                # read as a linear scale; the tick says where each boundary actually falls.
+                if image is not None:
+                    self._rule(MARGIN + at * RAMP_STRIP_W - RAMP_TICK_W / 2.0,
+                               y - RAMP_LABEL_GAP, RAMP_TICK_W, RAMP_TICK_H, sheet)
                 # Centred on the boundary, and never off the paper at either end.
                 left = MARGIN + at * RAMP_STRIP_W - RAMP_TICK_LABEL_W / 2.0
                 left = min(max(left, MARGIN), CONTENT_RIGHT - RAMP_TICK_LABEL_W)
