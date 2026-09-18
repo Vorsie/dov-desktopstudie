@@ -22,6 +22,7 @@ import argparse
 import re
 import sys
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -91,9 +92,12 @@ def _descriptions(place: str, client, log: Log) -> List[Tuple[str, object]]:
         for layer in dov_xml.parse_lithology(client.get(url + ".xml", timeout=20, retries=1)):
             rows.append((number, layer))
 
-    parallel.load_each(wanted, load, "lithologie", 4, log)
+    failed = parallel.load_each(wanted, load, "lithologie", 4, log)
+    # What did NOT come back matters as much as what did: a rerun that lost half its fetches to a
+    # slow service reads exactly like the curation run unless the failures are on the page.
     print(f"  {place:22s} {hit.x:8.0f}/{hit.y:8.0f}  {len(features):3d} boringen, "
-          f"{len(wanted):3d} met beschrijving, {len(rows):4d} lagen", file=sys.stderr)
+          f"{len(wanted):3d} met beschrijving, {len(rows):4d} lagen"
+          + (f", {failed} MISLUKT" if failed else ""), file=sys.stderr)
     return rows
 
 
@@ -103,7 +107,9 @@ def main(argv=None) -> int:
                         help="toon wat de huidige lijst zou vlaggen in plaats van de telling")
     args = parser.parse_args(argv)
 
-    log = Log("woordenschat", sink=lambda line: None)
+    # A real sink, not a black hole: every warning the services raise belongs on stderr next to
+    # the counts, so a rerun can be diffed against the curation run instead of merely trusted.
+    log = Log("woordenschat", sink=lambda line: print(line, file=sys.stderr))
     client = _client(log)
     everything: List[Tuple[str, object]] = []
     print("punten:", file=sys.stderr)
@@ -111,10 +117,14 @@ def main(argv=None) -> int:
         rows = _descriptions(place, client, log)
         everything += [(f"{setting}/{number}", layer) for number, layer in rows]
 
-    print(f"\n{len(everything)} lagen uit {len({row[0] for row in everything})} boringen "
-          f"over {len(PLACES)} punten", file=sys.stderr)
+    # The sample size and the date ride along with the table itself, so a rerun can be diffed
+    # against the run the lists in `core/lithology` were curated from.
+    sample = (f"{len(everything)} lagen uit {len({row[0] for row in everything})} boringen over "
+              f"{len(PLACES)} punten, geteld op {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"\n{sample}", file=sys.stderr)
 
     if args.flags:
+        print(f"# {sample}")
         per_borehole: Dict[str, list] = {}
         for number, layer in everything:
             per_borehole.setdefault(number, []).append(layer)
@@ -132,6 +142,8 @@ def main(argv=None) -> int:
             print(f"{count:5d}  {word}")
         return 0
 
+    print(f"# {sample}")
+    print("# De lijst bepaalt alleen wat GEWOON is; alles wat er niet op staat vlagt.")
     words = Counter()
     for _number, layer in everything:
         if layer.kind == "gecodeerd":
