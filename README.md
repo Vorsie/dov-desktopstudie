@@ -1,6 +1,6 @@
 # DOV Desktopstudie
 
-**Status:** v0.1.0, eerste release. Kern en QGIS-schil zijn compleet: dialoog, lagen in het
+**Status:** v0.2.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het
 geopende project, PDF-rapport, headless script. De plugin staat als *experimenteel* gemarkeerd
 (`metadata.txt`) tot de eerste ronde gebruikersfeedback verwerkt is.
 
@@ -46,8 +46,9 @@ halve bladhoogte) en wat dan nog niet past loopt door op het volgende blad. Het 
 op dezelfde plaats de kleurbalk van de dienst zelf, met de zone erop gemarkeerd - een beugel tussen
 de laagste en de hoogste hoogte, of een streepje op het gemiddelde als die te dicht bij elkaar
 liggen om te tekenen - en de drie waarden eronder. De twee grondwaterstanden (GHG en GLG) dragen
-op dezelfde manier hun kleurbalk met haar klassegrenzen, en in de tabel erboven de gemeten diepte
-onder het maaiveld met haar standaardafwijking en betrouwbaarheidsinterval.
+op dezelfde manier hun kleurbalk met haar klassegrenzen, en in de tabel erboven de gemodelleerde
+diepte onder het maaiveld met haar standaardafwijking en betrouwbaarheidsinterval - een
+modelwaarde uit de GxG-kaart, geen peilbuismeting.
 
 Een kaart die maar enkele procenten van haar uitsnede tekent - grondverschuivingen, watertoets,
 PFAS, OVAM, erosie - krijgt de GRB-basiskaart eronder gecomposeerd, zodat de lezer straten en
