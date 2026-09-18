@@ -836,8 +836,9 @@ def _with_gxg(result, value=2.85):
 
 
 def test_the_groundwater_map_carries_its_value_and_its_colour_bar(gent_ring):
-    """De GHG-kaart droeg geen getal en geen legenda. Nu staat de gemeten waarde in de tabel onder
-    de kaart en de kleurbalk van de dienst eronder, met haar klassegrenzen erbij."""
+    """De GHG-kaart droeg geen getal en geen legenda. Nu staat de gemodelleerde waarde in de tabel
+    onder de kaart en de kleurbalk van de dienst eronder, met haar klassegrenzen erbij. Gemodelleerd
+    en niet gemeten: de GxG-kaart is een rasterkaart, geen peilbuis."""
     result = _with_gxg(_result(gent_ring))
     result.relief = (12.52, 16.25, 14.74)
 
