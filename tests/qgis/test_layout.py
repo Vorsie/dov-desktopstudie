@@ -2373,3 +2373,22 @@ def test_a_column_figure_shrinks_to_join_the_table_above_it(make_layout, tmp_pat
     pictures = _items_of(lay, 1, QgsLayoutItemPicture)
     assert pictures, "de figuur hoort op hetzelfde blad als de tabel te staan"
     assert pictures[0].rect().height() >= 120.0, "en leesbaar te blijven"
+
+
+def test_the_overview_map_carries_a_key_to_its_symbols(make_layout):
+    """De overzichtskaart van hoofdstuk 5 tekent vijf soorten punten en een lijn en zei nergens
+    wat ze betekenen - en deze ronde kwamen er paarse ruiten bij. Onder het kader, waar de
+    legenda's van de andere kaarten nu ook staan, hoort een sleutel."""
+    from qgis.core import QgsLayoutItemLabel
+
+    from desktopstudie.core.report_content import MapPage
+
+    overview = MapPage("grb", "Overzicht beschikbaar grondonderzoek", scale=5000,
+                       extent_factor=1.0, show_investigations=True, show_section_line=True)
+
+    lay = make_layout(pages=[overview])
+
+    texts = " ".join(item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel))
+    for name in ("Onderzoekszone", "Sonderingen", "Boringen", "Peilputten", "Virtuele boringen",
+                 "Doorsnedelijn"):
+        assert name in texts, f"{name} ontbreekt in de kaartsleutel"
