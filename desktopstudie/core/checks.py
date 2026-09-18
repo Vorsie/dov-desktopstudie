@@ -136,6 +136,30 @@ def check_groundwater(result: StudyResult) -> List[Signalering]:
     return []
 
 
+SHALLOW_GHG_M = 2.0
+
+
+def check_modelled_groundwater(result: StudyResult) -> List[Signalering]:
+    """The modelled mean highest groundwater level, when it sits shallow enough to plan around.
+
+    Same threshold as the measured filter above, because it is the same question - can you dig
+    here without meeting water - and the same attention sentence. The difference is the source,
+    and the rule says so: this is a regional model, not a standpipe on the plot.
+    """
+    rows = _facts(result, "gxg_ghg")
+    depth = next((row.get("GHG-waarde_m-mv") for row in rows
+                  if row.get("GHG-waarde_m-mv") is not None), None)
+    if depth is None or float(depth) >= SHALLOW_GHG_M:
+        return []
+    return [Signalering(
+        "ondiepe_ghg",
+        f"Modelwaarde GHG: {float(depth):.2f} m onder maaiveld (gemiddeld hoogste "
+        f"grondwaterstand).",
+        "DOV GxG-kaart (modelwaarde, geen peilbuismeting)",
+        "Aandachtspunt voor het grondonderzoek: ondiepe grondwaterstand; bemaling en "
+        "waterspanningen meenemen, en de modelwaarde ter plaatse laten meten.")]
+
+
 def check_flood(result: StudyResult) -> List[Signalering]:
     out = []
     for map_id, label in (("watertoets_pluviaal", "pluviaal"), ("watertoets_fluviaal", "fluviaal")):
@@ -321,6 +345,7 @@ def check_borehole_remarks(result: StudyResult) -> List[Signalering]:
 
 RULES: List[Rule] = [
     check_anthropogenic, check_soft_layers, check_shallow_tertiary, check_soil_map, check_groundwater,
+    check_modelled_groundwater,
     check_flood, check_erosion, check_shrink_swell, check_ovam, check_landslide_susceptibility,
     check_mapped_landslides, check_pfas, check_investigations, check_relief, check_sources,
     check_borehole_remarks,
