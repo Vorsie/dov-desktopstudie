@@ -89,6 +89,7 @@ from ..core.report_content import (
 )
 from ..core.services.dov_portal import PNG_MAGIC, content_link
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
+from . import layers
 from .compat import point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
 from .layers import CRS_AUTHID
@@ -158,6 +159,10 @@ UNBOUNDED_WIDTH = 10_000.0  # no cap: what the columns WANT, not what they are a
 # The shortest a figure may be squeezed to in order to share a sheet. Below this a qc diagram over
 # thirty-five metres is a smudge, and white paper beats an unreadable drawing.
 FIGURE_MIN_H = 120.0
+# The key under the overview map: a swatch of this size and a line of this height per symbol.
+KEY_SWATCH = 3.0
+KEY_ROW_H = 4.2
+
 # QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
 # line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
 # that factor - a column measured too narrow wraps text that had room.
@@ -1606,6 +1611,8 @@ class LayoutBuilder:
         instead of classes.
         """
         blocks: List[UnderMap] = []
+        if page.show_investigations or page.show_section_line:
+            blocks.append(self._symbol_key_block(page))
         if page.guide is not None:
             blocks.append(self._guide_block(page.guide))
         if page.ramp is not None:
@@ -1624,6 +1631,43 @@ class LayoutBuilder:
                 y += block.height + UNDER_MAP_BLOCK_GAP
 
         return UnderMap(height, draw, blocks[0].height)
+
+    def _symbol_key_block(self, page: MapPage) -> UnderMap:
+        """What the dots and the dashed line on the overview map mean.
+
+        The map drew five kinds of point and a line and named none of them; this round added the
+        purple diamonds of the virtual boreholes on top of that. The key goes where every other
+        map's legend now goes - under the frame - as a swatch and a word per line.
+        """
+        rows = [(layers.ZONE_COLOUR, "Onderzoekszone")]
+        if page.show_investigations:
+            rows += [(layers.POINT_STYLE[kind][0], layers.POINT_NAMES[kind])
+                     for kind in ("sondering", "boring", "peilput")]
+            rows.append((layers.VB_STYLE[0], layers.VB_NAME))
+        if page.show_section_line:
+            rows.append((layers.SECTION_LINE_COLOUR, "Doorsnedelijn"))
+        height = UNDER_MAP_TITLE_H + len(rows) * KEY_ROW_H
+
+        def draw(sheet: int, top: float) -> None:
+            self.label("Legenda bij de kaart", MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet,
+                       size=8, bold=True)
+            y = top + UNDER_MAP_TITLE_H
+            for colour, name in rows:
+                self._swatch(MARGIN, y + (KEY_ROW_H - KEY_SWATCH) / 2.0, colour, sheet)
+                self.label(name, MARGIN + KEY_SWATCH + 1.5, y, CONTENT_W, KEY_ROW_H, sheet, size=7)
+                y += KEY_ROW_H
+
+        return UnderMap(height, draw, height)
+
+    def _swatch(self, x: float, y: float, colour: str, page: int) -> None:
+        """One coloured square of the map key, drawn the same way the points are coloured."""
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple(
+            {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"}))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(KEY_SWATCH, KEY_SWATCH))
 
     def _guide_block(self, page: TextPage) -> UnderMap:
         """How to read this map, under its own frame instead of on a sheet of its own."""
