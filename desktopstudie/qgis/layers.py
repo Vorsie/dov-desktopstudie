@@ -70,6 +70,10 @@ POINT_SIZE_MM = "2.6"
 # virtual borehole has no number, no contractor and no fiche, it has a model and a ground level.
 VB_NAME = "Virtuele boringen"
 VB_STYLE = ("#7030a0", "diamond")
+# The zone's own outline and the section line, named so the map key under a report map can show
+# the same colours the map draws with instead of a second copy that quietly drifts.
+ZONE_COLOUR = "#ff0000"
+SECTION_LINE_COLOUR = "#000000"
 VB_LABEL_FIELD = "model"
 VB_FIELDS = [("model", "string"), ("x", "double"), ("y", "double"), ("maaiveld_mtaw", "double"),
              ("aantal_lagen", "integer")]
@@ -164,7 +168,7 @@ def _zone_polygon(zone: StudyZone) -> QgsGeometry:
 def style_zone_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
     """The study zone: red outline, lightly filled so the map stays readable underneath."""
     layer.renderer().setSymbol(QgsFillSymbol.createSimple(
-        {"color": "255,0,0,30", "outline_color": "#ff0000", "outline_width": "0.8"}))
+        {"color": "255,0,0,30", "outline_color": ZONE_COLOUR, "outline_width": "0.8"}))
     return layer
 
 
