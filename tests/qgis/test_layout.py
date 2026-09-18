@@ -1371,8 +1371,9 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
 
 def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_path):
     """De dekkingsproef was een extra GetMap per kaart. Nu het beeld er toch al is, valt het
-    antwoord eruit: een volledig lege tegel betekent geen kaartbeeld op deze locatie - en alleen
-    voor kaarten zonder feiten, want een lege watertoetstegel is data."""
+    antwoord eruit: een volledig lege tegel betekent geen kaartbeeld op deze locatie, voor ELKE
+    kaart. Wat zo'n tegel kost wordt beslist waar de legenda bekend is - met eenheden eronder
+    blijft het blad, zonder eenheden vervalt het - en niet hier."""
     from desktopstudie.core.report_content import MapPage
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import layout
@@ -1390,7 +1391,7 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
     _images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
                                                            _Client(cache_dir=None))
 
-    assert empty == {requests[0].key}, "per kader, niet per kaart"
+    assert empty == {request.key for request in requests}, "elke lege tegel, per kader gemeten"
 
 
 def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
@@ -1868,9 +1869,7 @@ def test_a_sheet_that_is_full_hands_the_rest_to_the_next_one(make_layout):
 
 def test_a_portrait_piece_never_lands_on_a_landscape_sheet(make_layout):
     """Een liggende tabel en een staande tekst delen geen blad: het blad heeft maar een stand."""
-    from desktopstudie.core.report_content import TablePage
-
-    wide = TablePage("Sonderingen", [f"k{i}" for i in range(9)], [[str(i) for i in range(9)]])
+    wide = _sonderingen_page()  # echt breed: negen kolommen met hele uitvoerdersnamen erin
 
     lay = make_layout(pages=[wide, _short_text("Leeswijzer")], compact=True)
 
@@ -2325,3 +2324,52 @@ def test_a_long_note_above_a_table_gets_the_room_its_lines_need(make_layout):
                  if "elektrische" in item.text())
     frame = next(item for item in _items_of(lay, 1, QgsLayoutFrame))
     assert frame.pos().y() >= label.pos().y() + label.rect().height() - 0.5
+
+
+def test_a_narrow_table_of_many_columns_stays_portrait(make_layout):
+    """De liggende bladzijde werd op het AANTAL kolommen gekozen, niet op hun breedte: acht smalle
+    kolommen passen ruim in 180 mm, en de peilputtentabel van drie regels kreeg zo een liggend blad
+    voor zich alleen waar niets meer bij kon. Breed is wat niet past, niet wat veel kolommen heeft.
+    """
+    from qgis.core import QgsLayoutItemPage
+
+    from desktopstudie.core.report_content import TablePage
+
+    narrow = TablePage("Peilputten binnen 500 m",
+                       ["ID", "Afst.", "Aquifer", "Basis", "Peil", "Datum", "Meetnet", "Fiche"],
+                       [["4-1", "84", "0160", "9.0", "11.04", "2024-01-01", "primair", "4"]])
+    wide = TablePage("Sonderingen binnen 500 m",
+                     ["Nummer", "Afst. (m)", "Diepte (m)", "Datum", "Methode", "Conus",
+                      "Uitvoerder", "Opdracht", "DOV-fiche"],
+                     [["GEO-23/108-S229BIS", "131", "35.0", "2024-03-01", "continu elektrisch",
+                       "E", "VO - Afdeling Geotechniek", "GEO-23/108 Gent Kortrijksesteenweg",
+                       "2024-089724"]])
+
+    lay = make_layout(pages=[narrow, wide])
+
+    pages = lay.pageCollection()
+    sizes = [(pages.page(i).pageSize().width(), pages.page(i).pageSize().height())
+             for i in range(pages.pageCount())]
+    assert sizes[0][0] < sizes[0][1], "de smalle tabel staat rechtop"
+    assert any(w > h for w, h in sizes), "de brede tabel ligt nog altijd"
+    assert QgsLayoutItemPage is not None
+
+
+def test_a_column_figure_shrinks_to_join_the_table_above_it(make_layout, tmp_path):
+    """Een tabel van vier regels bleef alleen achter op een blad omdat de figuur erna op ware
+    hoogte niet meer paste. De figuur mag krimpen tot ze erbij past - ze wordt toch al nooit groter
+    getekend dan ze is - zolang er genoeg hoogte overblijft om haar te lezen."""
+    from qgis.core import QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import FigurePage, TablePage
+
+    tall = "figuren/kolom.png"
+    _png(tmp_path / tall, 680, 870)  # zoals een echte boor- of sondeerfiguur: 180 x 230 mm
+    short = TablePage("Vier regels", ["a", "b"], [[str(n), "x"] for n in range(4)])
+    figure = FigurePage("Sondering GEO-1", tall, "12 m van de zone")
+
+    lay = make_layout(pages=[short, figure])
+
+    pictures = _items_of(lay, 1, QgsLayoutItemPicture)
+    assert pictures, "de figuur hoort op hetzelfde blad als de tabel te staan"
+    assert pictures[0].rect().height() >= 120.0, "en leesbaar te blijven"
