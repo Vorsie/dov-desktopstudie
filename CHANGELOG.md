@@ -2,7 +2,7 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-18
 
 Compactere opmaak na de eerste gebruikersronde: minder wit, minder bladen, en de virtuele boring
 zegt waar ze genomen is.
@@ -186,5 +186,6 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Vorsie/dov-desktopstudie/releases/tag/v0.1.0
