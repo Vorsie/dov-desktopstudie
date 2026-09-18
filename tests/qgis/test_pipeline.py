@@ -981,3 +981,28 @@ def test_compact_packs_more_sheets_than_the_default(project, core_result, offlin
                              legends=False, compact=True)
 
     assert packed.sheets < plain.sheets
+
+
+def test_an_empty_theme_with_an_empty_legend_costs_its_sheet(project, core_result, offline_shell,
+                                                             tmp_path, monkeypatch, no_pdf):
+    """Een blad dat niets toont. De gekarteerde grondverschuivingen tekenden hier niets, de
+    legenda voor de zone was leeg en er stond alleen de basiskaart met een leeswijzer over een
+    tabel die er niet was. Zo'n blad vervalt; de reden hoort in Bronnen.
+
+    Vindt de WFS wel iets, dan blijft het blad: de lege tegel zegt dan alleen dat de laag op deze
+    schaal niets tekent, niet dat er niets is."""
+    from desktopstudie.qgis import pipeline
+
+    _empty_map_images(monkeypatch, empty_maps=("bodemkaart",))
+
+    with_rows = pipeline.finish(project, core_result, _meta(), tmp_path / "met", _log(),
+                                legends=False)
+
+    assert "bodemkaart" in _map_ids(with_rows.report), "de WFS vond wel eenheden"
+
+    core_result.map_facts[0].rows = []
+    out = pipeline.finish(project, core_result, _meta(), tmp_path / "zonder", _log(), legends=False)
+
+    assert "bodemkaart" not in _map_ids(out.report)
+    source = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Bodemkaart"))
+    assert source.ok and source.message == pipeline.NO_COVERAGE_MESSAGE
