@@ -545,6 +545,11 @@ def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[st
     Read off the very tree the images were planned from, so every page is matched with the image
     that was fetched for ITS framing - the GRB base map carries three, and a mosaic can cover the
     narrow one and not the wide one.
+
+    A tile that drew nothing costs its sheet only when the sheet has nothing ELSE to show. With
+    units from the WFS under it the empty tile just means the layer draws nothing at this scale;
+    with an empty legend beside it the sheet is a base map, a blank frame and a reading guide -
+    a page showing nothing at all.
     """
     boxes = layout_mod.overlay_boxes(result)
     missing: Set[MapPageKey] = set()
@@ -555,7 +560,9 @@ def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[st
             extent = layout_mod.map_extent(result.zone.ring, page.scale, page.extent_factor,
                                            layout_mod.page_boxes(page, boxes))
             key = layout_mod.map_image_key(page.map_id, extent)
-            if key in no_coverage or key not in images:
+            legend = page.zone_legend
+            shows = getattr(legend, "rows", None) or getattr(legend, "entries", None)
+            if key not in images or (key in no_coverage and not shows):
                 missing.add(map_page_key(page))
     return missing
 
