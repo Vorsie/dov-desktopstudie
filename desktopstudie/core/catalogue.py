@@ -425,8 +425,8 @@ CATALOGUE: List[MapEntry] = [
     # ligt op 5,7 km) en bleef het blad leeg; op 1:100 000 wordt de zone een stip, wat voor een
     # regionale contourkaart de juiste afweging is.
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte", "afstand_m"), wfs="dov-pub:Quartair_Isopachen", legend=False,
-         field_labels={"dikte": "Dikte Quartair (m)", "afstand_m": "Afstand tot de zone (m)"},
+         ("dikte", DISTANCE_FIELD), wfs="dov-pub:Quartair_Isopachen", legend=False,
+         field_labels={"dikte": "Dikte Quartair (m)", DISTANCE_FIELD: "Afstand tot de zone (m)"},
          guide=GUIDE_QUARTAIR_DIKTE, scale=100000, backdrop=True, within_m=10000.0),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
