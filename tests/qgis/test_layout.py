@@ -2392,3 +2392,28 @@ def test_the_overview_map_carries_a_key_to_its_symbols(make_layout):
     for name in ("Onderzoekszone", "Sonderingen", "Boringen", "Peilputten", "Virtuele boringen",
                  "Doorsnedelijn"):
         assert name in texts, f"{name} ontbreekt in de kaartsleutel"
+
+
+def test_the_mark_on_a_colour_bar_touches_the_bar(make_layout, tmp_path):
+    """Het streepje dat de zone op de hoogteschaal aanwijst stond anderhalve millimeter onder de
+    balk te zweven: een aanwijzing die niets raakt wijst niets aan."""
+    from qgis.core import QgsLayoutItemPicture, QgsLayoutItemShape
+
+    from desktopstudie.core.report_content import ColourRamp, MapPage
+    from desktopstudie.qgis import layout as layout_mod
+
+    strip = "legendas/dhmv_schaal.png"
+    _png(tmp_path / strip, 200, 10)
+    page = MapPage("dhmv_dtm", "DHMV", scale=5000)
+    page.ramp = ColourRamp("Hoogte maaiveld (m TAW)", "-50 mTAW", "300 mTAW", "Zone: 12.5-16.3",
+                           strip, "", band=(0.18, 0.19), mean_at=0.185,
+                           band_label="zone 12.52 - 16.25 mTAW")
+
+    lay = make_layout(pages=[page])
+
+    pictures = [i for i in lay.items() if isinstance(i, QgsLayoutItemPicture)
+                and i.picturePath().endswith("dhmv_schaal.png")]
+    marks = [i for i in lay.items() if isinstance(i, QgsLayoutItemShape)]
+    assert pictures and marks
+    bar_bottom = pictures[0].pos().y() + layout_mod.RAMP_STRIP_H
+    assert min(abs(mark.pos().y() - bar_bottom) for mark in marks) < 0.2
