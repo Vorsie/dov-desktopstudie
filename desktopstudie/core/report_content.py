@@ -560,10 +560,17 @@ def _gxg_ramp(entry: catalogue.MapEntry, result: StudyResult, images: Dict[str, 
 
 def _ramp_for(entry: catalogue.MapEntry, result: StudyResult,
               images: Dict[str, str]) -> ColourRamp:
-    """The colour bar of a map whose legend is a scale rather than a list of classes."""
+    """The colour bar of a map whose legend is a scale rather than a list of classes.
+
+    Two kinds exist and a third would fall into `_gxg_ramp`, which reads `fact_fields[0]` and
+    would raise an IndexError on a map that has none. Naming the two keeps that a clear failure
+    at the catalogue rather than a crash halfway through a report.
+    """
     if entry.id == DEM_MAP_ID:
         return _dem_ramp(result, images)
-    return _gxg_ramp(entry, result, images)
+    if entry.fact_fields:
+        return _gxg_ramp(entry, result, images)
+    raise ValueError(f"kaart {entry.id} vraagt een kleurschaal maar heeft geen feitveld")
 
 
 def _chapter_ligging(result: StudyResult, images: Dict[str, str]) -> Chapter:
@@ -758,6 +765,12 @@ def _status(entry) -> str:
     return f"ok - {entry.message}" if entry.message else "ok"
 
 
+# Provenance lines that describe what this study PRODUCED rather than what it consulted. They are
+# recorded so a failed write is visible in the log and in studie.json; in a table headed
+# "Geraadpleegde bronnen" they read as services that were queried, which they never were.
+OWN_PRODUCTS = ("Figuren", "studie.json")
+
+
 def _chapter_bronnen(result: StudyResult) -> Chapter:
     sources = Chapter(8, "Bronnen en licenties")
     # Short URL and date only: the stored provenance keeps the whole request (a DWITHIN filter
@@ -766,7 +779,8 @@ def _chapter_bronnen(result: StudyResult) -> Chapter:
     # service and the day are what it takes to find a source again.
     sources.pages.append(TablePage(
         "Geraadpleegde bronnen", ["Bron", "URL", "Opgehaald", "Status"],
-        [[p.source, short_url(p.url), p.retrieved_at[:10], _status(p)] for p in result.provenance]))
+        [[p.source, short_url(p.url), p.retrieved_at[:10], _status(p)]
+         for p in result.provenance if p.source not in OWN_PRODUCTS]))
     sources.pages.append(TablePage(
         "Kaartbronnen en licenties", ["Kaart", "Bron", "Licentie"],
         [[e.title, e.attribution, e.licence] for e in catalogue.entries(only=result.map_ids)]))
