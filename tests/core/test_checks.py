@@ -465,3 +465,30 @@ def test_the_remarks_signalering_quotes_and_never_concludes(gent_ring):
     assert "Groen zand met zandsteenconcreties" in signal.fact
     for verdict in ("draagkracht", "risico", "ongeschikt", "moeilijk", "waarschijnlijk"):
         assert verdict not in (signal.fact + signal.advice).lower()
+
+
+def test_the_modelled_groundwater_depth_reaches_chapter_seven(gent_ring):
+    """De GHG staat sinds deze ronde met een getal onder haar kaart, maar hoofdstuk 7 zweeg
+    erover - terwijl een peilbuis onder de twee meter er wel een regel krijgt. Een GHG ondieper
+    dan twee meter is hetzelfde aandachtspunt, met de modelwaarde als bron benoemd."""
+    from desktopstudie.core.model import MapFact
+
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)",
+                                    [{"GHG-waarde_m-mv": 1.2}]))
+
+    facts = [s.fact for s in checks.run_all(result) if s.code == "ondiepe_ghg"]
+
+    assert facts and "1.2" in facts[0] and "model" in facts[0].lower()
+    assert "GHG" in facts[0]
+
+
+def test_a_deep_modelled_groundwater_level_says_nothing(gent_ring):
+    """Vier meter onder maaiveld is geen aandachtspunt en hoort geen regel te krijgen."""
+    from desktopstudie.core.model import MapFact
+
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)",
+                                    [{"GHG-waarde_m-mv": 4.0}]))
+
+    assert not [s for s in checks.run_all(result) if s.code == "ondiepe_ghg"]
