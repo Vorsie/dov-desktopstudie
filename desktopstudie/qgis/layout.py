@@ -141,7 +141,23 @@ MM_PER_PX = 25.4 / 96.0
 MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, not a long table
 # A table of this many columns does not fit a portrait sheet, whatever the widths: the sonderingen
 # table has nine, and squeezed into 180 mm its last column falls off the paper.
-WIDE_TABLE_COLUMNS = 7
+# How tightly a table may be squeezed before it is laid on its side. Decided on MEASURED widths,
+# not on the column count: eight narrow columns fit 180 mm easily, and a landscape sheet for them
+# cost a three-row table a sheet of its own that nothing else could join. Measured on the real
+# tables (portrait budget ~160-170 mm): the nine-column sounding table wants 169 mm and cannot go
+# below 127 mm (0.80 of its budget) - squeezed that hard every cell wraps and the fiche numbers
+# are unreadable, so it goes landscape. The four-column signal table wants 240 mm but falls back
+# to 75 mm (0.44), because its columns are sentences that are MEANT to wrap - it stays portrait.
+TABLE_MAX_SQUEEZE = 0.65
+# QGIS' own defaults for a text table, spelled out so the orientation can be decided before a table
+# exists. `_new_table` reads them off the table itself and the two must agree; the check below
+# fails loudly if a QGIS release ever moves them.
+TABLE_CELL_MARGIN = 1.0
+TABLE_GRID_WIDTH = 0.3
+UNBOUNDED_WIDTH = 10_000.0  # no cap: what the columns WANT, not what they are allowed
+# The shortest a figure may be squeezed to in order to share a sheet. Below this a qc diagram over
+# thirty-five metres is a smudge, and white paper beats an unreadable drawing.
+FIGURE_MIN_H = 120.0
 # QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
 # line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
 # that factor - a column measured too narrow wraps text that had room.
@@ -1076,8 +1092,11 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
             raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
                                        f"({len(data)} bytes)")
         # Asked of the THEME, before anything is painted under it: a backdrop would answer the
-        # coverage question with the base map's own ink.
-        blank = entry.fact_mode is None and _is_empty(image)
+        # coverage question with the base map's own ink. Asked of EVERY map, not only of the ones
+        # without facts - a themed map that draws nothing here is the sheet that showed a base map,
+        # an empty legend and a guide to a table that was not there. What such a tile costs is
+        # decided where the legend is known (`pipeline._pages_without_an_image`), not here.
+        blank = _is_empty(image)
         path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{_image_name(request.key)}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         if entry.backdrop:
@@ -1106,6 +1125,33 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
         if under:
             log.info(f"Basiskaart als ondergrond onder: {', '.join(under)}")
     return images, empty, backdrops
+
+
+def _fits_portrait(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> bool:
+    """Whether these columns can be read on a portrait sheet.
+
+    Two questions, in order. Do they simply fit? Then portrait, whatever their number - that is
+    the eight narrow columns of the peilput table, 63 mm in a 161 mm budget, which used to earn a
+    landscape sheet of their own purely by being eight. Do they not fit? Then how hard would the
+    squeeze be: a column can be narrowed to its longest word and no further, so the sum of those
+    words against the budget says whether wrapping still leaves a readable table or turns every
+    cell into a stack of fragments.
+
+    The table's own furniture - a cell margin either side of every column and a grid line between
+    and outside them - comes off the budget first, the same way `_new_table` computes it.
+    """
+    count = len(columns)
+    budget = CONTENT_W - 2 * TABLE_CELL_MARGIN * count - (count + 1) * TABLE_GRID_WIDTH
+    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
+             for index in range(count)]
+    wanted = sum(max(_text_width_mm([column], TABLE_FONT_PT, bold=True),
+                     _text_width_mm(column_cells, TABLE_FONT_PT))
+                 for column, column_cells in zip(columns, cells))
+    if wanted <= budget:
+        return True
+    floor = sum(_floor_width(column, column_cells, UNBOUNDED_WIDTH, TABLE_FONT_PT)
+                for column, column_cells in zip(columns, cells))
+    return floor <= budget * TABLE_MAX_SQUEEZE
 
 
 def _is_empty(image: QImage) -> bool:
@@ -1264,6 +1310,17 @@ class LayoutBuilder:
         self._sheet_chapter: Optional[int] = None
 
     # --- which sheet does this piece of content go on? --------------------------------------------
+
+    def _room_left(self, chapter: Chapter, metrics: PageMetrics) -> float:
+        """How much height a new piece could still take on the sheet being filled, its heading and
+        the gap already subtracted; 0.0 when nothing can join that sheet at all."""
+        same = chapter.number == self._sheet_chapter
+        if (self._sheet < 0 or not (same or self.compact)
+                or metrics.orientation != self._sheet_metrics.orientation):
+            return 0.0
+        room = CONTENT_TOP + self._sheet_metrics.content_h - self._cursor
+        heading = PACKED_TITLE_H + (0.0 if same else PACKED_CHAPTER_H)
+        return max(0.0, room - PACK_GAP - heading)
 
     def _start(self, chapter: Chapter, title: str, content_h: float,
                metrics: PageMetrics = _METRICS[PORTRAIT], packable: bool = True) -> Slot:
@@ -1829,9 +1886,16 @@ class LayoutBuilder:
         # Never LARGER than it was drawn: a picture of three centimetres blown up to a hand's
         # width is a blurred banner, and a small figure that keeps its size leaves room for
         # whatever follows it on the same sheet.
+        caption_h = CAPTION_H if page.caption else 0.0
         width, height = _natural_size(image, metrics.content_w, metrics.content_h - CAPTION_H)
-        slot = self._start(chapter, page.title,
-                           height + (CAPTION_H if page.caption else 0.0), metrics)
+        # A full-height column diagram after a four-row table used to leave that table alone on
+        # 98 % white paper. The figure is already capped at its natural size, so capping it a
+        # little further to join the open sheet costs legibility, not content - but only down to
+        # FIGURE_MIN_H, below which a sounding diagram is a smudge and deserves its own sheet.
+        room = self._room_left(chapter, metrics) - caption_h
+        if height > room >= FIGURE_MIN_H:
+            width, height = _drawn_size(image, metrics.content_w, room)
+        slot = self._start(chapter, page.title, height + caption_h, metrics)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
         picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
@@ -1942,11 +2006,12 @@ class LayoutBuilder:
     def table_page(self, chapter: Chapter, page: TablePage) -> None:
         """One table, on as much of a sheet as it needs and as many sheets as it needs.
 
-        A table of WIDE_TABLE_COLUMNS columns or more gets a landscape sheet - nine columns in
-        180 mm cost the last one, which is how the DOV fiche numbers walked off the paper.
+        A table gets a landscape sheet when its columns do not fit the portrait width - nine wide
+        columns in 180 mm cost the last one, which is how the DOV fiche numbers walked off the
+        paper - and keeps a portrait one when they do.
         """
         rows = [[str(cell) for cell in row] for row in page.rows]
-        metrics = _page_metrics(LANDSCAPE if len(page.columns) >= WIDE_TABLE_COLUMNS else PORTRAIT)
+        metrics = _page_metrics(PORTRAIT if _fits_portrait(page.columns, rows) else LANDSCAPE)
         if not rows:
             # A row of column headings with nothing under it promises a table that never comes; the
             # note ("Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar.") is the answer,
@@ -1978,9 +2043,15 @@ class LayoutBuilder:
             self._seal(last, metrics)
         fiches = _fiche_note(page.links or [])
         if fiches:
-            # Under the table, on its last sheet: that is where the reader has the numbers.
-            self.label(fiches, MARGIN, CONTENT_TOP + metrics.content_h + 2.0, metrics.content_w, 5,
-                       last, size=6)
+            # Under the TABLE, on its last sheet - not at the foot of the paper. A three-row table
+            # left the note floating a hand's width below it, reading as a footer of the sheet
+            # rather than a line about those three rows.
+            frames = [f for f in table.frames() if f.page() == last]
+            bottom = (max(f.pos().y() + f.rect().height() for f in frames) if frames
+                      else CONTENT_TOP + metrics.content_h)
+            bottom = min(bottom, CONTENT_TOP + metrics.content_h)
+            self.label(fiches, MARGIN, bottom + 2.0, metrics.content_w, 5, last, size=6)
+            self._cursor = max(self._cursor, bottom + 2.0 + 5.0)
 
     def _text_height(self, html: str, width: float) -> float:
         """How tall a paragraph of HTML needs to be, measured on its plain text.
