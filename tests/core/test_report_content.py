@@ -1151,3 +1151,23 @@ def test_a_dropped_map_leaves_its_answer_but_not_its_reading_guide(gent_ring):
     assert not any("Leeswijzer - Gekarteerde" in title for title in titles)
     legend = next(p for p in geo.pages if "Gekarteerde grondverschuivingen" in p.title)
     assert "geen grondverschuiving gekarteerd" in legend.note
+
+
+def test_the_answers_of_dropped_maps_stand_together(gent_ring):
+    """Een kaartblad deelt zijn blad met niets, dus een losse legenda tussen twee kaarten in krijgt
+    een blad voor zichzelf - twee ervan kostten twee bladen van onder de procent inkt. Wat van de
+    weggevallen kaarten overblijft is een rij antwoorden zonder kaart: die horen bij elkaar,
+    achteraan het hoofdstuk, waar ze samen op een blad passen."""
+    result = _result(gent_ring)
+    for map_id, title in (("watertoets_fluviaal", "Watertoets - fluviaal"),
+                          ("grondverschuiving_gekarteerd", "Gekarteerde grondverschuivingen")):
+        result.map_facts.append(MapFact(map_id, title, []))
+    dropped = {("watertoets_fluviaal", 10000, 3.0, False, False),
+               ("grondverschuiving_gekarteerd", 10000, 3.0, False, False)}
+
+    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                          unavailable=dropped).chapters[2]
+
+    kinds = [isinstance(page, rc.MapPage) for page in geo.pages]
+    assert not any(kinds[kinds.index(False):]), "de losse legenda's horen achteraan, aaneengesloten"
+    assert sum(1 for flag in kinds if not flag) == 2
