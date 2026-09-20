@@ -120,14 +120,14 @@ GUIDE_QUARTAIR_200K = (
     "nauwkeuriger. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-1200000")
 GUIDE_QUARTAIR_DIKTE = (
-    "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden, "
-    "in stappen van vijf meter. "
-    "Het zijn contourlijnen over heel Vlaanderen, geen vlakken per perceel, dus op de schaal van "
-    "een bouwzone ligt er zelden een lijn binnen het kaartbeeld. "
-    "De tabel geeft daarom de dichtstbijzijnde contouren met hun dikte en hun afstand tot de zone, "
-    "en daarboven de dikte die het model G3Dv3 op het representatieve punt zelf geeft. "
-    "Die modelwaarde is een berekening, geen boring: de werkelijke dikte ter plaatse volgt uit het "
-    "grondonderzoek.")
+    "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden. "
+    "De dikte staat op de lijn zelf, in meter; tussen twee lijnen ligt de dikte ertussenin. "
+    "Het zijn contourlijnen uit de kartering op 1:50 000, geen waarden per perceel: waar de zone "
+    "tussen twee contouren valt, geeft de kaart een bereik en geen getal. "
+    "De regel onder de kaart noemt daarnaast de dikte die het model G3Dv3 op het representatieve "
+    "punt zelf berekent. "
+    "Die modelwaarde is een berekening, geen boring, en ze kan van de kaart afwijken: de "
+    "werkelijke dikte ter plaatse volgt uit het grondonderzoek.")
 GUIDE_TERTIAIR = (
     "De code noemt de Tertiaire eenheid onder het Quartair: de eerste twee letters staan voor de "
     "formatie, de twee daarna voor het lid, een onderdeel van die formatie. "
