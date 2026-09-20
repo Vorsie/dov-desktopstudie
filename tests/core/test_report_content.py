@@ -690,9 +690,10 @@ def test_a_map_without_a_reading_guide_carries_none(gent_ring):
     assert ferraris.guide is None
 
 
-def test_a_dropped_map_hands_back_its_guide_before_its_legend(gent_ring):
-    """Valt het kaartbeeld weg, dan blijven de leeswijzer en de klassen in de zone staan - allebei
-    op een eigen blad, in de volgorde waarin ze onder de kaart stonden."""
+def test_a_dropped_map_hands_back_what_the_zone_says_and_nothing_else(gent_ring):
+    """Valt het kaartbeeld weg, dan blijven de klassen in de zone staan - die komen uit de WFS en
+    hangen niet aan het beeld. De leeswijzer verdwijnt mee: hij legt uit hoe je een kaart leest
+    die niet meer in het rapport staat."""
     result = _result(gent_ring)
     bodemkaart = next(p for p in _geologie(result).pages
                       if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
@@ -701,9 +702,8 @@ def test_a_dropped_map_hands_back_its_guide_before_its_legend(gent_ring):
                           unavailable={rc.map_page_key(bodemkaart)}).chapters[2]
 
     titles = [p.title for p in geo.pages]
-    guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
-    legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
-    assert guide < legend
+    assert "Legenda voor de zone - Bodemkaart van Vlaanderen" in titles
+    assert "Leeswijzer - Bodemkaart van Vlaanderen" not in titles
 
 
 def test_the_colour_ramp_marks_where_the_zone_lies_on_it(gent_ring):
@@ -1132,3 +1132,22 @@ def test_the_studys_own_products_are_not_listed_as_consulted_sources(gent_ring):
     consulted = next(p for p in sources.pages if p.title == "Geraadpleegde bronnen")
 
     assert [row[0] for row in consulted.rows] == ["DOV WFS"]
+
+
+def test_a_dropped_map_leaves_its_answer_but_not_its_reading_guide(gent_ring):
+    """Valt het kaartblad weg, dan blijft het antwoord voor de zone staan - dat is wat de lezer
+    kwam halen - maar de leeswijzer niet: die legt een kaart uit die niet meer in het rapport
+    staat, en vier regels uitleg bij een verdwenen kaart kostten een blad van 1,4 % inkt."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("grondverschuiving_gekarteerd",
+                                    "Gekarteerde grondverschuivingen", []))
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={("grondverschuiving_gekarteerd", 10000, 3.0,
+                                           False, False)})
+
+    geo = report.chapters[2]
+    titles = [page.title for page in geo.pages]
+
+    assert not any("Leeswijzer - Gekarteerde" in title for title in titles)
+    legend = next(p for p in geo.pages if "Gekarteerde grondverschuivingen" in p.title)
+    assert "geen grondverschuiving gekarteerd" in legend.note
