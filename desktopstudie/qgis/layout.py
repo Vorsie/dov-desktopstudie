@@ -1960,7 +1960,11 @@ class LayoutBuilder:
         # FIGURE_MIN_H, below which a sounding diagram is a smudge and deserves its own sheet.
         room = self._room_left(chapter, metrics) - caption_h
         if height > room >= FIGURE_MIN_H:
-            width, height = _drawn_size(image, metrics.content_w, room)
+            # A hair under the room, not exactly it: shrinking to the millimetre and then asking
+            # `_start` whether that fits compares the same sum computed two ways, and the answer
+            # turned on 1e-14 mm. That is what gave the HCOV column a sheet of its own while the
+            # same column fitted under the longer G3Dv3 tables.
+            width, height = _drawn_size(image, metrics.content_w, room - FIT_TOLERANCE_MM)
         slot = self._start(chapter, page.title, height + caption_h, metrics)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
