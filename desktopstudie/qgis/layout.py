@@ -178,6 +178,10 @@ DEFAULT_EXTENT_FACTOR = 3.0
 # 275), so a short zone legend costs the map nothing; a longer one shortens the frame, and never
 # past MAP_MIN_H - a map of less than half a sheet has stopped being a map.
 MAP_MIN_H = 120.0
+# Slack for "does this still fit on the paper" comparisons. Heights are millimetres computed by
+# adding and subtracting the same constants in a different order, so an exact fit lands a hair
+# either side of zero; below this nothing is drawable anyway.
+FIT_TOLERANCE_MM = 0.01
 # Between the map frame and what stands under it: the scale bar (12.3 mm measured on 3.40.15)
 # plus air. Everything below the frame is placed from here, so the bar and the legend cannot
 # collide when the frame moves up.
@@ -1556,8 +1560,12 @@ class LayoutBuilder:
         block = self._under_map(chapter, page, index)
         height = map_height(block.height)
         # Not even the first piece fits under a map that is still readable: the frame keeps its
-        # full height and the whole block starts on the sheet behind it.
-        overleaf = block.minimum > CONTENT_H - height - UNDER_MAP_GAP
+        # full height and the whole block starts on the sheet behind it. With room to spare, mind:
+        # `map_height` shrinks the frame to exactly what the block asked for, so the two sides of
+        # this comparison are the same sum computed twice and differ by 1e-14 mm - which is how
+        # the map key ended up alone on a sheet of 0.6 % ink. A hundredth of a millimetre is
+        # smaller than anything a printer can draw and larger than any rounding error.
+        overleaf = block.minimum > CONTENT_H - height - UNDER_MAP_GAP + FIT_TOLERANCE_MM
         if overleaf:
             height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
