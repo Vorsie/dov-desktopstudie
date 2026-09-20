@@ -30,7 +30,7 @@ def _client():
         ("typeNames=bodemkaart", "wfs_bodemtypes_intersects.json"),
         ("typeNames=quartair%3Aquartair_samengesteld", "wfs_quartair_samengesteld_intersects.json"),
         ("typeNames=quartair%3Aquartair_200k", "wfs_quartair_200k_intersects.json"),
-        ("typeNames=dov-pub%3AQuartair_Isopachen", "wfs_quartair_isopachen_dwithin.json"),
+        ("typeNames=quartair%3Aqisopachen_quartair_50k", "wfs_quartair_isopachen_dwithin.json"),
         ("typeNames=neo_paleo", "wfs_tertiair_50k_intersects.json"),
         ("typeNames=hcov", "wfs_hcov_0100_vk_intersects.json"),
         ("typeNames=gw_bescherming", "wfs_gwkwb_kwbschaal_intersects.json"),
@@ -456,10 +456,10 @@ def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
 
     class _Wfs:
         def within_distance(self, *args, **kwargs):
-            return [{"properties": {"dikte": 25}, "geometry": None},
-                    {"properties": {"dikte": 20}, "geometry":
+            return [{"properties": {"Dikte_Quartair_m": 25}, "geometry": None},
+                    {"properties": {"Dikte_Quartair_m": 20}, "geometry":
                         {"type": "LineString", "coordinates": [[105426.0, 192506.0]]}},
-                    {"properties": {"dikte": 15}, "geometry":
+                    {"properties": {"Dikte_Quartair_m": 15}, "geometry":
                         {"type": "LineString", "coordinates": [[104526.0, 192506.0]]}}]
 
     runner = study._Runner.__new__(study._Runner)
@@ -471,6 +471,6 @@ def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
 
     rows = runner._nearest_rows(entry)
 
-    assert [row["dikte"] for row in rows] == [15, 20], "dichtstbij eerst"
+    assert [row["Dikte_Quartair_m"] for row in rows] == [15, 20], "dichtstbij eerst"
     assert rows[0][catalogue.DISTANCE_FIELD] == 100
     assert any("zonder geometrie" in line and "WARNING" in line for line in lines)
