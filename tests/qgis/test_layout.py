@@ -2417,3 +2417,22 @@ def test_the_mark_on_a_colour_bar_touches_the_bar(make_layout, tmp_path):
     assert pictures and marks
     bar_bottom = pictures[0].pos().y() + layout_mod.RAMP_STRIP_H
     assert min(abs(mark.pos().y() - bar_bottom) for mark in marks) < 0.2
+
+
+def test_a_block_that_exactly_fits_does_not_start_a_sheet_of_its_own(make_layout):
+    """De kaartsleutel kwam op een blad voor zichzelf terecht - 0,6 % inkt - omdat hij precies
+    paste: `map_height` krimpt het kader tot op de millimeter die het blok nodig heeft, en de
+    vergelijking daarna viel om op 1e-14 mm. Wat op papier past, past."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemMap
+
+    from desktopstudie.core.report_content import MapPage
+
+    overview = MapPage("grb", "Overzicht beschikbaar grondonderzoek", scale=5000,
+                       extent_factor=1.0, show_investigations=True, show_section_line=True)
+
+    lay = make_layout(pages=[overview])
+
+    maps = [item for item in lay.items() if isinstance(item, QgsLayoutItemMap)]
+    key = next(item for item in lay.items()
+               if isinstance(item, QgsLayoutItemLabel) and item.text() == "Legenda bij de kaart")
+    assert maps and key.page() == maps[0].page(), "de sleutel hoort bij zijn eigen kaart"
