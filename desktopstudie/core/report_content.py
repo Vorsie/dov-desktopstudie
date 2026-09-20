@@ -359,19 +359,9 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
 
 
 ISOPACH_ID = "quartair_dikte"
+# The thickness a contour of the isopach map carries, as the service spells it.
+THICKNESS_FIELD = "Dikte_Quartair_m"
 QUARTAIR_UNIT = "quartair"
-
-
-def _in_view_m(entry: catalogue.MapEntry) -> float:
-    """How far from the zone the map frame still reaches, in metres.
-
-    Not a fixed number: it is the paper itself. A frame of 180 mm at 1:100 000 covers 18 km, so
-    everything within 9 km of the centre is on the sheet; the same frame at 1:25 000 covers 4,5 km
-    and reaches 2,25 km. Measuring against a constant made the report deny a contour that was
-    plainly drawn on its own map (live at Gent: the nearest contour at 5,7 km sits well inside the
-    1:100 000 view). The width is the narrow side of the frame, so this is the careful answer.
-    """
-    return catalogue.MAP_WIDTH_MM / 1000.0 * entry.scale / 2.0
 
 
 def _point_name(row: Optional[Dict[str, Any]]) -> str:
@@ -389,14 +379,22 @@ def _point_name(row: Optional[Dict[str, Any]]) -> str:
 
 def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
                   entry: catalogue.MapEntry) -> str:
-    """What the thickness map can say about THIS point, and about its own empty picture.
+    """The one line the thickness map still needs under it.
 
-    The isopachs are contour lines across the whole of Flanders; around a building plot there is
-    usually none in view. Two sentences then earn the sheet: the thickness the G3Dv3 model gives
-    at the representative point - named as a model value, because it is a calculation and not a
-    borehole - and where the nearest contour actually lies, read from the lines that were fetched.
+    The service draws the thickness ON the contours, so a table of distances to those same lines
+    says nothing a reader cannot read off the map - it is gone. What the map cannot show is the
+    modelled thickness at this exact point, so that stays, named as a model value because it is a
+    calculation and not a borehole. The two can disagree (G3Dv3 said 3,78 m where the map shows
+    contours of 5 and 10 m around the zone); that difference is information for a geotechnician
+    and it is neither hidden nor explained away here.
     """
     parts = []
+    spread = sorted({float(row[THICKNESS_FIELD]) for row in rows or []
+                     if row.get(THICKNESS_FIELD) is not None})
+    if spread:
+        seen = (f"{spread[0]:.1f} tot {spread[-1]:.1f} m" if spread[0] != spread[-1]
+                else f"{spread[0]:.1f} m")
+        parts.append(f"Isopachen in beeld: {seen} dikte Quartair, met de waarde op de lijn zelf.")
     borehole = result.virtual_boreholes.get("g3dv3_P")
     layers = [layer for layer in (borehole.layers if borehole else [])
               if layer.name.lower().startswith(QUARTAIR_UNIT)]
@@ -405,11 +403,6 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
         parts.append(f"Modelwaarde G3Dv3 op het representatieve punt: {layer.thickness_m:.2f} m "
                      f"Quartair ({layer.top_mtaw:.2f} tot {layer.base_mtaw:.2f} mTAW). "
                      f"Een modelwaarde, geen boring.")
-    nearest = min((row.get(catalogue.DISTANCE_FIELD) or 0) for row in rows) if rows else None
-    if nearest is not None and nearest > _in_view_m(entry):
-        closest = min(rows, key=lambda row: row.get(catalogue.DISTANCE_FIELD) or 0)
-        parts.append(f"Geen isopachen binnen het kaartbeeld; dichtstbijzijnde contour op "
-                     f"{nearest / 1000:.1f} km ({_s(closest.get('dikte'))} m).")
     return " ".join(parts)
 
 
@@ -431,8 +424,10 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
         if cells not in rows:
             rows.append(cells)
     if entry.id == ISOPACH_ID:
+        # No table at all: the thickness is printed on the lines by the service's own style, and a
+        # column of distances to lines the reader can see is furniture, not an answer.
         note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
-        return TablePage(f"Dichtstbijzijnde isopachen - {entry.title}", headers, rows[:5], note)
+        return TablePage(entry.title, [], [], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
         # number, and nine near-identical rows cost two sheets while saying nothing the first row
