@@ -134,7 +134,12 @@ def test_the_bomb_map_slot_and_the_manual_check_name_the_explosives_risk(gent_ri
 
 
 def test_the_new_geology_maps_get_a_map_page_and_a_zone_legend(gent_ring):
-    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("pfas_no_regret", "PFAS - no-regretmaatregelen", [
+        {"pfasdossiernr": "PFAS-1", "gemeente": "Gent", "straat": "Kortrijksesteenweg",
+         "nrm_status_zone": "vastgesteld", "zone_geldig_vanaf": "2026-01-01",
+         "no_regret_maatregelen": "https://www.vlaanderen.be/pfas#sb-1"}]))
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
     geo = report.chapters[2]
     map_ids = [p.map_id for p in geo.pages if isinstance(p, rc.MapPage)]
     assert {"grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "pfas_no_regret"} <= set(map_ids)
@@ -284,16 +289,18 @@ def test_a_profile_type_code_names_its_map_sheet():
 def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent_ring):
     """Een kaart die niets in de zone heeft, en een kaart die niet antwoordde, zien er allebei leeg
     uit. Ze mogen niet hetzelfde lezen: een platte dienst als "geen eenheden" melden is een
-    onwaarheid over de zone."""
+    onwaarheid over de zone. Beide antwoorden staan nu gebundeld achteraan, elk bij hun eigen
+    zin."""
     result = _result(gent_ring)
     result.map_facts.append(MapFact("tertiair", "Tertiairgeologische kaart 1/50 000", []))
 
-    geo = _geologie(result)
+    gathered = rc.build_report(result, rc.ReportMeta(project="P", author="A",
+                                                     company="C")).chapters[-1].pages[-1]
 
-    empty = _zone_legend(geo, "Tertiairgeologische kaart")
-    assert empty.rows == [] and empty.note == "Geen kaarteenheden binnen de zone."
-    silent = _zone_legend(geo, "HCOV")
-    assert silent.rows == [] and silent.note == "Bron niet beschikbaar."
+    zone_empty, source_silent = "Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar."
+    assert zone_empty in gathered.html and source_silent in gathered.html
+    tertiair = gathered.html[gathered.html.index(zone_empty):]
+    assert "Tertiairgeologische kaart" in tertiair[:tertiair.index("</p>")]
 
 
 def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
@@ -1075,11 +1082,14 @@ def test_an_empty_answer_says_what_it_means_and_promises_no_table(gent_ring):
     result.map_facts.append(MapFact("watertoets_pluviaal",
                                     "Watertoets - overstromingsgevoelige gebieden pluviaal", []))
 
-    page = next(p for p in _geologie(result).pages
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    page = next(p for p in report.chapters[2].pages
                 if isinstance(p, rc.MapPage) and p.map_id == "watertoets_pluviaal")
 
-    assert "overstromingsgevoelig" in page.zone_legend.note
-    assert "Geen kaarteenheden" not in page.zone_legend.note
+    gathered = report.chapters[-1].pages[-1].html
+    assert "overstromingsgevoelig" in gathered
+    assert "Watertoets - overstromingsgevoelige gebieden pluviaal" in gathered
+    assert page.zone_legend is None, "het lege blok staat niet meer onder de kaart"
     assert "De tabel" not in page.guide.html
     assert "vier klassen" in page.guide.html, "de uitleg zelf blijft staan"
 
@@ -1113,12 +1123,12 @@ def test_a_dropped_map_leaves_its_answer_but_not_its_reading_guide(gent_ring):
                              unavailable={("grondverschuiving_gekarteerd", 10000, 3.0,
                                            False, False)})
 
-    geo = report.chapters[2]
-    titles = [page.title for page in geo.pages]
+    titles = [page.title for page in report.chapters[2].pages]
 
     assert not any("Leeswijzer - Gekarteerde" in title for title in titles)
-    legend = next(p for p in geo.pages if "Gekarteerde grondverschuivingen" in p.title)
-    assert "geen grondverschuiving gekarteerd" in legend.note
+    gathered = report.chapters[-1].pages[-1].html
+    assert "geen grondverschuiving gekarteerd" in gathered
+    assert "Gekarteerde grondverschuivingen" in gathered
 
 
 def test_the_answers_of_dropped_maps_stand_together(gent_ring):
@@ -1133,12 +1143,14 @@ def test_the_answers_of_dropped_maps_stand_together(gent_ring):
     dropped = {("watertoets_fluviaal", 10000, 3.0, False, False),
                ("grondverschuiving_gekarteerd", 10000, 3.0, False, False)}
 
-    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
-                          unavailable=dropped).chapters[2]
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable=dropped)
 
-    kinds = [isinstance(page, rc.MapPage) for page in geo.pages]
-    assert not any(kinds[kinds.index(False):]), "de losse legenda's horen achteraan, aaneengesloten"
-    assert sum(1 for flag in kinds if not flag) == 2
+    assert all(isinstance(page, rc.MapPage) for page in report.chapters[2].pages), (
+        "in het hoofdstuk zelf blijft geen los legendablok achter")
+    gathered = report.chapters[-1].pages[-1].html
+    assert "Watertoets - overstromingsgevoelige gebieden fluviaal" in gathered
+    assert "Gekarteerde grondverschuivingen" in gathered
 
 
 def test_the_isopach_sheet_names_the_thickness_in_view_and_prints_no_distance_table(gent_ring):
@@ -1171,3 +1183,34 @@ def test_the_isopach_map_is_the_50k_sheet_the_viewer_draws(gent_ring):
     assert entry.wfs_typename == "quartair:qisopachen_quartair_50k"
     assert entry.fact_fields[0] == "Dikte_Quartair_m"
     assert entry.scale == 25000, "met echte lijnen ter plaatse hoort de zone leesbaar te zijn"
+
+
+def test_every_nothing_here_answer_ends_up_on_one_page_at_the_back(gent_ring):
+    """"die pagina is lelijk, kan je de excepties niet helemaal achteraan steken (1 gebundelde
+    pagina met geen gegevens voor: dit en dat)". Elke kaart houdt haar eigen kaartblad; wat
+    verdwijnt is het lege legendablok eronder. De antwoorden staan gebundeld op het laatste blad
+    van het rapport, gegroepeerd per antwoord, en de kaart met echte eenheden blijft ongemoeid."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("bodemkaart", "Bodemkaart van Vlaanderen",
+                                    [{"Bodemtype": "Ldc"}]))
+    for map_id, title in (("erosie", "Potentiele bodemerosiekaart per perceel (2014)"),
+                          ("ovam", "OVAM - uitspraak bodemonderzoeken"),
+                          ("watertoets_fluviaal", "Watertoets - fluviaal")):
+        result.map_facts.append(MapFact(map_id, title, []))
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+
+    geologie = report.chapters[2]
+    empty = [p for p in geologie.pages
+             if isinstance(p, rc.MapPage) and p.map_id in ("erosie", "ovam", "watertoets_fluviaal")]
+    assert len(empty) == 3, "elke kaart houdt haar eigen kaartblad"
+    assert all(page.zone_legend is None for page in empty), "zonder leeg legendablok eronder"
+    bodemkaart = next(p for p in geologie.pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    assert bodemkaart.zone_legend is not None, "een kaart met eenheden houdt haar legenda"
+
+    gathered = report.chapters[-1].pages[-1]
+    assert "Geen gegevens" in gathered.title
+    assert "Potentiele bodemerosiekaart" in gathered.html and "OVAM" in gathered.html
+    assert gathered.html.count("Geen kaarteenheden binnen de zone") == 1, "één keer, gegroepeerd"
+    assert "overstromingsgevoelig" in gathered.html, "en het kaart-eigen antwoord ernaast"
