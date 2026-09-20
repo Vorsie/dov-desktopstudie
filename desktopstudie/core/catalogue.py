@@ -51,10 +51,8 @@ DISTANCE_FIELD = "afstand_m"
 POINT_FIELD = "punt_index"
 REPRESENTATIVE_POINT = 0
 
-# The printed width of a map frame, in millimetres. It lives here and not in the layout because
-# the report text reasons about it: what "within the map view" means for a fact depends on how
-# many metres the paper covers at the map's own scale, and only the catalogue knows that scale.
-# The layout draws to this same number.
+# The printed width of a map frame, in millimetres. The layout draws to it; it lives here so a
+# map's scale and the paper it is drawn on stay one idea in one place.
 MAP_WIDTH_MM = 180.0
 
 
@@ -420,14 +418,20 @@ CATALOGUE: List[MapEntry] = [
          ("type", "profiel"), wfs="quartair:quartair_200k",
          field_labels={"type": "Type", "profiel": "Profiel"}, guide=GUIDE_QUARTAIR_200K,
          scale=100000),
-    # Contourlijnen, geen vlakken: vandaar de ruime zoekstraal en een schaal waarop er een in
-    # beeld komt. Op 1:25 000 hield het kaartbeeld rond Gent geen enkele lijn (de dichtstbijzijnde
-    # ligt op 5,7 km) en bleef het blad leeg; op 1:100 000 wordt de zone een stip, wat voor een
-    # regionale contourkaart de juiste afweging is.
-    _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte", DISTANCE_FIELD), wfs="dov-pub:Quartair_Isopachen", legend=False,
-         field_labels={"dikte": "Dikte Quartair (m)", DISTANCE_FIELD: "Afstand tot de zone (m)"},
-         guide=GUIDE_QUARTAIR_DIKTE, scale=100000, backdrop=True, within_m=10000.0),
+    # De isopachen van de kartering op 1:50 000, niet de grove reeks `dov-pub:Quartair_Isopachen`
+    # voor heel Vlaanderen. Dat verschil is het verschil tussen een leeg blad en een bruikbaar:
+    # de grove reeks telt 780 lijnen en haar dichtstbijzijnde lag 5,6 km van de Gentse zone, deze
+    # geeft er vier binnen 300 m (live 2026-09-20: 67 m / 5 m, 71 m / 10 m, 146 m / 2,5 m,
+    # 270 m / 2,5 m). Dit is ook de laag die de DOV-verkenner zelf tekent, mét de dikte op de
+    # lijnen: een GetMap brengt die labels mee, dus het blad heeft geen eigen legenda nodig.
+    # Niet te verwarren met `quartair:Qisopachen_Tertair_50k`, dat het tertiair oppervlak geeft.
+    # Het dikteveld heet `Dikte_Quartair_m` en de geometrie `geom` (DescribeFeatureType, idem).
+    _dov("quartair_dikte", "Dikte van het Quartair (isopachen)",
+         "quartair:qisopachen_quartair_50k",
+         ("Dikte_Quartair_m", DISTANCE_FIELD), wfs="quartair:qisopachen_quartair_50k", legend=False,
+         field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
+                       DISTANCE_FIELD: "Afstand tot de zone (m)"},
+         guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
