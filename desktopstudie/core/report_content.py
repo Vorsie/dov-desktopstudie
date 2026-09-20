@@ -821,16 +821,22 @@ def _drop_unavailable(chapters: List[Chapter], unavailable: Set[MapPageKey]) -> 
     does not depend on the image, so it stays - with rows, or with the sentence that an empty
     answer IS the answer here. The reading guide does not: it explains how to read a map that is
     no longer in the report, and four lines about a vanished map cost a sheet of 1.4 % ink.
+
+    Those survivors move to the END of their chapter rather than staying where their map stood. A
+    map sheet shares with nothing, so a lone legend between two maps gets a whole sheet to itself;
+    three of them in a row are three sheets under one per cent of ink. Together they fill one, and
+    the reader finds every "nothing here" of the chapter in one place instead of scattered.
     """
     for chapter in chapters:
         kept: List[Page] = []
+        orphans: List[Page] = []
         for page in chapter.pages:
             if isinstance(page, MapPage) and map_page_key(page) in unavailable:
                 if page.zone_legend is not None:
-                    kept.append(page.zone_legend)
+                    orphans.append(page.zone_legend)
                 continue
             kept.append(page)
-        chapter.pages = kept
+        chapter.pages = kept + orphans
 
 
 def build_report(result: StudyResult, meta: ReportMeta,
