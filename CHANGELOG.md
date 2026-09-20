@@ -61,14 +61,17 @@ zegt waar ze genomen is.
   zult raken. Een boring die alleen soortnamen noemt krijgt dus geen opmerkingsregel en geen
   signalering meer. De geciteerde zin verandert niet - staat er "Num. planulatus" in, dan blijft
   dat staan. Een schelpenbank blijft wel vlaggen: die draagt haar eigen woord.
-- **De diktekaart van het Quartair werkt weer.** Het zijn contourlijnen, geen vlakken: de
-  feitenvraag zocht overlap met de zone en vond nooit iets, en op 1:25 000 lag er geen lijn in
-  beeld. De kaart vraagt nu de dichtstbijzijnde lijnen binnen tien kilometer op
-  (`MapEntry.fact_within_m`), toont ze met hun afstand, staat op 1:100 000 en zet de dikte die
-  G3Dv3 op het representatieve punt geeft erboven - als modelwaarde benoemd. Of er een contour
-  "in beeld" ligt wordt tegen het kaartblad zelf gemeten (180 mm op de schaal van die kaart), niet
-  tegen een vast getal: met een vaste vier kilometer ontkende het rapport contouren die op zijn
-  eigen kaart getekend stonden.
+- **De diktekaart van het Quartair toont nu de isopachen die DOV zelf tekent.** Ze wees naar
+  `dov-pub:Quartair_Isopachen`, een grove reeks van 780 lijnen voor heel Vlaanderen waarvan de
+  dichtstbijzijnde 5,6 km van de Gentse zone lag - vandaar een leeg kaartbeeld, een schaal van
+  1:100 000 en een tabel met afstanden. De kaart is nu `quartair:qisopachen_quartair_50k`, de
+  kartering op 1:50 000: rond diezelfde zone liggen er vier contouren binnen 300 m (5, 10 en twee
+  van 2,5 m). Ze staat op 1:25 000, de dienst tekent de dikte op de lijnen zelf, en de tabel met
+  afstanden is vervangen door één regel: welke diktes er in beeld liggen, en daarnaast de
+  modelwaarde die G3Dv3 op het representatieve punt berekent. Die twee mogen verschillen - op de
+  Gentse zone zegt het model 3,78 m waar de kaart 5 tot 10 m contouren toont - en dat verschil
+  blijft staan zoals het is: het is informatie voor wie het rapport leest, geen fout om glad te
+  strijken.
 
 ### Gewijzigd
 - **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
