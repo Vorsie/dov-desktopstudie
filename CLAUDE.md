@@ -305,12 +305,18 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   reden om die eruit te halen in plaats van te versnellen.
 - **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
   laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken). Sinds de
-  compactere opmaak (2026-09-17) telt diezelfde studie 67 bladen: de legendabladen staan uit
-  (13 kaarten, 15 bladen), de zonelegenda's en de leeswijzers staan onder hun kaart, de Popp-kaart
-  zonder dekking krijgt geen blad, de uitgeschakelde kaarten staan in de bronnen in plaats van op
-  een blad, en een blad vult zich. Gemeten inktdekking over alle bladen: gemiddeld 28 %, dertien
-  bladen onder 5 % (was negentien) - wat er nog leeg staat is het titelblad en het laatste stuk
-  van een hoofdstuk, dat per definitie geen buur meer heeft.
+  compactere opmaak telt diezelfde studie 62 bladen: de legendabladen staan uit (13 kaarten,
+  15 bladen), de zonelegenda's en de leeswijzers staan onder hun kaart, een kaart zonder
+  kaartbeeld krijgt geen blad, de uitgeschakelde kaarten staan in de bronnen in plaats van op een
+  blad, en een blad vult zich. Inktdekking gemeten over alle bladen (`uitvoer/ink.py`, grijswaarde
+  onder 245): v0.1.0 gemiddeld 13,7 % met 67 bladen onder 5 %; nu gemiddeld 27,4 % met er twaalf
+  (gemeten 2026-09-20 op dezelfde zone).
+  Die twaalf zijn geen toeval en geen restje verpakking, maar vier soorten blad. Het titelblad.
+  Het laatste stuk van een hoofdstuk waar een KAARTblad op volgt - een kaartblad deelt met niets,
+  dus daar valt niets meer onder te schuiven (p7 kerngegevens, p14 de handmatige controle,
+  p34 de laatste HCOV-tabel). De figuurbladen zelf: een qc-diagram of een boorkolom is lijnwerk
+  van 3 a 4 % inkt, hoe vol het blad ook staat. En de staart van het bronnenhoofdstuk. Wie hier
+  verder wil, moet dus aan de regel "een kaartblad deelt niet" komen, niet aan de verpakking.
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
     `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
     geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
