@@ -494,10 +494,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   brokstuk met een punt is een afkorting, geen waarneming: "Num. planulatus" gaf "num" in het
   rapport van een klant, en `ABBREVIATION_MAX` gooit zo'n stomp weg (kort EN midden in de zin, of
   aan het einde van de beschrijving; de materialen uit `ALWAYS_NOTABLE` blijven altijd staan).
-  En `FOSSILS` groepeert de soortnamen tot één "fossielen: ..."-regel per diepte, omdat
-  stratigrafische merkers zeggen in welke formatie je zit en niet dat je iets hards raakt.
-  **Groeperen is presentatie**: `notable_terms` geeft elke term terug, `summarise` vouwt ze
-  alleen samen - er verdwijnt niets.
+  En `FOSSILS` onderdrukt de soortnamen volledig, net als `ORDINARY`: een soortnaam zegt in welke
+  formatie je staat, niet dat je iets zult raken. Dat is een vakinhoudelijke keuze van de
+  gebruiker ("nummulites planulatus shouldn't be flagged at all"), geen gemakzucht - en ze
+  verbreedt de GEWONE kant van de regel, de veilige richting; de vlagregel zelf blijft staan.
+  Zet ze dus niet "behulpzaam" terug: het is gevraagd, niet vergeten. De materialen uit
+  `ALWAYS_NOTABLE` blijven wel vlaggen - zandsteen, veen en puin zijn dingen die een machine
+  tegenkomt, een Nummulites is een datumstempel. Een schelpenBANK is niet geraakt: die wordt
+  gevangen door het woord dat haar aanduidt (`bank`, `banc`), nooit door de soort erin.
 - **Een lijnenlaag wordt niet met overlap bevraagd.** `MapEntry.fact_within_m` zet de feitenvraag
   van INTERSECTS om naar DWITHIN met een straal, en de rijen komen dichtstbij eerst terug met de
   afstand erbij (`catalogue.DISTANCE_FIELD`, door de kern berekend - het staat in geen enkel
