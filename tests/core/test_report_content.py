@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 import pytest
 
 from desktopstudie.core import catalogue
@@ -1033,20 +1031,6 @@ def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
     assert "G3Dv3" in page.zone_legend.note and "model" in page.zone_legend.note.lower()
 
 
-def test_no_contour_in_view_says_where_the_nearest_one_is(gent_ring):
-    """Een leeg kaartbeeld zonder uitleg laat de lezer denken dat er data ontbreekt. De regel zegt
-    dat er geen contour in beeld is en waar de dichtstbijzijnde ligt - uit de opgehaalde lijnen
-    zelf, niet uit een vast getal."""
-    rows = [{"dikte": 20, "afstand_m": 12400}, {"dikte": 25, "afstand_m": 13900}]
-    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
-
-    geo = _geologie(result)
-
-    note = next(p for p in geo.pages
-                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
-    assert "12.4 km" in note and "20 m" in note
-
-
 def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
     """Ligt er wel een contour binnen het kaartbeeld, dan hoort die regel er niet te staan."""
     rows = [{"dikte": 10, "afstand_m": 120}]
@@ -1058,22 +1042,6 @@ def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
                 if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
     assert "dichtstbijzijnde" not in note
     assert "3.78 m" in note
-
-
-def test_in_view_is_measured_against_the_map_the_reader_holds(gent_ring):
-    """"In beeld" is geen vast getal maar het kaartblad zelf: op 1:100 000 is een blad van 180 mm
-    18 km breed, dus een contour op 5,7 km STAAT erop - live nagekeken bij Gent - en de regel die
-    het tegendeel beweert mag er niet staan. Op 1:25 000 is datzelfde blad 4,5 km breed en ligt
-    diezelfde contour er wel degelijk buiten."""
-    rows = [{"dikte": 20, "afstand_m": 5680}]
-    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
-    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
-    assert entry.scale == 100000
-
-    note = rc._isopach_note(result, rows, entry)
-
-    assert "dichtstbijzijnde" not in note
-    assert "dichtstbijzijnde" in rc._isopach_note(result, rows, replace(entry, scale=25000))
 
 
 def test_a_value_from_a_ring_vertex_is_not_called_the_representative_point(gent_ring):
@@ -1171,3 +1139,35 @@ def test_the_answers_of_dropped_maps_stand_together(gent_ring):
     kinds = [isinstance(page, rc.MapPage) for page in geo.pages]
     assert not any(kinds[kinds.index(False):]), "de losse legenda's horen achteraan, aaneengesloten"
     assert sum(1 for flag in kinds if not flag) == 2
+
+
+def test_the_isopach_sheet_names_the_thickness_in_view_and_prints_no_distance_table(gent_ring):
+    """"die legende eronder is waardeloos, kan beter de isopachen zelf labellen". De dienst tekent
+    de dikte al op de lijnen, dus een tabel met afstanden tot contouren zegt niets meer. Onder de
+    kaart blijft een regel: welke diktes er in beeld liggen, en de modelwaarde ernaast - die
+    verschilt van de kaart en dat verschil is informatie, geen fout om weg te poetsen."""
+    rows = [{"Dikte_Quartair_m": 5.0, catalogue.DISTANCE_FIELD: 67},
+            {"Dikte_Quartair_m": 10.0, catalogue.DISTANCE_FIELD: 71},
+            {"Dikte_Quartair_m": 2.5, catalogue.DISTANCE_FIELD: 146}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+
+    page = next(p for p in _geologie(result).pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte")
+
+    assert not getattr(page.zone_legend, "rows", None), "geen afstandstabel meer"
+    note = page.zone_legend.note
+    assert "2.5 tot 10.0 m" in note, "welke diktes liggen er in beeld"
+    assert "3.78 m" in note and "G3Dv3" in note, "de modelwaarde blijft staan"
+    assert "dichtstbijzijnde" not in note.lower()
+
+
+def test_the_isopach_map_is_the_50k_sheet_the_viewer_draws(gent_ring):
+    """De kaart die DOV zelf tekent is `quartair:qisopachen_quartair_50k`: dichte, gelabelde
+    contouren op perceelschaal. De oude `dov-pub:Quartair_Isopachen` is een grove reeks voor heel
+    Vlaanderen waarvan de dichtstbijzijnde lijn 5,6 km van de zone lag."""
+    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
+
+    assert entry.wms_layer == "qisopachen_quartair_50k"
+    assert entry.wfs_typename == "quartair:qisopachen_quartair_50k"
+    assert entry.fact_fields[0] == "Dikte_Quartair_m"
+    assert entry.scale == 25000, "met echte lijnen ter plaatse hoort de zone leesbaar te zijn"
