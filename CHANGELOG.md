@@ -56,10 +56,11 @@ zegt waar ze genomen is.
   Vlaanderen; `scripts/lithology_vocabulary.py` telt ze opnieuw wanneer DOV verandert.
   Twee dingen bepalen wat er van dat alles op papier komt zonder de vlagregel aan te raken.
   Een kort brokstuk met een punt is een afkorting en wordt niet gedrukt: "Num. planulatus" zette
-  eerst het zinloze "num" in het rapport. En de soortnamen staan samen op één regel
-  ("fossielen: nummulites, planulatus, turbinolia (22.50-25.00 m)"), omdat ze zeggen in welke
-  formatie je zit en niet dat je iets hards raakt; los opgesomd verdrongen ze de opmerkingen die
-  er wel toe doen. Groeperen is presentatie - er wordt niets weggelaten.
+  eerst het zinloze "num" in het rapport. En soortnamen van fossielen (`FOSSILS`) worden
+  onderdrukt, net als de gewone woorden: ze zeggen in welke formatie je staat, niet dat je iets
+  zult raken. Een boring die alleen soortnamen noemt krijgt dus geen opmerkingsregel en geen
+  signalering meer. De geciteerde zin verandert niet - staat er "Num. planulatus" in, dan blijft
+  dat staan. Een schelpenbank blijft wel vlaggen: die draagt haar eigen woord.
 - **De diktekaart van het Quartair werkt weer.** Het zijn contourlijnen, geen vlakken: de
   feitenvraag zocht overlap met de zone en vond nooit iets, en op 1:25 000 lag er geen lijn in
   beeld. De kaart vraagt nu de dichtstbijzijnde lijnen binnen tien kilometer op
