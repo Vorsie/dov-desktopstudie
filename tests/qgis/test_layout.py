@@ -2464,3 +2464,30 @@ def test_a_short_table_joins_the_sheet_a_long_one_ended_on(make_layout):
 
     assert together == alone, "de korte tabel hoort op het blad dat nog ruimte had"
 
+
+
+def test_a_tall_column_joins_a_short_table_the_way_it_joins_a_long_one(make_layout, tmp_path):
+    """De HCOV-kolom kreeg een blad voor zichzelf terwijl de tabel erboven maar een kwart blad
+    vulde; bij de G3Dv3-modellen paste diezelfde kolom wel onder een langere tabel. Het verschil
+    zit niet in de figuur - alle vier zijn 680 x 1340 - maar in hoeveel ruimte er overblijft, en
+    juist bij VEEL ruimte viel de figuur eraf. Beide gevallen horen op een blad."""
+    from qgis.core import QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import FigurePage, TablePage
+
+    column = "figuren/kolom.png"
+    _png(tmp_path / column, 680, 1340)  # de echte maat van een virtuele-boringkolom
+
+    def sheets_for(rows):
+        table = TablePage("Virtuele boring", ["Eenheid", "Top", "Basis"],
+                          [[f"A{n:04d} - eenheid", "14.62", "13.54"] for n in range(rows)])
+        lay = make_layout(pages=[table, FigurePage("Kolom", column)])
+        pages = {item.page() for item in lay.items() if isinstance(item, QgsLayoutItemPicture)}
+        return lay.pageCollection().pageCount(), pages
+
+    short_count, short_pages = sheets_for(10)   # HCOV v2: tien korte regels
+    long_count, long_pages = sheets_for(18)     # G3Dv3 leden: achttien langere
+
+    assert long_count == 2, "titelblad plus een blad met tabel en kolom"
+    assert short_count == 2, f"de korte tabel liet de kolom vallen ({short_count} bladen)"
+    assert short_pages == long_pages == {1}
