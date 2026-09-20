@@ -85,6 +85,17 @@ zegt waar ze genomen is.
   ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
   Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
   die blijft - dan weer op een blad van zichzelf.
+- **Alle "geen gegevens"-antwoorden staan gebundeld op het laatste blad.** Een kaart zonder
+  eenheden in de zone droeg een leeg legendablok onder haar kaartbeeld, en een stapel van die
+  blokken midden in hoofdstuk 3 zei vijf keer dezelfde zin. Elke kaart houdt haar eigen kaartblad;
+  het lege blok eronder verdwijnt en de zin komt op een gebundelde pagina achteraan, gegroepeerd
+  per antwoord ("Geen kaarteenheden binnen de zone. Geldt voor: A, B"). Er gaat niets verloren:
+  het hoofdstuk Bronnen noemt nog altijd elke kaart met haar eigen status.
+- **Een figuur die krimpt om mee te passen, past ook echt.** De kolom van HCOV v2 kreeg een blad
+  voor zichzelf terwijl de tabel erboven een kwart blad vulde - de figuur werd tot op de
+  millimeter van de beschikbare ruimte gekrompen, waarna de controle "past dit?" dezelfde som
+  twee keer berekende en op 1e-14 mm omviel. Hoofdstuk 4 toont nu alle vier de modellen op
+  dezelfde manier: tabel en kolom samen op een blad.
 - **Een blad vult zich**: een korte tabel, een kleine figuur en de tekst erna komen op hetzelfde
   blad zolang er iets bij past - niet meer tot twee stukken, want een blad met een tabel van vier
   regels erop is nog altijd een blad vol wit. Een blad draagt een hoofdstukkop, dus een stuk uit
