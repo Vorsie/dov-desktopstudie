@@ -815,16 +815,19 @@ def _drop_unavailable(chapters: List[Chapter], unavailable: Set[MapPageKey]) -> 
 
     A sheet with an empty frame and a line saying why is a sheet the reader turns past; the
     sources chapter is where "geen dekking op deze locatie" and a failed fetch belong, and it
-    names them there whatever happens here. The reading guide is catalogue text and the zone
-    legend comes from the WFS - neither depends on the image - so both survive the drop, back on
-    sheets of their own in the order they had under the map, since there is no map left to print
-    them under.
+    names them there whatever happens here.
+
+    What survives the drop is what still says something. The zone legend comes from the WFS and
+    does not depend on the image, so it stays - with rows, or with the sentence that an empty
+    answer IS the answer here. The reading guide does not: it explains how to read a map that is
+    no longer in the report, and four lines about a vanished map cost a sheet of 1.4 % ink.
     """
     for chapter in chapters:
         kept: List[Page] = []
         for page in chapter.pages:
             if isinstance(page, MapPage) and map_page_key(page) in unavailable:
-                kept.extend(part for part in (page.guide, page.zone_legend) if part is not None)
+                if page.zone_legend is not None:
+                    kept.append(page.zone_legend)
                 continue
             kept.append(page)
         chapter.pages = kept
