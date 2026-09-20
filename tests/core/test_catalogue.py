@@ -390,3 +390,17 @@ def test_a_line_layer_asks_for_the_nearest_feature_instead_of_an_overlap():
     # de andere kaarten zijn vlakken en blijven op overlap zoeken
     assert catalogue.by_id("bodemkaart").fact_within_m is None
     assert catalogue.by_id("tertiair").fact_within_m is None
+
+
+def test_the_isopach_guide_describes_the_map_the_reader_now_gets():
+    """De leeswijzer beschreef de grove reeks: lijnen in stappen van vijf meter die "zelden binnen
+    het kaartbeeld" liggen, en een tabel met afstanden. Alle drie zijn niet meer waar - de
+    kartering op 1:50 000 tekent contouren ter plaatse, met de dikte op de lijn zelf."""
+    from desktopstudie.core import catalogue
+
+    guide = catalogue.by_id("quartair_dikte").reading_guide
+
+    assert "zelden" not in guide, "de lijnen liggen hier wel in beeld"
+    assert "stappen van vijf meter" not in guide
+    assert "op de lijn" in guide, "de dikte staat op de contour zelf"
+    assert "G3Dv3" in guide, "en de modelwaarde blijft uitgelegd"
