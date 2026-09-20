@@ -120,13 +120,13 @@ def test_filler_is_widened_away_but_the_rarity_beside_it_still_flags():
 def test_an_abbreviation_is_not_printed_as_a_three_letter_fragment():
     """"Num. planulatus" is de afkorting van Nummulites. De tokeniser brak hem op de punt en zette
     "num" in het rapport van een klant - een brokstuk, geen waarneming. Een kort woord met een punt
-    midden in de zin is een afkorting en wordt niet gedrukt; het soortnaampje ernaast wel."""
+    midden in de zin is een afkorting en wordt niet gedrukt; het glauconiet ernaast wel."""
     layers = [_layer(22.5, 25.0, "zeer fijn glauconiethoudend zand met Num. planulatus")]
 
     words = [term.word for term in lithology.notable_terms(layers)]
 
     assert "num" not in words
-    assert "planulatus" in words
+    assert words == ["glauconiethoudend"], "de soortnaam zelf is geen opmerking meer"
 
 
 def test_a_word_that_ends_a_sentence_keeps_its_place():
@@ -137,18 +137,26 @@ def test_a_word_that_ends_a_sentence_keeps_its_place():
     assert [term.word for term in lithology.notable_terms(layers)] == ["glauconiethoudend"]
 
 
-def test_fossils_are_named_together_instead_of_one_line_each():
-    """Nummulites, planulatus en turbinolia zeggen in welke formatie je zit, niet dat je iets hards
-    raakt. Los opgesomd verdringen ze de opmerkingen die er wel toe doen, dus staan ze samen als
-    "fossielen: ..." - een presentatiekeuze: er wordt niets weggelaten."""
+def test_a_fossil_name_is_not_a_remark():
+    """"nummulites planulatus shouldn't be flagged at all" - een soortnaam zegt in welke formatie
+    je zit, niet dat je iets zult raken. De steenbrokken in dezelfde zin blijven wel een
+    opmerking, en een boring die alleen soortnamen noemt levert geen regel op."""
     layers = [_layer(22.5, 25.0, "zand met Nummulites planulatus - Turbinolia, en steenbrokken")]
 
     found = lithology.notable_terms(layers)
 
-    assert {"nummulites", "planulatus", "turbinolia", "steenbrokken"} == {t.word for t in found}
-    assert lithology.summarise(found) == (
-        "fossielen: nummulites, planulatus, turbinolia (22.50-25.00 m); "
-        "steenbrokken (22.50-25.00 m)")
+    assert [term.word for term in found] == ["steenbrokken"]
+    assert lithology.summarise(found) == "steenbrokken (22.50-25.00 m)"
+    assert lithology.notable_terms(
+        [_layer(20.0, 22.0, "grijs zand met talrijke Nummulites planulatus")]) == []
+
+
+def test_a_shell_BED_still_fires_where_the_shells_themselves_do_not():
+    """Schelpen in bijmenging zijn gewoon en soortnamen zijn dat nu ook, maar een BANK blijft een
+    rariteit: die wordt gevangen door het woord dat haar aanduidt, niet door de soort erin."""
+    beds = [_layer(0.0, 1.0, "laag van verbrijzelde schelpen met Pecten corneus, coherente bank")]
+
+    assert [term.word for term in lithology.notable_terms(beds)] == ["bank"]
 
 
 def test_a_short_word_that_closes_a_description_is_still_a_word():
@@ -159,7 +167,8 @@ def test_a_short_word_that_closes_a_description_is_still_a_word():
         layers = [_layer(0.0, 1.0, f"Grijze leem, onderaan {material}.")]
         assert [term.word for term in lithology.notable_terms(layers)] == [material]
 
-    assert lithology.notable_terms([_layer(0.0, 1.0, "zand met Num. planulatus")])[0].word         == "planulatus"
+    assert lithology.notable_terms(
+        [_layer(0.0, 1.0, "zand met Num. mergel")])[0].word == "mergel", "de punt snijdt Num. af"
 
 
 def test_a_word_that_merely_ends_in_geen_is_not_a_denial():
