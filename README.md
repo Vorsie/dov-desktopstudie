@@ -31,9 +31,9 @@ op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
    dichterbije mechanische, omdat die over de volledige diepte meten. Wat een boorbeschrijving
    noemt en niet tot de gewone grond behoort - een concretie, een zandsteenbank, glauconiet, veen,
    puin, grind, een fossielrijke laag - komt als opmerking onder die boring te staan en als
-   signalering in hoofdstuk 7, met de diepte en de zin van de beschrijving zelf. Soortnamen staan
-   samen op één regel ("fossielen: nummulites, planulatus, turbinolia"): ze zeggen in welke
-   formatie je zit, niet dat je iets hards raakt.
+   signalering in hoofdstuk 7, met de diepte en de zin van de beschrijving zelf. Soortnamen van
+   fossielen blijven buiten beschouwing: ze zeggen in welke formatie je staat, niet dat je iets
+   zult raken.
 6. Geologische doorsnede uit virtuele boringen langs een automatische of zelfgetekende lijn.
 7. Samenvatting en aandachtspunten: feiten uit de data met vaste signaleringen, plus een vaste
    tekst die naar bommenkaart.be verwijst voor de manuele controle op explosieven.
