@@ -511,12 +511,20 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **Een lijnenlaag wordt niet met overlap bevraagd.** `MapEntry.fact_within_m` zet de feitenvraag
   van INTERSECTS om naar DWITHIN met een straal, en de rijen komen dichtstbij eerst terug met de
   afstand erbij (`catalogue.DISTANCE_FIELD`, door de kern berekend - het staat in geen enkel
-  antwoord). De isopachen van het Quartair zijn zo'n laag: contouren over heel Vlaanderen, en een
-  INTERSECTS met een zone van 50 m raakt er nooit een (live 2026-09-17 bij Gent: 0 objecten,
-  DWITHIN 5 km 0, DWITHIN 8 km 8, dichtstbijzijnde op 5,68 km met dikte 20 m). Zo'n kaart krijgt
-  ook haar eigen ruime schaal, anders blijft het blad leeg. En "binnen het kaartbeeld" is het
-  kaartblad zelf (`catalogue.MAP_WIDTH_MM` op de schaal van de kaart, gedeeld door twee), nooit een
-  vast getal: de kern rekent erover, dus staat de breedte in de catalogus en tekent de schil ermee.
+  antwoord). De isopachen van het Quartair zijn zo'n laag: een INTERSECTS met een zone van 50 m
+  raakt nooit een contourlijn, hoe dicht die ook ligt.
+- **Neem de laag die DOV zelf tekent, niet de eerste met de juiste naam.** De diktekaart wees naar
+  `dov-pub:Quartair_Isopachen`: 780 lijnen voor heel Vlaanderen, met de dichtstbijzijnde op 5,6 km
+  van de Gentse zone. De verkenner van DOV tekent `quartair:qisopachen_quartair_50k` - de
+  kartering op 1:50 000 - en die geeft er vier binnen 300 m (live 2026-09-20: 67 m / 5 m,
+  71 m / 10 m, 146 m / 2,5 m, 270 m / 2,5 m). Het verschil tussen een leeg blad en een bruikbaar
+  blad zat dus in de dataset, niet in de opmaak: **vergelijk bij een kaart die niets toont eerst
+  met wat de verkenner van de bron zelf tekent.** Velden verschillen mee (`Dikte_Quartair_m`,
+  geometrie `geom`), en `quartair:Qisopachen_Tertair_50k` is een andere kaart.
+- **Kijk of de dienst haar eigen labels al tekent voordat je ze zelf gaat tekenen.** De stijl van
+  `qisopachen_quartair_50k` zet de dikte mét halo op elke contour, dus een GetMap levert een
+  gelabelde kaart en het blad heeft geen legenda nodig. Dat is meteen de reden dat de afstandstabel
+  eronder weg mocht: een kolom afstanden tot lijnen die de lezer ziet liggen, is meubilair.
 - **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
   (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
   `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
