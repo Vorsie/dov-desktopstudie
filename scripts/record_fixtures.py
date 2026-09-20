@@ -149,9 +149,11 @@ FIXTURES: list[tuple[str, str]] = [
          props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
     # A contour never overlaps a plot, so this one is asked with DWITHIN - and WITHOUT
     # propertyName: asking for named properties makes GeoServer answer "geometry": null on every
-    # feature, and the distance the report prints is measured from that geometry.
+    # feature, and the distance the report prints is measured from that geometry. The geometry
+    # field of this layer is `geom`, not `geometry`, and the study zone itself has contours within
+    # a few hundred metres, so ZONE serves where the coarse layer needed a rural square.
     ("wfs_quartair_isopachen_dwithin.json",
-     wfs("dov-pub:Quartair_Isopachen", f"DWITHIN(geometry,{ZONE_RURAL},10000,meters)", 5)),
+     wfs("quartair:qisopachen_quartair_50k", f"DWITHIN(geom,{ZONE},2000,meters)", 5)),
     ("wfs_grndversch_gevoeligh_intersects.json",
      wfs("grondverschuivingen:grndversch_gevoeligh", f"INTERSECTS(shape,{ZONE_RURAL})", 5,
          props=("ogc_fid", "gevoelighd", "klasse"))),
