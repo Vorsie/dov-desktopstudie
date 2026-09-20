@@ -48,7 +48,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Dict, Iterable, List, Sequence
+from typing import Iterable, List, Sequence
 
 from .model import LithologyLayer
 
@@ -131,12 +131,19 @@ ALWAYS_NOTABLE = ("concreti", "konkreti", "zandsteen", "glauconiet", "glauconif"
                   "tourbe", "ligniet", "baksteen", "beton", "asfalt", "puin", "houtskool",
                   "kolengruis", "koolas", "keramiek", "metaal", "glashoudend", "kassei",
                   "straatsteen", "geremanieerd", "talus", "slak", "sintel")
-# Fossil, genus and species names, and the words for what a fossil is. They are stratigraphic
-# markers - they say which formation you are in, not that you will hit something hard - so listed
-# one per name they crowd out the remarks that do matter. Grouping is PRESENTATION ONLY:
-# `notable_terms` still returns every one of them and nothing is ever dropped; `summarise` folds
-# them into a single "fossielen: ..." entry per depth. Harvested from the same frequency count as
-# ORDINARY (nummulites 31, cardium 22, ditrupa 15, ostrea 13, planulatus 12 ...); extend it here.
+# Fossil, genus and species names, and the words for what a fossil is. SUPPRESSED, exactly like
+# ORDINARY: a species name says which formation you are standing in, not that you will hit
+# anything, and a geotechnician asked for it to disappear from the remarks ("nummulites planulatus
+# shouldn't be flagged at all"). That is a domain call, and it widens the ordinary side of the
+# rule, which is its safe direction - never narrow the flagging rule itself for convenience.
+#
+# Why these and not the `ALWAYS_NOTABLE` materials: sandstone, peat and rubble are things a machine
+# meets, and the user named them for exactly that reason; a Nummulites is a date stamp. So do not
+# "helpfully" restore these to the flagged side - it was asked for, not overlooked. A shell BED is
+# unaffected: it is caught by the word that marks it (`bank`, `banc`), never by the species in it.
+#
+# Harvested from the same frequency count as ORDINARY (nummulites 31, cardium 22, ditrupa 15,
+# ostrea 13, planulatus 12 ...); extend it here.
 FOSSILS = frozenset("""
 ammonites annelides annélides anoplo arca astarte belemnieten bivalve bivalves bryozoa bryozoaires
 bryozoen buccinum cardita cardium cerithes cerithium coquiller coquillière coquillières corbula
@@ -151,7 +158,6 @@ schelpfragmentjes schelprestjes schelpresten schelpstukjes serpula stukkenfossie
 terebratula turbinolia turritella variolaria variolarius venericardia vijverschelpen vistanden
 wemmelensis zoetwaterschelpjes
 """.split())
-FOSSIL_LABEL = "fossielen"
 # A denial in front of a word: "geen kalk" reports no kalk at all.
 DENIALS = ("geen", "zonder", "sans", "vrij van")
 # The same denial carried as a suffix: "zandsteenvrij", "kalkloos", "glauconietarm". Without this
@@ -214,7 +220,7 @@ def _denied(text: str, start: int) -> bool:
 def is_ordinary(word: str) -> bool:
     """Whether a single word belongs to the plain vocabulary of a soil description."""
     lowered = word.lower()
-    if any(lowered.endswith(suffix) for suffix in DENYING_SUFFIXES):
+    if any(lowered.endswith(suffix) for suffix in DENYING_SUFFIXES) or lowered in FOSSILS:
         return True
     if any(stem in lowered for stem in ALWAYS_NOTABLE):
         return False
@@ -246,22 +252,5 @@ def notable_terms(layers: Sequence[LithologyLayer]) -> List[NotableTerm]:
 
 
 def summarise(terms: Iterable[NotableTerm]) -> str:
-    """The words of one borehole on one line, each with the depth it was first named at.
-
-    The fossils of one depth travel together under one label, in the place where the first of them
-    was named. That is a presentation choice and nothing else: every term handed in is still named,
-    and a reader sees at a glance that a run of Latin is palaeontology and not an obstruction.
-    """
-    parts: List[str] = []
-    fossils: Dict[str, List[str]] = {}
-    for term in terms:
-        if term.word not in FOSSILS:
-            parts.append(f"{term.word} ({term.depth})")
-            continue
-        if term.depth not in fossils:
-            fossils[term.depth] = []
-            parts.append(term.depth)  # placeholder: the group takes this spot when the line is cut
-        fossils[term.depth].append(term.word)
-    named = {depth: f"{FOSSIL_LABEL}: {', '.join(words)} ({depth})"
-             for depth, words in fossils.items()}
-    return "; ".join(named.get(part, part) for part in parts)
+    """The words of one borehole on one line, each with the depth it was first named at."""
+    return "; ".join(f"{term.word} ({term.depth})" for term in terms)
