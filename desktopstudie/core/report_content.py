@@ -817,21 +817,71 @@ def _drop_unavailable(chapters: List[Chapter], unavailable: Set[MapPageKey]) -> 
     answer IS the answer here. The reading guide does not: it explains how to read a map that is
     no longer in the report, and four lines about a vanished map cost a sheet of 1.4 % ink.
 
-    Those survivors move to the END of their chapter rather than staying where their map stood. A
-    map sheet shares with nothing, so a lone legend between two maps gets a whole sheet to itself;
-    three of them in a row are three sheets under one per cent of ink. Together they fill one, and
-    the reader finds every "nothing here" of the chapter in one place instead of scattered.
+    A legend that says nothing does not travel at all: it is handed back so `_gather_empty_answers`
+    can put its sentence on the one page at the back of the report where every "nothing here"
+    stands together. What comes back from here is exactly those - the ones with rows stay.
     """
+    handed_back: List[Tuple[str, str]] = []
     for chapter in chapters:
         kept: List[Page] = []
         orphans: List[Page] = []
         for page in chapter.pages:
             if isinstance(page, MapPage) and map_page_key(page) in unavailable:
-                if page.zone_legend is not None:
+                answer = _empty_answer(page)
+                if answer is not None:
+                    handed_back.append(answer)
+                elif page.zone_legend is not None:
                     orphans.append(page.zone_legend)
                 continue
             kept.append(page)
         chapter.pages = kept + orphans
+    return handed_back
+
+
+def _empty_answer(page: MapPage) -> Optional[Tuple[str, str]]:
+    """(map title, the sentence) when this map's zone legend shows nothing at all, else None.
+
+    "Nothing" means no rows and no legend entries, AND a note that is one of the generic answers
+    `_rows_note` writes - the very sentence, asked of this map's own entry. A legend without rows
+    but with something of its own to say (the isopach sheet names the thickness in view and the
+    modelled value) is content, not an exception, and must never be swept up with these.
+    """
+    legend = page.zone_legend
+    if legend is None or getattr(legend, "rows", None) or getattr(legend, "entries", None):
+        return None
+    entry = catalogue.by_id(page.map_id)
+    note = getattr(legend, "note", "")
+    if entry is None or note not in (_rows_note([], entry), _rows_note(None, entry)):
+        return None
+    return entry.title, note
+
+
+def _gather_empty_answers(chapters: List[Chapter],
+                          handed_back: List[Tuple[str, str]]) -> Optional[TextPage]:
+    """One page at the very back holding every "no data here", grouped by the answer itself.
+
+    A stack of "Legenda voor de zone - X / Geen kaarteenheden binnen de zone" blocks in the middle
+    of a chapter is the ugliest thing in the report and it says the same sentence five times. Each
+    map keeps its own sheet; only the empty block under it goes, and its sentence comes here.
+    Nothing is lost: the sources chapter still lists every map with its own status.
+    """
+    grouped: Dict[str, List[str]] = {}
+    for title, note in handed_back:
+        grouped.setdefault(note, []).append(title)
+    for chapter in chapters:
+        for page in chapter.pages:
+            if not isinstance(page, MapPage):
+                continue
+            answer = _empty_answer(page)
+            if answer is None:
+                continue
+            page.zone_legend = None
+            grouped.setdefault(answer[1], []).append(answer[0])
+    if not grouped:
+        return None
+    parts = [f"<p>{note} Geldt voor: {', '.join(titles)}.</p>"
+             for note, titles in grouped.items()]
+    return TextPage("Geen gegevens binnen de zone", "".join(parts))
 
 
 def build_report(result: StudyResult, meta: ReportMeta,
@@ -856,8 +906,10 @@ def build_report(result: StudyResult, meta: ReportMeta,
         _chapter_virtuele_boring(result), _chapter_grondonderzoek(result), _chapter_doorsnede(result),
         _chapter_samenvatting(result), _chapter_bronnen(result),
     ]
-    if unavailable:
-        _drop_unavailable(chapters, set(unavailable))
+    handed_back = _drop_unavailable(chapters, set(unavailable)) if unavailable else []
+    gathered = _gather_empty_answers(chapters, handed_back)
+    if gathered is not None:
+        chapters[-1].pages.append(gathered)  # the sources chapter: the very back of the report
     return Report(title=f"Desktopstudie {meta.project}", chapters=chapters, meta={
         "project": meta.project, "project_number": meta.project_number, "author": meta.author,
         "company": meta.company, "logo_path": meta.logo_path, "address": _s(z.address),
