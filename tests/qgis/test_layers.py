@@ -362,14 +362,24 @@ def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, ge
 
 def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone, tmp_path, offline_wms):
     """Het bestand is het product, niet het object in het geheugen: wat erin staat moet in een
-    verse QGIS weer opengaan, met de groepen en de lagen erin."""
+    verse QGIS weer opengaan, met de groepen en de lagen erin.
+
+    De twee helften worden apart nagekeken. Een .qgz is een zip, dus tussen schrijven en lezen
+    staat de vraag of er een geldige zip op schijf ligt: viel deze test ooit om met "Unable to
+    unzip file", dan zegt die tussenstap of de schrijver een stuk bestand achterliet of dat de
+    lezer over een goed bestand struikelde - zonder haar is het alleen een raadsel."""
+    import zipfile
+
     from qgis.core import QgsProject
 
     from desktopstudie.qgis import layers
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
     path = tmp_path / "studie.qgz"
-    assert layers.standalone_project(gpkg, {})[0].write(str(path))
+    written = layers.standalone_project(gpkg, {})[0]
+    assert written.write(str(path))
+    assert path.is_file() and path.stat().st_size > 0, "de schrijver liet niets achter"
+    assert zipfile.is_zipfile(path), f"geen geldige zip op schijf ({path.stat().st_size} bytes)"
 
     reread = QgsProject()
     assert reread.read(str(path)), reread.error()
