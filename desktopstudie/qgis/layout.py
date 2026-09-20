@@ -2039,7 +2039,8 @@ class LayoutBuilder:
         table.addFrame(frame)  # recalculates the frame sizes itself
         return table, frame, self._table_height(table, len(rows), metrics.content_h)
 
-    def _table_height(self, table: QgsLayoutTable, rows: int, available: float) -> float:
+    def _table_height(self, table: QgsLayoutTable, rows: int, available: float,
+                      first_row: int = 0) -> float:
         """The shortest frame that still holds every row, asked of the table itself.
 
         `totalSize()` is no help here: it never reports less than the frame it was given, so a
@@ -2048,12 +2049,12 @@ class LayoutBuilder:
         by halving the interval, with a millimetre of slack on the answer.
         """
         context = QgsLayoutUtils.createRenderContextForLayout(self.layout, None)
-        if table.rowsVisible(context, available, 0, True, False) < rows:
+        if table.rowsVisible(context, available, first_row, True, False) < rows:
             return available  # it does not fit whatever we do; let it run on
         low, high = 0.0, available
         for _ in range(TABLE_FIT_STEPS):
             middle = (low + high) / 2.0
-            if table.rowsVisible(context, middle, 0, True, False) >= rows:
+            if table.rowsVisible(context, middle, first_row, True, False) >= rows:
                 high = middle
             else:
                 low = middle
@@ -2105,19 +2106,47 @@ class LayoutBuilder:
         last = self._place_table(table, frame, slot.page, top, min(wanted, room), metrics)
         for extra in range(slot.page + 1, last + 1):
             self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+        bottom = self._table_bottom(table, last, metrics)
         if last != slot.page:
-            self._seal(last, metrics)
+            # A table that ran on used to declare its last sheet full, even when it stopped a
+            # third of the way down it - which is how a two-row "Niet opgenomen kaarten" earned a
+            # sheet of its own. The sheet is as full as the table actually left it.
+            self._sheet, self._sheet_metrics = last, metrics
+            self._cursor = bottom
         fiches = _fiche_note(page.links or [])
         if fiches:
             # Under the TABLE, on its last sheet - not at the foot of the paper. A three-row table
             # left the note floating a hand's width below it, reading as a footer of the sheet
             # rather than a line about those three rows.
-            frames = [f for f in table.frames() if f.page() == last]
-            bottom = (max(f.pos().y() + f.rect().height() for f in frames) if frames
-                      else CONTENT_TOP + metrics.content_h)
-            bottom = min(bottom, CONTENT_TOP + metrics.content_h)
             self.label(fiches, MARGIN, bottom + 2.0, metrics.content_w, 5, last, size=6)
             self._cursor = max(self._cursor, bottom + 2.0 + 5.0)
+
+    def _table_bottom(self, table: QgsLayoutTable, sheet: int, metrics: PageMetrics) -> float:
+        """Where this table really ends on `sheet`, never past the content band.
+
+        Not the frame geometry: `_fit_continuation_frames` gives every continuation frame the whole
+        band whatever it holds, so a table that stops a third of the way down still owns a
+        full-height frame. What it actually used is the height its rows need, so the frames are
+        walked in order - `rowsVisible` says how many rows each one swallowed - and the rows left
+        for the last frame are measured with the same bisection that sized the first.
+        """
+        floor = CONTENT_TOP + metrics.content_h
+        frames = table.frames()
+        wanted = [f for f in frames if f.page() == sheet]
+        if not wanted:
+            return floor
+        context = QgsLayoutUtils.createRenderContextForLayout(self.layout, None)
+        first_row, rows = 0, table.contents()
+        for frame in frames:
+            if frame is wanted[0]:
+                break
+            first_row += table.rowsVisible(context, frame.rect().height(), first_row, True, False)
+        left = max(0, len(rows) - first_row)
+        used = self._table_height(table, left, metrics.content_h, first_row)
+        # `pos()` is LAYOUT space - page two starts three hundred millimetres down - so the page
+        # origin comes off before this is compared with anything measured from the top of a sheet.
+        origin = self.layout.pageCollection().page(sheet).pos().y()
+        return min(min(f.pos().y() for f in wanted) - origin + used, floor)
 
     def _text_height(self, html: str, width: float) -> float:
         """How tall a paragraph of HTML needs to be, measured on its plain text.
