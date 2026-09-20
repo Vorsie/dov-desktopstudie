@@ -157,17 +157,23 @@ def test_every_footer_carries_its_own_sheet_number_and_the_total_as_text(make_la
 def test_a_table_that_runs_on_does_not_land_on_the_next_report_page(make_layout):
     """Een tabel van 200 rijen maakt zelf pagina's bij. Wie daarna verder telt met een eigen
     teller, zet de volgende rapportpagina bovenop de laatste tabelpagina: tekst dwars door de
-    tabel heen. De volgende rapportpagina hoort na alles van de tabel te beginnen."""
+    tabel heen. De volgende rapportpagina hoort na alles van de tabel te beginnen.
+
+    Onder de tabel op hetzelfde blad mag wel - daar is het blad vullen voor - maar nooit erdoor:
+    de tekst begint lager dan waar het tabelkader begint, nooit op dezelfde bovenrand."""
     from qgis.core import QgsLayoutFrame, QgsLayoutItemLabel
 
     lay = make_layout(pages=_long_table_report())
     collection = lay.pageCollection()
     text_pages = []
     for index in range(collection.pageCount()):
-        on_page = [lbl.text() for lbl in _items_of(lay, index, QgsLayoutItemLabel)]
-        if any("Na de tabel" in text for text in on_page):
-            text_pages.append(index)
-            assert not _items_of(lay, index, QgsLayoutFrame), f"de tekstpagina deelt blad {index}"
+        labels = [lbl for lbl in _items_of(lay, index, QgsLayoutItemLabel)
+                  if "Na de tabel" in lbl.text()]
+        if not labels:
+            continue
+        text_pages.append(index)
+        for frame in _items_of(lay, index, QgsLayoutFrame):
+            assert labels[0].pos().y() > frame.pos().y(), f"tekst dwars door de tabel op {index}"
     assert len(text_pages) == 1
     assert text_pages[0] == collection.pageCount() - 1, "de tekstpagina hoort de laatste te zijn"
 
@@ -2436,3 +2442,25 @@ def test_a_block_that_exactly_fits_does_not_start_a_sheet_of_its_own(make_layout
     key = next(item for item in lay.items()
                if isinstance(item, QgsLayoutItemLabel) and item.text() == "Legenda bij de kaart")
     assert maps and key.page() == maps[0].page(), "de sleutel hoort bij zijn eigen kaart"
+
+
+def test_a_short_table_joins_the_sheet_a_long_one_ended_on(make_layout):
+    """De tabel "Niet opgenomen kaarten" van twee regels kreeg een blad voor zichzelf omdat de
+    tabel ervoor was doorgelopen: een doorgelopen tabel verklaarde haar laatste blad vol, ook
+    wanneer ze daar op een derde van de hoogte ophield. Wat eronder past, hoort eronder."""
+    from desktopstudie.core.report_content import TablePage
+
+    def spills():
+        return TablePage("Geraadpleegde bronnen", ["Bron", "URL"],
+                         [[f"Bron {n}", f"https://dov/{n}"] for n in range(70)])
+
+    short = TablePage("Niet opgenomen kaarten", ["Kaart", "Reden"],
+                      [["NGI", "geen dienst"], ["Popp", "geen dekking"]])
+
+    one = make_layout(pages=[spills()])
+    alone = one.pageCollection().pageCount()
+    two = make_layout(pages=[spills(), short])
+    together = two.pageCollection().pageCount()
+
+    assert together == alone, "de korte tabel hoort op het blad dat nog ruimte had"
+
