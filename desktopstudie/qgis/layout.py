@@ -26,7 +26,6 @@ footer carries "pagina n / N" as text, written when the layout is complete (`_nu
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -115,6 +114,9 @@ FOOTER_Y = 285.0
 INFO_TOP_Y = 46.0
 INFO_W, INFO_H = 55.0, 22.0
 INFO_MARGIN_MM = 1.0
+# What `adjustSizeToText` reports and what the renderer puts on paper differ by a hair, and the
+# hair is what pushed the last line onto the border. A box a fraction too tall costs nothing.
+BOX_SLACK_MM = 1.0
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
@@ -420,33 +422,61 @@ def _joined(*parts: Optional[str]) -> str:
     return " - ".join(part for part in parts if part)
 
 
+def _measured_width(item: QgsLayoutItemLabel, text: str) -> float:
+    """How wide this one line is, asked of the label that will draw it.
+
+    It is the *label* that measures, not QFontMetricsF: QGIS makes the same string about seven per
+    cent wider than Qt's metrics do (6 pt licence line: 55.4 mm against 51.9 mm), and that
+    difference is exactly one wrapped row.
+    """
+    item.setText(text)
+    item.adjustSizeToText()
+    return item.rect().width()
+
+
+def _wrapped(item: QgsLayoutItemLabel, lines: Sequence[str], width: float,
+             margin: float) -> List[str]:
+    """The rows this text really becomes inside `width`, broken on spaces the way a reader reads.
+
+    Wrapping here rather than leaving it to the renderer is the whole point: a label that is handed
+    one long licence line is measured as one row and then drawn as two, and the second row lands on
+    and through the bottom border - which is exactly what a reader found on a printed sheet. Break
+    it ourselves and the box is measured on the same rows it will draw.
+    """
+    inner = max(width - 2 * margin, 1.0)
+    rows: List[str] = []
+    for line in lines:
+        words, current = line.split(), ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if current and _measured_width(item, candidate) - 2 * margin > inner:
+                rows.append(current)
+                current = word
+            else:
+                current = candidate
+        rows.append(current)
+    return rows or [""]
+
+
 def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
-             margin: float) -> Tuple[float, float]:
-    """Width and height in mm for a plain-text box, measured by the label itself.
+             margin: float) -> Tuple[float, float, List[str]]:
+    """Width, height in mm and the rows to draw, all measured by the label itself.
 
     `adjustSizeToText()` sizes a label to its text but never wraps it, so on its own it makes a box
-    one row too short the moment a licence line is longer than the box - and that last row then
-    hangs below the frame, right on the attribution. Measuring the lines one at a time answers how
-    many rows the text really takes. It is the *label* that measures, not QFontMetricsF: QGIS makes
-    the same string about seven per cent wider than Qt's metrics do (6 pt licence line: 55.4 mm
-    against 51.9 mm), and that difference is exactly one wrapped row.
-
-    The item is left holding the full text again.
+    one row too short the moment a licence line is longer than the box. So the text is wrapped here
+    and then measured as the multi-row string it has become - explicit newlines, which
+    `adjustSizeToText` does count - and the caller draws those same rows. Measured and drawn are
+    then the same thing, which is the only way this stays true when a title or a licence changes.
     """
-    widths: List[float] = []
-    line_h = 2 * margin
-    for line in lines:
-        item.setText(line)
-        item.adjustSizeToText()
-        widths.append(item.rect().width())
-        line_h = item.rect().height()
-    item.setText("\n".join(lines))
-    if not widths:
-        return max_w, line_h
-    width = min(max(widths), max_w)
-    inner = max(width - 2 * margin, 1.0)
-    rows = sum(max(1, int(math.ceil((one - 2 * margin) / inner))) for one in widths)
-    return width, rows * (line_h - 2 * margin) + 2 * margin
+    if not lines:
+        return max_w, 2 * margin, []
+    width = min(max(_measured_width(item, line) for line in lines), max_w)
+    rows = _wrapped(item, lines, width, margin)
+    item.setText("\n".join(rows))
+    item.adjustSizeToText()
+    height = item.rect().height()
+    item.setText("\n".join(rows))
+    return width, height + BOX_SLACK_MM, rows
 
 
 def _natural_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
@@ -1450,7 +1480,8 @@ class LayoutBuilder:
         self.layout.addLayoutItem(item)
         item.attemptMove(point_mm(CONTENT_RIGHT - INFO_W, y), page=page)
         item.attemptResize(size_mm(INFO_W, INFO_H))
-        width, height = _fit_box(item, shown, INFO_W, INFO_MARGIN_MM)
+        width, height, rows = _fit_box(item, shown, INFO_W, INFO_MARGIN_MM)
+        item.setText("\n".join(rows))  # the rows that were measured are the rows that are drawn
         item.attemptResize(size_mm(width, height))
         # Pin the right edge to the margin only now: adjustSizeToText shifts a box by its own
         # rules (a reference point of UpperRight still moves it half a step), so the one reliable
@@ -2170,7 +2201,7 @@ class LayoutBuilder:
         probe.setTextFormat(_text_format(TEXT_FONT_PT))
         self.layout.addLayoutItem(probe)
         try:
-            _width, height = _fit_box(probe, [plain], width, 0.0)
+            _width, height, _rows = _fit_box(probe, [plain], width, 0.0)
         finally:
             self.layout.removeLayoutItem(probe)
         return min(CONTENT_H, height * TEXT_HEIGHT_FUDGE + TEXT_HEIGHT_PAD)
