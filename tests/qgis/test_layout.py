@@ -2568,3 +2568,29 @@ def test_an_info_box_holds_its_own_text(make_layout, tmp_path):
     for box in boxes:
         assert _ink_below(lay, box, box.page()) == 0, (
             f"tekst onder de rand van het vak: {box.text()!r}")
+
+
+def test_the_class_key_of_a_map_stands_under_that_map(make_layout, tmp_path):
+    """Een kaart die een veld van klassen is, draagt de sleutel van de dienst onder haar eigen
+    kader - niet op een legendablad, want die bladen worden niet gedrukt. Zonder opgehaalde
+    sleutel staat er geen plaatje: een zelf getekende sleutel zou de kaart erboven tegenspreken."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import MapPage
+
+    _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
+    page = MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False, scale=25000,
+                   extent_factor=3.0, class_key="legendas/krimp_zwel.png")
+
+    lay = make_layout(pages=[page])
+
+    key = next(p for p in _items_of(lay, 1, QgsLayoutItemPicture)
+               if p.picturePath().endswith("krimp_zwel.png"))
+    assert key.pagePositionWithUnits().y() > _bottom_of(_map_item(lay, 1))
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Klassen" in texts
+
+    bare = make_layout(pages=[MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False,
+                                      scale=25000, extent_factor=3.0)])
+    assert not [p for p in _items_of(bare, 1, QgsLayoutItemPicture)
+                if "krimp_zwel" in p.picturePath()]
