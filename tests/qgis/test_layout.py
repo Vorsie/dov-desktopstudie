@@ -2510,3 +2510,7 @@ def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
 
     assert "SLD_BODY=" in with_sld and "Halo" in urllib.parse.unquote(with_sld)
     assert "SLD_BODY" not in without
+    # De gateway voor de GeoServer van DOV weigert een lange URL met 502 Bad Gateway: de SLD met
+    # inspringing erin gaf 3120 tekens en vijf van de vijf pogingen mislukten, dezelfde SLD zonder
+    # witruimte 1905 tekens en vijf van de vijf lukten (live 2026-09-21). Ruim eronder blijven.
+    assert len(with_sld) < 2500, f"GetMap van {len(with_sld)} tekens; de gateway antwoordt 502"
