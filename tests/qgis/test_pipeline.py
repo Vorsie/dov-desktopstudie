@@ -265,7 +265,7 @@ def test_two_studies_live_side_by_side_and_only_a_same_named_one_replaces(projec
     for name in ("Testproject", "Antwerpen"):
         study = root.findGroup(pipeline.study_group_name(name))
         assert [group.name() for group in study.findGroups()] == \
-            list(pipeline.CHAPTER_GROUPS.values()) + [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP]
+                [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP] + list(pipeline.CHAPTER_GROUPS.values())
     owners = collections.Counter(layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)
                                  for layer in project.mapLayers().values()
                                  if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG))
