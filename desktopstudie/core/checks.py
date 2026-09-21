@@ -21,6 +21,10 @@ BUILT_UP_PREFIXES = ("OB", "ON", "OT", "OE")
 # investigating. The labels are inflected, so match "hoge"/"lage" beside "hoog"/"laag", and test
 # the worst word first so "zeer hoge gevoeligheid" cannot be read as low.
 LANDSLIDE_MIN_CLASS = 2
+# De gevoeligheidsklasse van de kaart plastische gronden loopt van 0 (niet-ingedeeld) tot
+# 5 (zeer hoog). Dezelfde ondergrens als bij de grondverschuivingen hierboven: vanaf "laag"
+# is de plek ingedeeld als gevoelig en hoort ze gemeld, daaronder niet.
+KRIMP_ZWEL_MIN_CLASS = 2
 LANDSLIDE_WORD_CLASSES = (("hoog", 3), ("hoge", 3), ("matig", 2), ("laag", 1), ("lage", 1))
 SEVERITIES = ("info", "aandacht")
 
@@ -201,16 +205,31 @@ def check_erosion(result: StudyResult) -> List[Signalering]:
     return []
 
 
+def _shrink_swell_class(row) -> int:
+    """De gevoeligheidsklasse van een rij, of 0 als de kaart er geen noemt."""
+    raw = str(row.get(catalogue.KRIMP_ZWEL_FIELD, "")).strip()
+    digits = raw.split(".")[0]  # de dienst antwoordt 4 in JSON en 4.0 in text/plain
+    return int(digits) if digits.isdigit() else 0
+
+
 def check_shrink_swell(result: StudyResult) -> List[Signalering]:
-    rows = _facts(result, "krimp_zwel")
-    if rows:
-        distinct = sorted({str(r.get("hoofdlithologie", "")) for r in rows})
-        return [Signalering(
-            "krimp_zwel",
-            f"Krimp-zwelgevoelige gronden op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
-            "DOV plastische gronden",
-            "Aandachtspunt voor het grondonderzoek: plasticiteit (Atterberg) en vochtgevoeligheid bepalen.")]
-    return []
+    """De klasse die de kaart zelf tekent, niet het aantal rijen.
+
+    Zolang de feiten van `IndexPlastisch` kwamen - een index van de beoordeelde G3Dv3-eenheden -
+    telde alleen of er een rij was: Brugge, waar de kaart klasse 4 (hoog) tekent, leverde geen rij
+    en dus geen enkele regel, terwijl klasse 2 elders "krimp-zwelgevoelige gronden" heette zonder
+    te zeggen hoe gevoelig. De klasse staat nu in de regel en bepaalt of er een regel is.
+    """
+    graded = [_shrink_swell_class(row) for row in _facts(result, "krimp_zwel")]
+    worst = max(graded) if graded else 0
+    if worst < KRIMP_ZWEL_MIN_CLASS:
+        return []
+    word = catalogue.KRIMP_ZWEL_CLASSES.get(str(worst), "ingedeeld als gevoelig")
+    return [Signalering(
+        "krimp_zwel",
+        f"Krimp-zwelgevoeligheid in de zone: klasse {worst} ({word}) op een schaal van 0 tot 5.",
+        "DOV plastische gronden",
+        "Aandachtspunt voor het grondonderzoek: plasticiteit (Atterberg) en vochtgevoeligheid bepalen.")]
 
 
 def check_ovam(result: StudyResult) -> List[Signalering]:
