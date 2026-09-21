@@ -678,20 +678,64 @@ def test_the_same_virtual_borehole_is_one_point_not_two(qgs_app, gent_zone):
     assert ("g3dv3_F", 104326.0, 192506.0) in keys
 
 
-def test_a_point_label_carries_a_white_halo(qgs_app, gent_zone, tmp_path):
+def _halo_pixels(layer) -> int:
+    """Hoeveel zuiver witte pixels tekent deze laag op een zwarte achtergrond?
+
+    Gemeten aan het BEELD, niet aan de instellingen. De instellingen teruglezen van een laag is
+    geen betrouwbare vraag: `QgsVectorLayerSimpleLabeling.settings()` geeft een object terug dat de
+    aanroep niet overleeft - op 3.34 stort het proces neer zodra je er `format()` op doet, op 4.x
+    antwoordt het met de standaardwaarden en meldt dus "geen halo" terwijl de kaart er wel een
+    tekent (live nagekeken in beide containers, 2026-09-21). Wat de lezer op papier krijgt is het
+    beeld, en dat is ook het enige dat hier iets bewijst.
+    """
+    from qgis.core import Qgis, QgsMapRendererParallelJob, QgsMapSettings, QgsRectangle
+    from qgis.PyQt.QtCore import QSize
+    from qgis.PyQt.QtGui import QColor
+
+    settings = QgsMapSettings()
+    settings.setLayers([layer])
+    settings.setExtent(QgsRectangle(0.0, 0.0, 200.0, 200.0))
+    settings.setOutputSize(QSize(400, 400))
+    settings.setBackgroundColor(QColor("#000000"))  # zwart: een witte halo valt op, de letters niet
+    settings.setFlag(Qgis.MapSettingsFlag.DrawLabeling, True)
+    job = QgsMapRendererParallelJob(settings)
+    job.start()
+    job.waitForFinished()
+    image = job.renderedImage()
+    return sum(1 for y in range(image.height()) for x in range(image.width())
+               if QColor(image.pixel(x, y)).name() == "#ffffff")
+
+
+def _one_labelled_point(name: str, field: str, value: str):
+    from qgis.core import QgsFeature, QgsGeometry, QgsPointXY, QgsVectorLayer
+
+    layer = QgsVectorLayer(
+        f"Point?crs=EPSG:31370&field={field}:string&field=met_figuur:integer", name, "memory")
+    feature = QgsFeature(layer.fields())
+    feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(100.0, 100.0)))
+    feature[field] = value
+    feature["met_figuur"] = 1
+    layer.dataProvider().addFeatures([feature])
+    layer.updateExtents()
+    return layer
+
+
+def test_a_point_label_is_drawn_with_a_white_halo(qgs_app):
     """Op de overzichtskaart lopen de sondeer- en boornummers in het midden door elkaar tot een
-    onleesbare veeg, dwars over daken en water. Een witte halo om de letters maakt ze leesbaar
-    waar de ondergrond ook donker is, en labels die toch nog botsen worden weggelaten in plaats
-    van over elkaar heen gezet."""
-    from qgis.core import QgsVectorLayerSimpleLabeling
+    onleesbare veeg, dwars over daken en water. Een witte halo om de letters maakt ze leesbaar,
+    welke ondergrond er ook onder ligt.
+
+    De settings vallen weg zodra de opmaakfunctie terugkeert en er wordt pas veel later getekend,
+    dus de proef doet dat ook: opmaken, opruimen, en dan pas tekenen."""
+    import gc
 
     from desktopstudie.qgis import layers
 
-    for layer in (layers.points_layer("sondering", []),
-                  layers.virtual_boreholes_layer(_virtual_result(gent_zone))):
-        labeling = layer.labeling()
-        assert isinstance(labeling, QgsVectorLayerSimpleLabeling)
-        buffer = labeling.settings().format().buffer()
-        assert buffer.enabled(), f"{layer.name()} labelt zonder halo"
-        assert buffer.color().name().lower() == "#ffffff"
-        assert buffer.size() > 0
+    sounding = _one_labelled_point("Sonderingen", "nummer", "88")
+    layers.style_points_layer(sounding, "sondering")
+    virtual = _one_labelled_point("Virtuele boringen", "model", "g3dv3_F")
+    layers.style_virtual_boreholes_layer(virtual)
+    gc.collect()
+
+    for layer in (sounding, virtual):
+        assert _halo_pixels(layer) > 0, f"{layer.name()} tekent zonder halo"
