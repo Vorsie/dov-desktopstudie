@@ -43,7 +43,7 @@ en drie willekeurige studies per ronde zoeken de fouten die Gent nooit laat zien
 - **Een bron die een hoofdstuk kort liet, noemt dat hoofdstuk.** De regel in "Niet opgehaalde
   bronnen" zei wat er misging maar niet waar het gat viel; nu staat het hoofdstuk erbij, met het
   advies de bron later opnieuw te raadplegen.
-- **De opmerkingsregel bij een boring is korter.** De gewone woordenschat groeide naar 826 woorden
+- **De opmerkingsregel bij een boring is korter.** De gewone woordenschat groeide naar 839 woorden
   en wordt nu ook per regel verbreed: kleuren en hun samenstellingen, afgeleiden op -houdend,
   -achtig en -rijk, en oxidatie, verwering en gley gelden als gewoon. Fossiel- en soortnamen
   (`nummulites planulatus`) zijn geen geotechnische zeldzaamheid en worden niet meer gemeld. Franse
