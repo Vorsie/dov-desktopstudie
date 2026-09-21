@@ -676,3 +676,22 @@ def test_the_same_virtual_borehole_is_one_point_not_two(qgs_app, gent_zone):
     keys = [(f["model"], round(f["x"], 2), round(f["y"], 2)) for f in layer.getFeatures()]
     assert len(keys) == len(set(keys)), f"dubbele punten: {keys}"
     assert ("g3dv3_F", 104326.0, 192506.0) in keys
+
+
+def test_a_point_label_carries_a_white_halo(qgs_app, gent_zone, tmp_path):
+    """Op de overzichtskaart lopen de sondeer- en boornummers in het midden door elkaar tot een
+    onleesbare veeg, dwars over daken en water. Een witte halo om de letters maakt ze leesbaar
+    waar de ondergrond ook donker is, en labels die toch nog botsen worden weggelaten in plaats
+    van over elkaar heen gezet."""
+    from qgis.core import QgsVectorLayerSimpleLabeling
+
+    from desktopstudie.qgis import layers
+
+    for layer in (layers.points_layer("sondering", []),
+                  layers.virtual_boreholes_layer(_virtual_result(gent_zone))):
+        labeling = layer.labeling()
+        assert isinstance(labeling, QgsVectorLayerSimpleLabeling)
+        buffer = labeling.settings().format().buffer()
+        assert buffer.enabled(), f"{layer.name()} labelt zonder halo"
+        assert buffer.color().name().lower() == "#ffffff"
+        assert buffer.size() > 0
