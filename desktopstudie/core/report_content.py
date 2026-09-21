@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
-from .model import StudyResult
+from .model import StudyResult, plain_reason
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
@@ -779,8 +779,8 @@ def _status(entry) -> str:
     reach the page or the reader is left with a blank map and no explanation.
     """
     if not entry.ok:
-        return f"fout: {entry.message}"
-    return f"ok - {entry.message}" if entry.message else "ok"
+        return f"fout: {plain_reason(entry.message)}"
+    return f"ok - {plain_reason(entry.message)}" if entry.message else "ok"
 
 
 # Provenance lines that describe what this study PRODUCED rather than what it consulted. They are
