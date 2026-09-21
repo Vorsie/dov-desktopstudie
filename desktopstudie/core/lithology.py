@@ -186,7 +186,7 @@ ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "kwarts", "sc
                   "oxidatie", "verwering", "gley")
 # Achtervoegsels die van een gewone stam een gewone beschrijving maken: bijmenging, niet materiaal.
 MODIFIER_SUFFIXES = ("houdend", "houdende", "rijk", "rijke", "achtig", "achtige", "ig", "ige",
-                     "vlekken", "vlekjes", "brokjes", "brokken", "lenzen", "laagjes", "gruis",
+                     "vlekken", "vlekjes", "brokjes", "brokken", "lenzen", "laagje", "laagjes", "gruis",
                      "resten", "rest", "restjes", "fragment", "fragmenten", "fragmentjes",
                      "je", "jes", "stippen", "spikkels", "korrels", "sporen", "fractie",
                      "lens", "lensje", "lensjes")
