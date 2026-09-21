@@ -250,6 +250,7 @@ GUIDE_EROSIE = (
 # De klassen van de dienst, in haar eigen woorden: de GetLegendGraphic van `krimp_zwel` noemt
 # 0 (niet-ingedeeld), 1 (zeer laag), 2 (laag), 3 (matig), 4 (hoog) en 5 (zeer hoog)
 # (live gelezen 2026-09-21).
+KRIMP_ZWEL_FIELD = "Categorie_gevoeligheid"
 KRIMP_ZWEL_CLASSES = {"0": "niet-ingedeeld", "1": "zeer laag", "2": "laag", "3": "matig",
                       "4": "hoog", "5": "zeer hoog"}
 GUIDE_KRIMP_ZWEL = (
@@ -565,9 +566,9 @@ CATALOGUE: List[MapEntry] = [
     # antwoordt hier in `application/json`; op `application/geo+json` geeft ze een
     # ServiceExceptionReport (live 2026-09-21).
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
-         ("Categorie_gevoeligheid",), gfi="application/json",
-         labels={"Categorie_gevoeligheid": KRIMP_ZWEL_CLASSES},
-         field_labels={"Categorie_gevoeligheid": "Gevoeligheidsklasse"},
+         (KRIMP_ZWEL_FIELD,), gfi="application/json",
+         labels={KRIMP_ZWEL_FIELD: KRIMP_ZWEL_CLASSES},
+         field_labels={KRIMP_ZWEL_FIELD: "Gevoeligheidsklasse"},
          guide=GUIDE_KRIMP_ZWEL, scale=25000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
