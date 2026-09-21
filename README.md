@@ -299,7 +299,7 @@ niets tekent, een kaart die wel iets tekent maar geen feiten oplevert, en opmerk
 ruis verzuipen. Elke bevinding is een regel met run, plaats en bladnummer.
 
 ```
-"C:\Program Files\QGIS 3.40.15in\python-qgis-ltr.bat" scriptsandom_study.py --aantal 3
+"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\random_study.py --aantal 3
 ```
 
 Het print de seed; `--seed` herhaalt een reeks exact. Haperende diensten staan apart van echte
