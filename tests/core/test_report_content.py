@@ -1029,7 +1029,8 @@ def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
     """Wat een lezer van een diktekaart wil weten is de dikte hier. De contouren liggen kilometers
     ver, dus staat de modelwaarde van G3Dv3 op het representatieve punt erbij - als modelwaarde
     benoemd, niet als meting."""
-    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+    rows = [{"Dikte_Quartair_m": 5.0, catalogue.DISTANCE_FIELD: 67}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
 
     geo = _geologie(result)
 
@@ -1040,7 +1041,7 @@ def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
 
 def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
     """Ligt er wel een contour binnen het kaartbeeld, dan hoort die regel er niet te staan."""
-    rows = [{"dikte": 10, "afstand_m": 120}]
+    rows = [{"Dikte_Quartair_m": 10, catalogue.DISTANCE_FIELD: 120}]
     result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
 
     geo = _geologie(result)
@@ -1214,3 +1215,32 @@ def test_every_nothing_here_answer_ends_up_on_one_page_at_the_back(gent_ring):
     assert "Potentiele bodemerosiekaart" in gathered.html and "OVAM" in gathered.html
     assert gathered.html.count("Geen kaarteenheden binnen de zone") == 1, "één keer, gegroepeerd"
     assert "overstromingsgevoelig" in gathered.html, "en het kaart-eigen antwoord ernaast"
+
+
+def test_an_isopach_map_without_coverage_joins_the_gathered_page(gent_ring):
+    """Aan de kust reikt de isopachenkartering 1/50 000 niet, en dan draagt het blad alleen nog de
+    modelzin - een lege bladzijde voor de lezer. Zonder dekking en zonder contour hoort die kaart
+    geen blad te krijgen maar op de gebundelde "geen gegevens"-pagina achteraan te staan. De dikte
+    van het Quartair staat toch al in de periodetabel van hoofdstuk 4, dus er gaat niets verloren.
+    """
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+    dropped = {("quartair_dikte", 25000, 3.0, False, False)}
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable=dropped)
+
+    assert not [p for p in report.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte"]
+    gathered = report.chapters[-1].pages[-1].html
+    assert "Dikte van het Quartair" in gathered and "dekt deze locatie niet" in gathered
+
+
+def test_without_contours_the_answer_stands_on_the_gathered_page_either_way(gent_ring):
+    """Ook zonder periodetabel - een model dat niets teruggaf - verdwijnt het antwoord niet: het
+    staat achteraan bij de andere. Er is dan trouwens ook geen dikte om kwijt te raken."""
+    result = _with_isopachs(_result(gent_ring), [])  # geen g3dv3_P, dus geen periodetabel
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    gathered = report.chapters[-1].pages[-1].html
+
+    assert "Dikte van het Quartair" in gathered and "dekt deze locatie niet" in gathered
