@@ -359,6 +359,10 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
             continue
         record_source(result, f"Legenda profieltype {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
+    # A type the WFS gave no link for has no URL to loop over, so it would leave the sources
+    # chapter silent while the legend line under the map points the reader straight at it.
+    for code in sorted(unpublished - set(targets.values())):
+        record_source(result, f"Legenda profieltype {code}", "", True, NO_DRAWING_PUBLISHED)
     # The units table of a map sheet is a page of its own, cut from the same drawing but by a
     # second step that can fail on its own (`crop_sheet_units` returns None). Without a line per
     # sheet, that page can disappear from the report with nothing in the sources chapter about it.
