@@ -637,7 +637,10 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     zone_legend_images: Dict[str, str] = {}
     unpublished: Set[str] = set()
     targets = layout_mod.zone_legend_targets(result)
-    if targets:
+    # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
+    # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
+    # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
+    if targets or layout_mod.codes_without_a_drawing(result, targets):
         _stop_if_cancelled(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
