@@ -2,6 +2,66 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [Niet uitgebracht]
+
+Tweede gebruikersronde. De Locatie-tab zegt wat ze ziet, de lagenboom zet het eigen werk bovenaan,
+en drie willekeurige studies per ronde zoeken de fouten die Gent nooit laat zien.
+
+### Toegevoegd
+- **Willekeurige studies als zoekmethode** (`scripts/random_study.py`). Het script prikt punten in
+  Vlaanderen, bevestigt elk punt tegen `VRBG:Refgem` zodat de plek een gemeentenaam heeft, draait
+  er een volledige studie op en leest daarna het eigen resultaat na: blanco bladen (minder dan 2 %
+  inkt), kaarten die wel tekenen maar geen enkel feit opleveren, opmerkingsregels met te veel
+  termen of met ruiswoorden, en bladen zonder titel. De seed wordt geprint, zodat een reeks te
+  herhalen is (`--seed`). Gent is een stad met alles erop en eraan; de fouten die deze ronde boven
+  kwamen - een verminkte boornaam, een leeg isopachenblad, een profieltype waarvoor DOV niets
+  publiceert - zaten alle drie ergens anders.
+- **`compat.house_font`**: de enige plek waar het rapport zijn lettertype kiest (Arial, Liberation
+  Sans, DejaVu Sans), voor layouttekst en kaartlabels samen.
+
+### Gewijzigd
+- **Eén vlak in de laag is het vlak.** Wie een laag met precies één polygoon aanwijst, hoeft niets
+  meer te selecteren. Het tabblad Locatie zegt bovendien vooraf wat het ziet - hoeveel vlakken de
+  laag heeft en welk er gekozen is - in plaats van pas na "Start" te weigeren, en een hint die bij
+  een andere modus hoort blijft niet staan als je van modus wisselt.
+- **De onderzoekszone, de snede en het grondonderzoek van DOV staan bovenaan de lagenboom**, in de
+  sessie en in `studie.qgz`; de kaartlagen van de hoofdstukken staan daaronder. Wie de kaart
+  openslaat wil zijn eigen zone zien, niet de bovenste WMS-achtergrond.
+- **Een isopachenkaart zonder dekking krijgt geen blad meer.** Ligt de locatie buiten de
+  isopachenkartering 1/50 000 en staat er geen enkele contour in beeld, dan zegt de kaart niets wat
+  de periodetabel van hoofdstuk 4 niet al zegt (daar staat de quartairdikte als getal). De zin over
+  de ontbrekende dekking verhuist naar het verzamelblad; staat hoofdstuk 4 uit, dan blijft die zin
+  er staan.
+- **Een tekening die DOV niet publiceert heet nu zo.** Het portaal antwoordt voor een onbestaand
+  profieltype met HTTP 200 en een DSpace-pagina die "not found" zegt; dat werd gelezen als een
+  mislukte ophaling. `dov_portal.says_not_found` herkent die pagina aan haar inhoud, niet aan haar
+  status, en zowel de legendaregel als het hoofdstuk Bronnen zeggen dan "DOV publiceert geen
+  tekening voor dit profieltype" in plaats van te suggereren dat het aan de verbinding lag.
+- **Meer geduld voor een profieltypetekening**: 30 s in plaats van de 15 s van een legenda
+  (`layout.DRAWING_TIMEOUT_S`). Het portaal levert een tekening trager dan een kaartdienst een
+  legenda, en één keer langer wachten scheelt een gemist blad. Geen eindeloze herkansing.
+- **Een bron die een hoofdstuk kort liet, noemt dat hoofdstuk.** De regel in "Niet opgehaalde
+  bronnen" zei wat er misging maar niet waar het gat viel; nu staat het hoofdstuk erbij, met het
+  advies de bron later opnieuw te raadplegen.
+- **De opmerkingsregel bij een boring is korter.** De gewone woordenschat groeide naar 826 woorden
+  en wordt nu ook per regel verbreed: kleuren en hun samenstellingen, afgeleiden op -houdend,
+  -achtig en -rijk, en oxidatie, verwering en gley gelden als gewoon. Fossiel- en soortnamen
+  (`nummulites planulatus`) zijn geen geotechnische zeldzaamheid en worden niet meer gemeld. Franse
+  vulwoorden die het corpus bleef tonen (`sable flandrien`, `végétale`, `semblable`) zijn weg. Eén
+  gebruikersregel ging van 28 termen naar 7, `1508-B2023-01007-B3` van 11 naar 4.
+
+### Opgelost
+- **De kaartlabels vroegen geen lettertype aan.** `layers._label_format` zette wel een grootte, een
+  kleur en een halo, maar geen `QFont`, en dan kiest de renderer er zelf een. Op de overzichtskaart
+  van hoofdstuk 5 kwam de boring `kb12d37w-B19` daardoor met vreemde tekens in plaats van `w-` uit
+  de export, terwijl dezelfde boring twee bladen verder in de tabel wel klopte. De labels gaan nu
+  door `compat.house_font`, net als alle layouttekst.
+- **Een infokader liep over zijn eigen tekst.** Het kader kreeg een vaste hoogte; een noot van vier
+  regels liep er onderuit. Het meet nu de hoogte die zijn omgebroken tekst nodig heeft.
+- **Een GetFeatureInfo-rij zonder waarden telde als antwoord.** Buiten hun dekking geven de
+  GxG-diensten een rij terug waarin elk veld leeg is. Die rij werd `rows[0]` en het rapport meldde
+  "geen waarde" waar de dienst eenvoudigweg niets weet. Zo'n rij valt nu weg.
+
 ## [0.2.0] - 2026-09-18
 
 Compactere opmaak na de eerste gebruikersronde: minder wit, minder bladen, en de virtuele boring
