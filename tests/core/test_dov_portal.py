@@ -48,3 +48,19 @@ def test_van_twee_bestanden_wint_de_link_bij_de_juiste_naam():
             f'{wanted}"_name":"DOV_Quartair_50000_22010.png"</html>').encode()
 
     assert content_link(page, URL_22010) == wanted
+
+
+def test_a_not_found_page_is_told_apart_from_a_failed_fetch():
+    """Profieltype 25024 bestaat niet: het portaal antwoordt met HTTP 200 en een pagina die "not
+    found" en "404" zegt, zonder bestandslink. Dat is iets anders dan een mislukte ophaling, en de
+    lezer hoort het verschil te zien - "DOV publiceert geen tekening" is een feit, "niet opgehaald"
+    nodigt uit om het nog eens te proberen. Op de INHOUD gelezen, niet op de status: die is 200 in
+    allebei de gevallen."""
+    from desktopstudie.core.services import dov_portal
+
+    missing = b"<html><head><title>Page not found</title></head><body>404</body></html>"
+    broken = b"<html><body><a href='/bitstream/handle/1/2/iets_png'>download</a></body></html>"
+
+    assert dov_portal.says_not_found(missing)
+    assert not dov_portal.says_not_found(broken)
+    assert not dov_portal.says_not_found(dov_portal.PNG_MAGIC + b"rest")
