@@ -349,6 +349,12 @@ class _Runner:
         seen = set()
         for index in range(len(points)):
             for row in per_point.get(index, []):
+                if all(row.get(k) is None for k in entry.fact_fields):
+                    # A nodata pixel is not answered with zero features but with a feature whose
+                    # every field is None. Kept, such a row reads as the answer when it lands on
+                    # the representative point - "geen waarde op dit punt" printed over a map that
+                    # plainly carries values a few metres away. No value is not an answer.
+                    continue
                 key = tuple(str(row.get(k)) for k in entry.fact_fields)
                 if key not in seen:
                     seen.add(key)
