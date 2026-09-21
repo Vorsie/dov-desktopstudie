@@ -504,6 +504,20 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     dropped: List[MapEntry] = []
     project = QgsProject()
     project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    # The study's own layers go in FIRST, so the chapter groups of maps append underneath them.
+    # The bottom of a layer tree draws first, so a group added after the maps ends up behind them -
+    # which hid the zone outline, the section line and every sounding the moment a map was switched
+    # on, in the project a reader opens for exactly those.
+    for title, names in GPKG_GROUPS:
+        group_layers: List[QgsMapLayer] = []
+        for name in names:
+            layer = gpkg_layer(gpkg, name)
+            if not layer.isValid():
+                if log:
+                    log.warning(f"Laag {name} staat niet in {gpkg.name}; overgeslagen")
+                continue
+            group_layers.append(style_by_name(layer, log))
+        add_group(project, title, group_layers)
     for chapter, title in chapter_groups.items():
         rasters: List[QgsMapLayer] = []
         for entry in catalogue.entries(chapter, only=only):
@@ -518,14 +532,4 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
         add_group(project, title, rasters, visible=False)
         if log:
             log.info(f"{title}: {len(rasters)} WMS-lagen")
-    for title, names in GPKG_GROUPS:
-        group_layers: List[QgsMapLayer] = []
-        for name in names:
-            layer = gpkg_layer(gpkg, name)
-            if not layer.isValid():
-                if log:
-                    log.warning(f"Laag {name} staat niet in {gpkg.name}; overgeslagen")
-                continue
-            group_layers.append(style_by_name(layer, log))
-        add_group(project, title, group_layers)
     return project, dropped
