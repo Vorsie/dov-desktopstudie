@@ -766,3 +766,19 @@ def test_the_zone_and_the_investigations_stand_on_top_above_the_maps(qgs_app, ge
 
     assert names[:2] == [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP], names
     assert "Ligging" in names and names.index("Ligging") > 1, names
+
+
+def test_a_point_label_is_drawn_in_the_house_face(qgs_app):
+    """"kb12d37w B19 these labels look weird". De naam kwam op de kaart uit als `kb12d37-N- B19`:
+    de `w` en het koppelteken werden losse streepjes. De labelopmaak vroeg namelijk helemaal geen
+    lettertype aan, dus koos Qt er zelf een, en offscreen is dat er een die deze tekens niet kan
+    tekenen. Een boornummer hoort op de kaart te staan zoals het in de tabel staat, teken voor
+    teken, en dus in hetzelfde huislettertype als de rest van het rapport."""
+    from desktopstudie.qgis import compat, layers
+
+    fmt = layers._label_format()
+    families = [name.lower() for name in fmt.font().families()] or [fmt.font().family().lower()]
+
+    assert families, "de labelopmaak vraagt een lettertype aan"
+    assert families[0] == compat.FONT_FAMILIES[0].lower(), families
+    assert [name.lower() for name in compat.FONT_FAMILIES] == families
