@@ -191,6 +191,11 @@ SCALE_BAR_LIFT = 2.0  # the scale bar, measured down from the foot of the map fr
 # its two ends named under it and the zone's own heights below that.
 RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
 RAMP_LINE_H = 4.5
+# The class key of a map that is a field of classes, as the service draws it: swatch and class
+# name in one image, so it cannot disagree with the map. A box, not a size: the image keeps its
+# own aspect inside it (Zoom), and a key of six classes lands at about 24 x 40 mm.
+CLASS_KEY_W, CLASS_KEY_H = 60.0, 40.0
+CLASS_KEY_TITLE = "Klassen van de kaart"
 RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
 # Marking the zone on the strip. Over a scale of 350 metres a building plot is a millimetre wide,
 # so a bracket is only drawn when the two ends are this far apart on paper; below it the mean gets
@@ -1685,6 +1690,8 @@ class LayoutBuilder:
             blocks.append(self._guide_block(page.guide))
         if page.ramp is not None:
             blocks.append(self._ramp_block(page.ramp))
+        if page.class_key:
+            blocks.append(self._class_key_block(page.class_key))
         if page.zone_legend is not None:
             blocks.append(self._zone_legend_block(chapter, page.zone_legend, index))
         if not blocks:
@@ -1782,6 +1789,29 @@ class LayoutBuilder:
         self._rule(middle, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
         self._rule(middle, y + RAMP_TICK_H - RAMP_TICK_W, RAMP_TICK_W * 2, RAMP_TICK_W, sheet)
         return ramp.mean_label, middle
+
+    def _class_key_block(self, image_path: str) -> UnderMap:
+        """The service's own key to this map's colours, under the map frame.
+
+        Taken whole rather than redrawn: the image carries the swatch AND the class name, so the
+        key says exactly what the map says. Only called when the shell actually fetched it - a
+        key drawn from guessed colours would contradict the picture above it.
+        """
+        height = UNDER_MAP_TITLE_H + CLASS_KEY_H
+
+        def draw(sheet: int, top: float) -> None:
+            self.label(CLASS_KEY_TITLE, MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9,
+                       bold=True)
+            key = QgsLayoutItemPicture(self.layout)
+            key.setPicturePath(str(self.out_dir / image_path))
+            # Zoom, not Stretch: the swatches are squares and the class names are words, and both
+            # go unreadable the moment the aspect is thrown away.
+            key.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
+            self.layout.addLayoutItem(key)
+            key.attemptMove(point_mm(MARGIN, top + UNDER_MAP_TITLE_H), page=sheet)
+            key.attemptResize(size_mm(CLASS_KEY_W, CLASS_KEY_H))
+
+        return UnderMap(height, draw, height)
 
     def _ramp_block(self, ramp: ColourRamp) -> UnderMap:
         """A colour scale as a strip: the service's own band, its two ends named under it and the
