@@ -522,9 +522,26 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   met wat de verkenner van de bron zelf tekent.** Velden verschillen mee (`Dikte_Quartair_m`,
   geometrie `geom`), en `quartair:Qisopachen_Tertair_50k` is een andere kaart.
 - **Kijk of de dienst haar eigen labels al tekent voordat je ze zelf gaat tekenen.** De stijl van
-  `qisopachen_quartair_50k` zet de dikte mét halo op elke contour, dus een GetMap levert een
-  gelabelde kaart en het blad heeft geen legenda nodig. Dat is meteen de reden dat de afstandstabel
-  eronder weg mocht: een kolom afstanden tot lijnen die de lezer ziet liggen, is meubilair.
+  `qisopachen_quartair_50k` zet de dikte op elke contour, dus een GetMap levert een gelabelde kaart
+  en het blad heeft geen legenda nodig. Dat is meteen de reden dat de afstandstabel eronder weg
+  mocht: een kolom afstanden tot lijnen die de lezer ziet liggen, is meubilair.
+- **Is de belettering van de dienst onleesbaar, vraag dan je eigen met een SLD in de GetMap.**
+  De laag adverteert één stijl en geen variant met halo, en haar eigen letters zijn dun, klein en
+  grijs boven de GRB-ondergrond. `MapEntry.sld_body` reist mee als `SLD_BODY`: de dienst tekent de
+  geometrie, wij bepalen alleen de letters (vet, zwart, witte halo, `followLine`). Twee dingen die
+  stilletjes fout gaan:
+  - **De NamedLayer draagt de KALE laagnaam.** Met het workspace-voorvoegsel matcht GeoServer
+    niets, valt terug op zijn eigen stijl en meldt niets - live 2026-09-21 byte voor byte hetzelfde
+    beeld als zonder SLD. Wie hier iets verandert: ophalen en naar het plaatje KIJKEN.
+  - **De URL moet kort blijven.** De gateway voor de GeoServer van DOV antwoordt 502 Bad Gateway
+    op een lange GetMap: mét inspringing 3120 tekens en 0 van de 5 pogingen gelukt, zonder
+    witruimte 1905 tekens en 5 van de 5 (live gemeten). `_compact_xml` haalt de witruimte eruit,
+    zodat de stijl leesbaar in de broncode staat en compact over de lijn gaat.
+- **Elk puntlabel op een rapportkaart krijgt een witte halo** (`layers._label_format`). Zonder halo
+  liepen de sondeer- en boornummers in het midden van de overzichtskaart in elkaar over tot een
+  veeg, dwars over daken en water. Labels die dan nog botsen worden weggelaten in plaats van
+  overheen getekend (`_drop_colliding_labels`; de spelling verhuisde in 3.32, ouder valt terug op
+  het standaardgedrag van de engine).
 - **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
   (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
   `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
