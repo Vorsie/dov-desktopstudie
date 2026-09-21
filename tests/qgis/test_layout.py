@@ -723,6 +723,32 @@ def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_
         StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == ({}, set())
 
 
+def test_a_profile_type_the_wfs_gives_no_drawing_link_for_counts_as_unpublished(gent_zone, tmp_path):
+    """Het rapport sprak zichzelf tegen: onder de kaart stond "tekening niet opgehaald - zie
+    hoofdstuk Bronnen" terwijl de Feiten "Bronnen niet beschikbaar: 0" zeiden en hoofdstuk Bronnen
+    er geen regel over had. De WFS gaf voor dat profieltype namelijk geen enkele link, dus werd er
+    ook nooit iets opgehaald en viel er niets te melden. Geen link is hetzelfde feit als een
+    niet-gevonden-pagina: DOV publiceert hier geen tekening."""
+    from desktopstudie.core.model import MapFact, StudyResult
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+    from tests import quartair
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            raise AssertionError(f"er is geen link, en toch gevraagd: {url}")
+
+    result = StudyResult(zone=gent_zone, created_at="t")
+    result.map_facts = [MapFact("quartair", quartair.TITLE,
+                                [{"profieltype": "13064", "legende": None}])]
+
+    images, unpublished = layout.prepare_zone_legend_images(result, tmp_path,
+                                                            _Client(cache_dir=None))
+
+    assert images == {}
+    assert unpublished == {"13064"}
+
+
 # --- overige pagina's ------------------------------------------------------------------------
 
 def test_the_table_page_has_a_frame_the_columns_and_runs_on(make_layout):
