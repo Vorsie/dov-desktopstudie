@@ -814,6 +814,34 @@ def test_no_report_text_addresses_the_developer(gent_ring):
             assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
 
 
+def test_no_report_text_shows_a_python_error(gent_ring):
+    """Geen enkele rapporttekst toont een Python-foutmelding.
+
+    Een willekeurige studie leverde in het rapport van een klant: "Bron niet beschikbaar:
+    HttpError: netwerkfout voor https://.../g3dv3_F: [Errno 11001] getaddrinfo failed". Wie een
+    geotechnische studie leest komt geen errno en geen getaddrinfo tegen; er hoort te staan dat de
+    dienst niet bereikbaar was. De technische tekst blijft in het log en in studie.json.
+    """
+    from desktopstudie.core import checks
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance.append(Provenance(
+        "Virtuele boring g3dv3_F", "https://services.dov.vlaanderen.be/x/g3dv3_F",
+        "2026-09-21T18:24:05", False,
+        "HttpError: netwerkfout voor https://services.dov.vlaanderen.be/x/g3dv3_F: "
+        "[Errno 11001] getaddrinfo failed"))
+    result.signaleringen = checks.run_all(result)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    texts = _all_text(report)
+    for word in ("getaddrinfo", "Errno", "HttpError", "Traceback"):
+        for text in texts:
+            assert word not in text, f"Python-foutmelding {word!r} in het rapport: {text!r}"
+    assert any("niet bereikbaar" in text for text in texts), (
+        "en er hoort wel te staan dat de bron niet bereikbaar was")
+
+
 def test_a_boolean_from_a_service_is_printed_in_dutch(gent_ring):
     """"Risico-inrichting: True" in een Nederlandstalige tabel is Python, geen rapporttaal. De
     dienst antwoordt met een booleaanse waarde; op papier staat er ja of nee."""
