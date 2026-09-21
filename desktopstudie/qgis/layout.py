@@ -949,6 +949,11 @@ def wms_map_url(entry: MapEntry, extent: QgsRectangle, width: int, height: int) 
               "TRANSPARENT": "TRUE", "WIDTH": width, "HEIGHT": height,
               "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
                       f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
+    if entry.sld_body:
+        # Our own lettering for a map whose published style is unreadable at report size. The
+        # service still draws the geometry; only the labels are ours. It travels in the URL, so
+        # this one map has a GetMap of a few kilobytes - the sources table prints it shortened.
+        params["SLD_BODY"] = entry.sld_body
     return build_url(entry.wms_url, params)
 
 
