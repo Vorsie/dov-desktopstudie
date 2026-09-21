@@ -595,7 +595,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     lines = []
     result = _quartair_result(gent_zone, ["22026", "22010", "22026", "22098"])
 
-    images = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+    images, _unpublished = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
                                                Log("layout", lines.append, scope="qgis"))
 
     # Een kopstrook per profieltype, en de eenhedentabel een keer voor het hele kaartblad.
@@ -629,7 +629,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     header = QImage(str(images[profile_image_key("22026")]))
@@ -656,7 +656,7 @@ def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     whole = QImage(str(tmp_path / "bron.png"))
@@ -684,7 +684,7 @@ def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_p
             asked.append(cache_mode)
             return b"<html><body>DSpace</body></html>" if len(asked) == 1 else blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images
@@ -701,7 +701,7 @@ def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path,
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return b"<html><body>Service unavailable</body></html>"
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert images == {}
@@ -718,7 +718,7 @@ def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_
             raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
 
     assert layout.prepare_zone_legend_images(
-        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == {}
+        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == ({}, set())
 
 
 # --- overige pagina's ------------------------------------------------------------------------
@@ -1595,7 +1595,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
             forgotten.append(url)
             return True
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images, (

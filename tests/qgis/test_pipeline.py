@@ -533,7 +533,7 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     header = write_png(tmp_path / "legendas" / "quartair_22026_kop.png")
     monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
-                        {profile_image_key("22026"): header})
+                        ({profile_image_key("22026"): header}, set()))
 
     pipeline._fetch_zone_legends(core_result, {"https://dov/22026_png": "22026"}, tmp_path, None,
                                  _log(), None)
