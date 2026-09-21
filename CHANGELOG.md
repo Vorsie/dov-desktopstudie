@@ -32,6 +32,42 @@ en drie willekeurige studies per ronde zoeken de fouten die Gent nooit laat zien
   de periodetabel van hoofdstuk 4 niet al zegt (daar staat de quartairdikte als getal). De zin over
   de ontbrekende dekking verhuist naar het verzamelblad; staat hoofdstuk 4 uit, dan blijft die zin
   er staan.
+- **De krimp-zwelkaart zegt eindelijk iets.** Ze vroeg haar feiten aan
+  `plastische_gronden:IndexPlastisch` - een index van de G3Dv3-eenheden die beoordeeld zijn, niet
+  van de gevoeligheid. Die index antwoordt alleen waar zo'n eenheid ligt, dus zweeg het rapport in
+  Brasschaat (de kaart tekent daar klasse 1) en in Brugge (klasse 4, hoog), en gaf het in Wervik
+  een eenheidsnaam in plaats van de klasse. De klasse staat op de kaart zelf
+  (`Categorie_gevoeligheid`, GetFeatureInfo in `application/json`) en staat nu in de tabel onder de
+  kaart, met de klassewoorden van de dienst erbij (laag [2]). De signalering telt niet langer het
+  aantal rijen maar de klasse: vanaf 2 een aandachtspunt, met de klasse in de regel.
+- **En ze is leesbaar getekend.** Een blad van zes kleuren zonder iets eronder liet niet zien waar
+  iets lag. De kaart krijgt de GRB-basiskaart als ondergrond, staat op 0,6 in plaats van 0,7 en
+  gaat van 1:25 000 naar 1:35 000; straten, gebouwen en de waterlopen lezen door en het patroon
+  rond de zone staat in beeld. Daaronder staat de sleutel die de dienst zelf tekent
+  (GetLegendGraphic: 0 niet-ingedeeld tot 5 zeer hoog), zodat de kleuren een naam hebben.
+  `opacity` bereikte het blad tot nu toe alleen via een ondergrond, dus de 0,7 van deze kaart deed
+  daar niets - dat staat nu bij het veld.
+- **Een grofmazige kaart wordt grofmazig bevraagd.** Het rooster van de krimp-zwelkaart is 100 m,
+  en op een meter per beeldpunt antwoordt GeoServer met nul objecten: geen fout, gewoon niets, wat
+  in het rapport leest als "de kaart zegt hier niets" boven een kaart die er wel degelijk een
+  klasse tekent. Vanaf drie meter per beeldpunt komt het antwoord (live gemeten op drie punten).
+  De kaart zegt zelf hoe grof ze bevraagd wil worden (`MapEntry.gfi_m_per_pixel`); de fijne
+  kaarten blijven op hun eigen rooster, want grover bevraagd verschuift de GLG van 3,54 naar
+  3,52 m.
+- **Een profieltype zonder tekeninglink heet ook "niet gepubliceerd".** Gaf de WFS geen link, dan
+  werd er niets opgehaald en dus ook niets vastgelegd - terwijl de legendaregel onder de kaart de
+  lezer naar het hoofdstuk Bronnen stuurde, waar niets over die tekening stond en de Feiten
+  "Bronnen niet beschikbaar: 0" meldden. Hetzelfde feit als een niet-gevonden-pagina, een stap
+  eerder bereikt: er valt niets te halen. De eenhedentabel van het kaartblad wordt uit diezelfde
+  tekening gesneden, dus een kaartblad waarvan het enige profieltype hier belandt krijgt ook geen
+  eenhedenblad; de regel in Bronnen verklaart nu allebei.
+- **Geen Python-foutmeldingen meer in het rapport.** "Bron niet beschikbaar: HttpError:
+  netwerkfout voor https://.../g3dv3_F: [Errno 11001] getaddrinfo failed" stond zo in het rapport
+  van een klant, zowel bij de signaleringen als in de bronnentabel. Er staat nu "de dienst was
+  niet bereikbaar", "de dienst antwoordde met foutcode HTTP 502" of "de dienst antwoordde niet
+  zoals verwacht"; de technische tekst blijft in het log en in `studie.json`. Toelaten in plaats
+  van verbieden: een bericht zonder klassenaam ervoor is door de plugin zelf voor de lezer
+  geschreven en gaat ongewijzigd door.
 - **Een tekening die DOV niet publiceert heet nu zo.** Het portaal antwoordt voor een onbestaand
   profieltype met HTTP 200 en een DSpace-pagina die "not found" zegt; dat werd gelezen als een
   mislukte ophaling. `dov_portal.says_not_found` herkent die pagina aan haar inhoud, niet aan haar
