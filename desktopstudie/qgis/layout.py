@@ -792,20 +792,23 @@ def crop_profile_header(path, log=None) -> Optional[Path]:
                     "Kopstrook", log)
 
 
-def _log_rows_without_a_drawing(result: StudyResult, targets: Dict[str, str], log) -> None:
-    """Say which profile types carry no usable drawing URL - what was NOT found is a finding too.
+def codes_without_a_drawing(result: StudyResult, targets: Dict[str, str], log=None) -> Set[str]:
+    """The profile types the WFS gave no usable drawing URL for.
 
-    A row with a code but without a legend link leaves the legend page with a line and no picture,
-    and without this line nobody could tell that from a download that failed.
+    The same fact as a portal page that says not found, reached one step earlier: there is nothing
+    to fetch, so DOV publishes no drawing for this type. Read as "not fetched" it made the report
+    contradict itself - a legend line sending the reader to a sources chapter that never mentioned
+    it, because nothing was ever fetched and so nothing was ever recorded. The units table of the
+    map sheet is cut from that same drawing, so a sheet whose only type lands here has no units
+    page either; the line in the sources chapter is what explains both.
     """
-    if log is None:
-        return
     known = set(targets.values())
-    missing = sorted({str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
-                      if fact.map_id == QUARTAIR_ID for row in fact.rows
-                      if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known})
-    if missing:
-        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(missing)}")
+    missing = {str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
+               if fact.map_id == QUARTAIR_ID for row in fact.rows
+               if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known}
+    if missing and log is not None:
+        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(sorted(missing))}")
+    return missing
 
 
 def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
@@ -826,11 +829,11 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     checked before they are saved as an image.
     """
     targets = zone_legend_targets(result)
-    _log_rows_without_a_drawing(result, targets, log)
     drawings: Dict[str, Path] = {}
-    # De codes waarvoor het portaal zegt dat er niets bestaat. Apart van "niet opgehaald": de
-    # bron publiceert hier niets, en dat is een feit en geen storing.
-    unpublished: Set[str] = set()
+    # De codes waarvoor er niets te halen valt: het portaal zegt dat er niets bestaat, of de WFS
+    # gaf geen enkele link. Apart van "niet opgehaald": de bron publiceert hier niets, en dat is
+    # een feit en geen storing.
+    unpublished: Set[str] = codes_without_a_drawing(result, targets, log)
     out_dir = Path(out_dir)
 
     def fetch(item: Tuple[str, str]) -> None:
