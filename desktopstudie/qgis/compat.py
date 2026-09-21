@@ -36,6 +36,26 @@ def size_mm(width: float, height: float) -> QgsLayoutSize:
     return QgsLayoutSize(width, height, MM)
 
 
+def drop_colliding_labels(settings) -> None:
+    """Leave a label out rather than draw it over one already placed.
+
+    The knob moved: QGIS 3.32 introduced `QgsPalLayerSettings.placementSettings()` carrying
+    `setOverlapHandling`, and that is the only spelling 4.x has. On 3.34 through 4.x it is there;
+    on anything older it is not, and there the labelling engine's own default already drops what
+    does not fit, so nothing is lost and nothing is pretended.
+
+    Never read label settings BACK off a layer to check this (or the text buffer, or anything
+    else): `QgsVectorLayerSimpleLabeling.settings()` hands out an object that does not survive the
+    call. On 3.34 dereferencing it segfaults the process; on 4.x it answers with defaults, so it
+    will cheerfully tell you a halo is absent while the map draws one. Measure the rendered image
+    instead - `tests/qgis/test_layers.py::_halo_pixels` does exactly that.
+    """
+    handling = getattr(Qgis, "LabelOverlapHandling", None)
+    placement = getattr(settings, "placementSettings", None)
+    if handling is not None and placement is not None:
+        placement().setOverlapHandling(handling.PreventOverlap)
+
+
 def qgis_version() -> str:
     """The running QGIS version, e.g. "3.40.15-Bratislava"."""
     return Qgis.QGIS_VERSION
