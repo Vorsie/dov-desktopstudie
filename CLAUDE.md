@@ -661,6 +661,15 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   _wait_until` spoelt de `DeferredDelete`-events door na het wachten.
 - Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
 - Figuren visueel controleren: `python scripts/render_figures.py` → `uitvoer/figuren_check/`.
+- **Zoek bugs op plaatsen die niemand gekozen heeft: `scripts/random_study.py`.** Alles wat we
+  renderden was Gent, en de twee ergste meldingen kwamen van een gebruiker die ergens anders keek.
+  Het script prikt een willekeurig punt in Vlaanderen (getoetst aan `VRBG:Refgem`, dus geen zee en
+  geen Nederland), draait er een volledige studie en kijkt het resultaat daarna zelf na: bladen
+  onder 2 % inkt, een kaart die niets tekent, een kaart die WEL iets tekent maar geen feitenrij
+  oplevert (dat was de GHG-bug), en opmerkingsregels die in ruis verzuipen (dat was de andere).
+  Elke bevinding is een regel met run, plaats en bladnummer; de seed staat erbij zodat een reeks
+  exact te herhalen is. Haperende diensten staan apart van echte bevindingen - een timeout bij DOV
+  is geen fout van ons, en een run met alleen haperingen slaagt.
 
 ## Bekende architecturale schuld
 
