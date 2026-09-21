@@ -7,7 +7,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from . import catalogue, lithology
 from .catalogue import WATERTOETS_LABELS
-from .model import Signalering, StudyResult, VirtualBorehole
+from .model import Signalering, StudyResult, VirtualBorehole, plain_reason
 from .services.virtuele_boring import layers_named
 
 SOFT_WORDS = re.compile(r"\b(klei|veen|leem)\b")
@@ -359,7 +359,7 @@ def check_sources(result: StudyResult) -> List[Signalering]:
         chapter = _chapter_of(p.source)
         where = f"Hoofdstuk {chapter} is onvolledig" if chapter else "Het rapport is onvolledig"
         out.append(Signalering(
-            "bron_niet_beschikbaar", f"Bron niet beschikbaar: {p.message}", p.source,
+            "bron_niet_beschikbaar", f"Bron niet beschikbaar: {plain_reason(p.message)}", p.source,
             f"{where}; bron later opnieuw raadplegen.", severity="aandacht"))
     return out
 
