@@ -59,7 +59,6 @@ from qgis.core import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import (
     QColor,
-    QFont,
     QFontMetricsF,
     QImage,
     QPainter,
@@ -89,7 +88,7 @@ from ..core.report_content import (
 from ..core.services.dov_portal import PNG_MAGIC, content_link
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from . import layers
-from .compat import point_mm, size_mm
+from .compat import house_font, point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
 from .layers import CRS_AUTHID
 
@@ -122,10 +121,6 @@ LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
 LEGEND_DIR = "legendas"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
-# Arial is the house face, but the PDF is also produced on the Linux CI images and on machines that
-# do not have it. Naming the substitutes keeps the metrics predictable instead of leaving the
-# choice to whatever fontconfig happens to pick first.
-FONT_FAMILIES = ["Arial", "Liberation Sans", "DejaVu Sans"]
 BOX_BACKGROUND = QColor(255, 255, 255)  # opaque: the info boxes sit on top of the map
 SCALE_BAR_STYLE = "Single Box"
 SCALE_BAR_SEGMENTS = 2
@@ -304,15 +299,6 @@ def _page_metrics(orientation=PORTRAIT) -> PageMetrics:
     return _METRICS[orientation]
 
 
-def _font(size: float, bold: bool = False) -> QFont:
-    """A layout font in the house face, with the fallbacks that keep a Linux export readable."""
-    font = QFont(FONT_FAMILIES[0], int(size))
-    if hasattr(font, "setFamilies"):  # Qt >= 5.13, so every supported QGIS - but cheap to ask
-        font.setFamilies(FONT_FAMILIES)
-    font.setBold(bold)
-    return font
-
-
 def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
     """The text format for a label, a table or a scale bar.
 
@@ -321,7 +307,7 @@ def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
     the size is set twice on purpose - the one on the QFont only decides which face gets loaded.
     """
     text_format = QgsTextFormat()
-    text_format.setFont(_font(size, bold))
+    text_format.setFont(house_font(size, bold))
     text_format.setSize(size)
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
     return text_format
@@ -345,7 +331,7 @@ def _text_width_mm(strings: Sequence[str], size: float, bold: bool = False) -> f
     dots_per_metre = int(round(1000.0 / 25.4 * 96.0))  # 96 dpi, the resolution MM_PER_PX assumes
     device.setDotsPerMeterX(dots_per_metre)
     device.setDotsPerMeterY(dots_per_metre)
-    metrics = QFontMetricsF(_font(size, bold), device)
+    metrics = QFontMetricsF(house_font(size, bold), device)
     widest = max((metrics.horizontalAdvance(str(text)) for text in strings), default=0.0)
     return widest * MM_PER_PX * TEXT_WIDTH_FUDGE
 
