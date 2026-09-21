@@ -247,14 +247,18 @@ GUIDE_EROSIE = (
     "streepje betekent dat het perceel geen klasse heeft. "
     "De kaart bestaat alleen voor landbouwpercelen, dus een zone zonder percelen levert geen "
     "rijen op.")
+# De klassen van de dienst, in haar eigen woorden: de GetLegendGraphic van `krimp_zwel` noemt
+# 0 (niet-ingedeeld), 1 (zeer laag), 2 (laag), 3 (matig), 4 (hoog) en 5 (zeer hoog)
+# (live gelezen 2026-09-21).
+KRIMP_ZWEL_CLASSES = {"0": "niet-ingedeeld", "1": "zeer laag", "2": "laag", "3": "matig",
+                      "4": "hoog", "5": "zeer hoog"}
 GUIDE_KRIMP_ZWEL = (
     "Deze kaart toont waar plastische gronden voorkomen: klei- en silthoudende lagen die uitzetten "
     "als ze nat worden en krimpen als ze uitdrogen. "
     "Die beweging kan funderingen en verhardingen doen scheuren, vooral bij ondiep funderen. "
-    "De kolom Hoofdlithologie zegt waaruit de laag hoofdzakelijk bestaat: klei of silt is "
-    "gevoelig, grind en zand niet. "
-    "Eenheid en code benoemen de geologische laag uit het model G3Dv3 waarop de beoordeling "
-    "slaat.")
+    "De dienst deelt elke plek in een klasse in: 0 niet-ingedeeld, 1 zeer laag, 2 laag, 3 matig, "
+    "4 hoog en 5 zeer hoog. De tabel onder de kaart geeft de klasse op het representatieve punt "
+    "en op de rand van de zone; ligt de zone over twee klassen, dan staan ze er allebei.")
 GUIDE_PFAS = (
     "Deze kaart toont de zones waarvoor de Vlaamse overheid no-regretmaatregelen rond "
     "PFAS-verontreiniging heeft afgekondigd. "
@@ -385,11 +389,17 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
-         empty_meaning: str = "", sld_body: str = "") -> MapEntry:
+         empty_meaning: str = "", sld_body: str = "", gfi: str = "") -> MapEntry:
+    """One DOV map. `wfs` asks a separate feature type for the facts; `gfi` (an INFO_FORMAT) asks
+    the drawn map itself. A map whose value IS the colour has to use `gfi`: a neighbouring feature
+    type can be an index of something else entirely and then answers nothing where the map is
+    perfectly clear."""
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
-                    legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
+                    legend=legend, opacity=opacity,
+                    fact_mode="wfs" if wfs else ("gfi" if gfi else None),
+                    gfi_format=gfi or MapEntry.gfi_format, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
                     empty_meaning=empty_meaning, sld_body=sld_body)
@@ -549,10 +559,16 @@ CATALOGUE: List[MapEntry] = [
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          field_labels={"Erosieklasse_ALV": "Erosieklasse", "Totale_erosie": "Totale erosie"},
          guide=GUIDE_EROSIE, scale=10000, backdrop=True),
+    # De klasse staat op de kaart zelf (`Categorie_gevoeligheid`), niet in `IndexPlastisch`: die
+    # index noemt de beoordeelde G3Dv3-eenheden en antwoordt alleen waar zo'n eenheid ligt. Met de
+    # index zweeg het rapport in Brugge, waar de kaart klasse 4 (hoog) tekent. DOV's GeoServer
+    # antwoordt hier in `application/json`; op `application/geo+json` geeft ze een
+    # ServiceExceptionReport (live 2026-09-21).
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
-         ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch",
-         field_labels={"Eenheid_G3Dv3_0": "Eenheid", "hoofdlithologie": "Hoofdlithologie",
-                       "code_G3Dv3_0": "Code"}, guide=GUIDE_KRIMP_ZWEL, scale=25000),
+         ("Categorie_gevoeligheid",), gfi="application/json",
+         labels={"Categorie_gevoeligheid": KRIMP_ZWEL_CLASSES},
+         field_labels={"Categorie_gevoeligheid": "Gevoeligheidsklasse"},
+         guide=GUIDE_KRIMP_ZWEL, scale=25000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
