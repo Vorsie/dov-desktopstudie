@@ -168,8 +168,10 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     top = [group.name() for group in project.layerTreeRoot().findGroups()]
     assert top == [pipeline.study_group_name("Testproject")]
     study = project.layerTreeRoot().findGroup(top[0])
+    # Eerst de eigen lagen van de studie, dan pas de hoofdstukken met hun kaarten: wat onderaan
+    # staat tekent eerst, en daar hoort de zonecirkel niet thuis.
     assert [group.name() for group in study.findGroups()] == \
-        list(pipeline.CHAPTER_GROUPS.values()) + ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
+        ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"] + list(pipeline.CHAPTER_GROUPS.values())
     assert project.layoutManager().layoutByName(layout.layout_name("Testproject")) is not None
 
 
