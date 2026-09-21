@@ -476,3 +476,15 @@ def test_the_shrink_swell_map_is_drawn_to_be_read():
     assert entry.backdrop, "zonder ondergrond hangen de klassen aan niets"
     assert entry.opacity == 0.6
     assert entry.scale == 35000
+
+
+def test_the_shrink_swell_map_says_how_coarsely_to_ask_it():
+    """De klassenkaart ligt op een rooster van 100 m en antwoordt niets als ze op een meter per
+    beeldpunt bevraagd wordt (live 2026-09-21, drie punten). Ze zegt dat zelf, zodat de fijne
+    kaarten - GHG en GLG - op hun eigen rooster blijven: grover bevraagd verschuift de GLG van
+    3,54 naar 3,52 m."""
+    from desktopstudie.core import catalogue
+
+    assert catalogue.by_id("krimp_zwel").gfi_m_per_pixel == 10.0
+    for map_id in ("gxg_ghg", "gxg_glg", "watertoets_fluviaal", "watertoets_pluviaal"):
+        assert catalogue.by_id(map_id).gfi_m_per_pixel == 0.0, map_id
