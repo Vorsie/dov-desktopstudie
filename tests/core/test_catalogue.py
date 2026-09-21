@@ -426,3 +426,28 @@ def test_the_isopachs_ask_for_their_own_lettering():
     assert "Dikte_Quartair_m" in sld
     assert all(entry.sld_body == "" for entry in catalogue.CATALOGUE
                if entry.id != "quartair_dikte"), "alleen deze kaart heeft het nodig"
+
+
+def test_the_shrink_swell_map_asks_for_its_own_class_not_an_index_of_units():
+    """De kaart gaat over een gevoeligheidsklasse en die stond nergens in het rapport. Ze werd
+    bevraagd via `plastische_gronden:IndexPlastisch`, een index van de G3Dv3-eenheden die
+    beoordeeld zijn - niet van de gevoeligheid. Die index antwoordt alleen waar zo'n eenheid
+    ligt, dus zweeg het rapport in Brasschaat (klasse 1) en in Brugge (klasse 4, hoog) en gaf het
+    in Wervik een eenheidsnaam in plaats van de klasse.
+
+    Live geverifieerd op 2026-09-21, GetFeatureInfo op `plastische_gronden:krimp_zwel` in
+    `application/json` (`application/geo+json` geeft een ServiceExceptionReport):
+    `Categorie_gevoeligheid` = 1 op 157084,4/221428,5 (Brasschaat), 4 op 67624,8/212695,4 (Brugge)
+    en 2 op 57611,6/165524,9 (Wervik). De legenda van de dienst noemt 0 niet-ingedeeld, 1 zeer
+    laag, 2 laag, 3 matig, 4 hoog, 5 zeer hoog.
+    """
+    from desktopstudie.core import catalogue
+
+    entry = catalogue.by_id("krimp_zwel")
+    assert entry.fact_mode == "gfi", "de klasse staat op de kaart zelf, niet in een index"
+    assert entry.wfs_typename is None
+    assert entry.gfi_format == "application/json"
+    assert entry.fact_fields == ("Categorie_gevoeligheid",)
+    labels = entry.value_labels["Categorie_gevoeligheid"]
+    assert labels["4"] == "hoog" and labels["0"] == "niet-ingedeeld"
+    assert "zeer hoog" in entry.reading_guide and "niet-ingedeeld" in entry.reading_guide
