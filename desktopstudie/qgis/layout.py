@@ -85,7 +85,7 @@ from ..core.report_content import (
     quartair_sheet,
     sheet_image_key,
 )
-from ..core.services.dov_portal import PNG_MAGIC, content_link
+from ..core.services.dov_portal import PNG_MAGIC, content_link, says_not_found
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from . import layers
 from .compat import house_font, point_mm, size_mm
@@ -258,6 +258,10 @@ LEGEND_LABEL_H = 5.0
 LEGEND_GAP = 4.0
 LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
+# Twee verschillende zinnen voor twee verschillende dingen. "Niet opgehaald" nodigt uit om het nog
+# eens te proberen; publiceert DOV hier niets, dan valt er niets te proberen en is dat een feit
+# over de bron. Het portaal antwoordt in beide gevallen met HTTP 200, dus de pagina beslist.
+NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 ZONE_LEGEND_SHEET = "kaartblad_"
 HEADER_SUFFIX = "_kop"
 # A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
@@ -274,6 +278,10 @@ ZONE_LEGEND_TRIES = 2
 # One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
+# Een profieltypetekening is geen GetLegendGraphic-stempel maar een bestand uit een documentportaal
+# - 168 kB is normaal - en op een trage dag haalt dat de vijftien seconden hierboven niet. Ruimer,
+# maar begrensd: twee pogingen van dertig seconden is de bovengrens die een run nog draaglijk houdt.
+DRAWING_TIMEOUT_S = 30.0
 LEGEND_RETRIES = 1
 
 
@@ -670,6 +678,14 @@ def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
     return targets
 
 
+class NoDrawingPublished(Exception):
+    """Het portaal antwoordt met een niet-gevonden-pagina: DOV publiceert hier geen tekening.
+
+    Een eigen fout en geen `HttpError`, want het is geen storing. De lezer krijgt er een andere
+    zin bij: een feit over de bron in plaats van een uitnodiging om het nog eens te proberen.
+    """
+
+
 def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
     """One profile-type drawing, or an HttpError saying what came back instead.
 
@@ -682,13 +698,19 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
     # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
     # so a bad cached answer costs one request, not none and not two.
     for attempt in range(ZONE_LEGEND_TRIES):
-        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES,
+        data = client.get(url, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES,
                           cache_mode="refresh" if attempt else None)
         if data.startswith(PNG_MAGIC):
             return data
         # Geen bestand, dus niets om te bewaren: anders dient de cache deze pagina bij elke
         # volgende run zonder netwerk weer op.
         client.forget(url)
+        if says_not_found(data):
+            # Niet nog eens proberen: deze pagina zegt dat het document niet bestaat, en een
+            # tweede poging levert dezelfde pagina op.
+            if log:
+                log.info(f"Profieltype {code}: het portaal publiceert hiervoor geen tekening")
+            raise NoDrawingPublished(code)
         if log:
             log.warning(f"Profieltype {code}: antwoord {attempt + 1}/{ZONE_LEGEND_TRIES} is geen PNG "
                         f"({len(data)} bytes)")
@@ -696,7 +718,7 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
         if link:
             if log:
                 log.info(f"Profieltype {code}: de pagina wijst naar het bestand zelf, die link volgen")
-            found = client.get(link, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
+            found = client.get(link, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES)
             if found.startswith(PNG_MAGIC):
                 return found
             client.forget(link)
@@ -783,7 +805,7 @@ def _log_rows_without_a_drawing(result: StudyResult, targets: Dict[str, str], lo
 
 def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
                                should_cancel: Optional[Callable[[], bool]] = None
-                               ) -> Dict[str, Path]:
+                               ) -> Tuple[Dict[str, Path], Set[str]]:
     """The DOV drawings behind the quartair zone legend, by the key `report_content` looks them up
     with: `profieltype:<code>` for the header strip of one type, `kaartblad:<nn>` for the units
     table of a whole map sheet.
@@ -801,11 +823,18 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     targets = zone_legend_targets(result)
     _log_rows_without_a_drawing(result, targets, log)
     drawings: Dict[str, Path] = {}
+    # De codes waarvoor het portaal zegt dat er niets bestaat. Apart van "niet opgehaald": de
+    # bron publiceert hier niets, en dat is een feit en geen storing.
+    unpublished: Set[str] = set()
     out_dir = Path(out_dir)
 
     def fetch(item: Tuple[str, str]) -> None:
         url, code = item
-        data = _drawing_bytes(client, url, code, log)
+        try:
+            data = _drawing_bytes(client, url, code, log)
+        except NoDrawingPublished:
+            unpublished.add(code)
+            return
         path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
@@ -834,7 +863,7 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     if log and targets:
         log.info(f"Profieltypetekeningen opgehaald: {len(drawings)}/{len(targets)}; "
                  f"{len(images)} bladen in het rapport")
-    return images
+    return images, unpublished
 
 
 def overlay_boxes(result: StudyResult) -> Dict[str, List[BBox]]:
@@ -1309,7 +1338,8 @@ class LayoutBuilder:
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None, compact: bool = False):
+                 name: Optional[str] = None, compact: bool = False,
+                 unpublished: Optional[Set[str]] = None):
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
         to draw on top of its map image; name: what the layout is called in the layout manager
         (`layout_name`), the bare plugin name when left empty;
@@ -1329,6 +1359,8 @@ class LayoutBuilder:
         self.compact = compact
         self.legend_images = dict(legend_images or {})
         self.no_coverage = set(no_coverage or ())
+        # Profieltypes waarvoor het portaal zegt dat er geen tekening bestaat.
+        self.unpublished = set(unpublished or ())
         self.map_images = dict(map_images or {})
         self.log = log
         self.should_cancel = should_cancel or (lambda: False)
@@ -1906,7 +1938,9 @@ class LayoutBuilder:
                        LEGEND_LABEL_H, index, size=9, bold=True)
             y += LEGEND_LABEL_H
             if not entry.image_path:
-                self.label(MISSING_DRAWING, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
+                said = (NO_DRAWING_PUBLISHED if entry.code in self.unpublished
+                        else MISSING_DRAWING)
+                self.label(said, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
                 y += LEGEND_LABEL_H + LEGEND_GAP
                 continue
             picture = QgsLayoutItemPicture(self.layout)
@@ -2270,8 +2304,10 @@ def build_layout(project: QgsProject, report: Report,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None, compact: bool = False) -> QgsPrintLayout:
+                 name: Optional[str] = None, compact: bool = False,
+                 unpublished: Optional[Set[str]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
-                         map_images, overlay_boxes, name, compact).build()
+                         map_images, overlay_boxes, name, compact,
+                         unpublished).build()
