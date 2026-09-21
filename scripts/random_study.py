@@ -35,7 +35,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qgis.core import QgsApplication, QgsProject  # noqa: E402
 
-from desktopstudie.core import geometry  # noqa: E402
+from desktopstudie.core import catalogue, geometry  # noqa: E402
 from desktopstudie.core.logging_util import Log  # noqa: E402
 from desktopstudie.core.model import StudyZone  # noqa: E402
 from desktopstudie.core.report_content import ReportMeta  # noqa: E402
@@ -108,15 +108,19 @@ def _uniform(path: Path) -> bool:
     return bool((arr == arr[0, 0]).all())
 
 
-def _page_titles(report) -> Dict[int, str]:
-    """Bladnummer -> titel, voor zover het rapport dat zelf weet."""
-    titles: Dict[int, str] = {}
-    number = 1
-    for chapter in report.chapters:
-        for page in chapter.pages:
-            titles[number] = f"{chapter.number}. {chapter.title} - {page.title}"
-            number += 1
-    return titles
+def _page_titles(report, sheets: int) -> Dict[int, str]:
+    """Bladnummer -> titel, maar alleen als die twee een op een lopen.
+
+    Een rapportpagina is niet hetzelfde als een blad: een lange tabel loopt door over meerdere
+    bladen en twee korte stukken delen er een. Zodra die aantallen verschillen klopt de toewijzing
+    niet meer, en een verkeerde titel bij een bladnummer is erger dan geen titel - dan zoekt de
+    lezer op de verkeerde plaats. Dus liever niets zeggen dan iets verzinnen.
+    """
+    pages = [f"{chapter.number}. {chapter.title} - {page.title}"
+             for chapter in report.chapters for page in chapter.pages]
+    if len(pages) != sheets:
+        return {}
+    return {number: title for number, title in enumerate(pages, start=1)}
 
 
 def _map_image(out: Path, map_id: str) -> Optional[Path]:
@@ -138,18 +142,22 @@ def inspect(run: int, where: str, out: Path, outcome, _log: Log) -> Findings:
     for failure in outcome.failures:
         found.ours.append(f"run {run} {where}: product mislukt - {failure}")
 
-    titles = _page_titles(outcome.report)
+    titles = _page_titles(outcome.report, outcome.sheets)
     for png in sorted(out.glob("paginas/pagina*.png")):
         number = _page_number(png)
         share = _ink(png)
         if share < BLANK_SHEET:
-            found.ours.append(f"run {run} {where}: blad {number} is {share:.1%} inkt - "
-                              f"{titles.get(number, '?')}")
+            title = titles.get(number)
+            found.ours.append(f"run {run} {where}: blad {number} is {share:.1%} inkt"
+                              + (f" - {title}" if title else ""))
 
     # De twee gevallen die ons deze week beten, allebei machinaal te zien: een kaart die wel iets
     # tekent maar geen feiten oplevert, en een opmerkingsregel die in ruis verzuipt.
     for fact in outcome.result.map_facts:
-        if fact.rows:
+        entry = catalogue.by_id(fact.map_id)
+        # Een kaart MET ondergrond is nooit uniform - de basiskaart staat er altijd onder - dus
+        # daarop zegt deze proef niets en zwijgt ze liever dan elke lege kaart aan te wijzen.
+        if fact.rows or entry is None or entry.backdrop:
             continue
         image = _map_image(out, fact.map_id)
         if image is not None and not _uniform(image):
@@ -158,11 +166,13 @@ def inspect(run: int, where: str, out: Path, outcome, _log: Log) -> Findings:
     for signal in outcome.result.signaleringen:
         if signal.code != "boring_opmerking":
             continue
-        terms = signal.fact.split("vermeldt", 1)[-1].split(";")
+        # Alleen de TERMEN, niet de geciteerde zin erachter: daar hoort een kleur gewoon in thuis.
+        listed = signal.fact.split("vermeldt", 1)[-1].split("; op ", 1)[0]
+        terms = listed.split(";")
         if len(terms) > MAX_REMARK_TERMS:
             found.ours.append(f"run {run} {where}: opmerkingsregel met {len(terms)} termen - "
                               f"{signal.source}")
-        noisy = [word for word in NOISE_WORDS if word in signal.fact.lower()]
+        noisy = [word for word in NOISE_WORDS if word in listed.lower()]
         if noisy:
             found.ours.append(f"run {run} {where}: ruiswoord in de opmerkingen {noisy} - "
                               f"{signal.source}")
