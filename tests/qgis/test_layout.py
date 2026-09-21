@@ -1139,6 +1139,42 @@ def test_a_table_without_rows_prints_its_reason_and_no_empty_header(project, gen
     assert _items_of(lay, 1, QgsLayoutFrame) == [], "geen tabelkader zonder rijen"
 
 
+def test_a_zone_legend_never_prints_a_header_with_nothing_under_it(project, gent_zone, tmp_path):
+    """Onder "Legenda voor de zone - Krimp-zwelgevoelige gronden" stond een enkele kopcel
+    "Gevoeligheidsklasse" en geen regel eronder; de regel zelf stond op het blad erna.
+
+    De tabel had haar rij wel degelijk - `map_facts` droeg klasse 2 en de signalering noemde ze -
+    maar er was onder de kaart net geen plaats meer voor kop EN rij, en dan splitst de tabel na de
+    kop. Een kop zonder rij is een tabel die doet alsof er iets komt, precies wat een lege tabel
+    elders al niet meer mag. Past de eerste rij er niet bij, dan gaat de hele legenda mee naar het
+    vervolgblad.
+    """
+    from qgis.core import QgsLayoutFrame, QgsLayoutUtils
+
+    from desktopstudie.core.report_content import MapPage, TablePage, TextPage
+    from desktopstudie.qgis import layout
+
+    page = MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False, scale=25000,
+                   extent_factor=3.0)
+    page.zone_legend = TablePage("Legenda voor de zone - Krimp-zwelgevoelige gronden",
+                                 ["Gevoeligheidsklasse"], [["laag [2]"]])
+    # Een leeswijzer die de ruimte onder de kaart opeet: zo ontstond het op het echte blad.
+    page.guide = TextPage("Leeswijzer", "<p>%s</p>" % " ".join(
+        ["Deze kaart toont waar plastische gronden voorkomen."] * 30))
+    # En de klassensleutel eronder, want zo staat het blad er in het echt bij.
+    _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
+    page.class_key = "legendas/krimp_zwel.png"
+
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+
+    context = QgsLayoutUtils.createRenderContextForLayout(lay, None)
+    for index in range(lay.pageCollection().pageCount()):
+        for frame in _items_of(lay, index, QgsLayoutFrame):
+            visible = frame.multiFrame().rowsVisible(context, frame.rect().height(), 0, True,
+                                                     False)
+            assert visible >= 1, f"kop zonder rij op blad {index}"
+
+
 def test_a_table_with_rows_keeps_its_header(project, gent_zone, tmp_path):
     from qgis.core import QgsLayoutFrame
 
