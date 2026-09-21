@@ -247,3 +247,17 @@ def test_a_formation_name_is_a_date_stamp_like_a_fossil_name():
     Aalter, Asse, Boom en Maldegem staan al aan de gewone kant; de afgekorte vorm hoort erbij."""
     assert lithology.notable_terms(
         [_layer(22.5, 25.0, "grijsgroenachtige harde ieper. klei")]) == []
+
+
+def test_the_words_the_other_two_runs_flagged_are_ordinary_too():
+    """Brasschaat en Brugge leverden dezelfde soort ruis: teeltaarde is de bouwvoor onder een
+    andere naam, een zandfractie is zand, en normaal, brokkelig en substraat beschrijven gewone
+    grond. Steenpuin en zandsteen in dezelfde beschrijvingen blijven staan."""
+    assert lithology.notable_terms([_layer(0.0, 0.8, "Teeltaarde - bruin, normaal")]) == []
+    assert lithology.notable_terms(
+        [_layer(0.0, 1.0, "heterogene zware klei, bovenaan humeus, brokkelig")]) == []
+    assert lithology.notable_terms(
+        [_layer(1.2, 2.0, "roestig zand, witfijn zand, zandfractie op het substraat")]) == []
+    words = [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "steenpuin op groene klei met zandsteen")])]
+    assert "steenpuin" in words and "zandsteen" in words
