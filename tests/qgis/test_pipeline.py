@@ -543,6 +543,30 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     assert any(f"kaartblad {sheet}" in source for source in failed), sorted(failed)
 
 
+def test_a_study_whose_only_profile_type_has_no_link_still_says_so(project, core_result,
+                                                                  offline_shell, tmp_path,
+                                                                  monkeypatch, no_pdf):
+    """De regel in Bronnen moet er ook komen als er GEEN enkele link is.
+
+    De hele tekeningenfase hing aan "zijn er URL's?", dus met alleen een rij zonder link werd er
+    niets gedraaid en dus ook niets vastgelegd - terwijl dat juist het geval is waarin de
+    legendaregel de lezer naar hoofdstuk Bronnen stuurt. Live gezien in Brugge: profieltype 13064,
+    `legende: null`, en geen woord erover in het rapport.
+    """
+    from desktopstudie.core.model import MapFact
+    from desktopstudie.qgis import pipeline
+    from tests import quartair
+
+    core_result.map_facts.append(MapFact("quartair", quartair.TITLE,
+                                         [{"profieltype": "13064", "legende": None}]))
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    named = [p for p in core_result.provenance if "13064" in p.source]
+    assert named, [p.source for p in core_result.provenance]
+    assert named[0].ok and named[0].message == pipeline.NO_DRAWING_PUBLISHED
+
+
 def test_a_profile_type_without_a_drawing_link_is_named_in_the_sources(qgs_app, core_result,
                                                                       tmp_path, monkeypatch):
     """Zonder link wordt er niets opgehaald, en dan stond er ook niets in hoofdstuk Bronnen -
