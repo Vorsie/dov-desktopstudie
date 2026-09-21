@@ -226,3 +226,16 @@ def test_what_a_geotechnician_still_has_to_see_keeps_flagging():
             ("klei, veenhoudend", "veenhoudend")):
         words = [t.word for t in lithology.notable_terms([_layer(0.0, 1.0, text)])]
         assert expected in words, f"{text!r} gaf {words}"
+
+
+def test_the_plain_words_of_kb28d96e_B87_are_ordinary_ground():
+    """Een willekeurige run zette twaalf termen onder boring kb28d96e-B87. Zandleem, zavel, een
+    bouwlaag, losser zand, kwartskorrels en zandlensjes zijn gewone grond - geen van zessen zegt
+    een machinist iets wat hij nog niet wist. Wat hij wel moet zien blijft staan: turfballen en
+    silexstukken."""
+    plain = ("zwarte bruine zandleem bouwlaag, losser lemig zavel, kleiig grijs zeer fijn zand "
+             "met zandlensjes en kwartskorrels")
+    assert lithology.notable_terms([_layer(0.0, 1.0, plain)]) == []
+    words = [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "grijze leem met turfballen en silexstukken")])]
+    assert "turfballen" in words and "silexstukken" in words
