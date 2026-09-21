@@ -239,3 +239,11 @@ def test_the_plain_words_of_kb28d96e_B87_are_ordinary_ground():
     words = [t.word for t in lithology.notable_terms(
         [_layer(0.0, 1.0, "grijze leem met turfballen en silexstukken")])]
     assert "turfballen" in words and "silexstukken" in words
+
+
+def test_a_formation_name_is_a_date_stamp_like_a_fossil_name():
+    """"ieper. klei" op hetzelfde blad: de formatienaam staat al in de laagbeschrijving en zegt,
+    net als een soortnaam, in welke formatie je staat - niet wat je zult tegenkomen. Ieperiaan,
+    Aalter, Asse, Boom en Maldegem staan al aan de gewone kant; de afgekorte vorm hoort erbij."""
+    assert lithology.notable_terms(
+        [_layer(22.5, 25.0, "grijsgroenachtige harde ieper. klei")]) == []
