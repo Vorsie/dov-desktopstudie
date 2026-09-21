@@ -63,7 +63,7 @@ basis basisklei beaucoup beetje beige bepaalde berm beschrijving bevatten bewaar
 bij bijna bijzonder blanc blanche blanchâtre blauw blauwachtige blauwe blauwgrijs blauwgrijze
 blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze
 bleke blekere bleu bleue bleuâtre blijft blokken boom boorbeschrijving boormeester boring bouwlaag bouwvoor
-bouwzand boven bovenaan bovengrond bovenste brede breed brisées brokje brokjes brokken brokstukken
+bouwzand boven bovenaan bovengrond bovenste brede breed brisées brokje brokjes brokkelig brokkelige brokken brokstukken
 brosse bruin bruinachtig bruinachtige bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig
 bruingrijze bruingroen bruingroenachtig brun brune brunâtre calcaires calcarifère ce cette chemin
 chocolaté citadel clair claire cm coherent coherente cohérent comme compact compacte complex
@@ -99,7 +99,7 @@ lichtjes lid lijkt limon limoneuse limoneuses limoneux linéoles lit lithotheek 
 loodrecht los losse losser lossere légèrement maar mais maldegem massa massief materiaal matig matières
 medium meer meerdere meestal met meter meters meuble micacé micacée micacées middelfijn middelgrof
 middelmatig middelmatige min mince minder mm moderne modernes moins molle monster monsters mooi
-mooie morceaux mou même na naar nat nesten neutraal neutraalbruin neutraalgrijs niet niveau
+mooie morceaux mou même na naar nat nesten neutraal normaal normale neutraalbruin neutraalgrijs niet niveau
 niveau_onbekend nog nogal noir noire noirs noirâtre nombreuses nombreux non nu of om omstreeks
 onbekend onder onderaan onderste ongeveer onregelmatig onregmatig ontbreekt ook ookpaniseliaan op
 opnieuw oranje oranjebruin organisch organische over overgaat overgang overvloed overwegend paar
@@ -116,7 +116,8 @@ silt silteus silteuse silteux silteuze silthoudend silthoudende siltig siltrijk 
 slappe slecht smalle sol sommet sommige soms sont sous spikkels spoelboring sporadisch sporadische
 sporen staal stabilisatiezand stalen steeds steekboor steen steentjes stenen sterk stevig stevige
 stijf stijgt stijve stippels stippen stoffen stratification stratifié stuk stukje stukjes stukken
-suite sup supérieur supérieure sur taai taaie taches talrijk talrijke tamelijk te terre tertiair
+substraat suite sup supérieur supérieure sur taai taaie taches talrijk talrijke tamelijk te
+teelaarde teeltaarde terre tertiair
 terug toch toe top tot tout traces tres très trés tussen type typisch uit uiterst un une van vanaf
 vase vast vaste veel vegetale vele verbrijzeld verbrijzelde verdieping verdâtre verdâtres
 vergruisde verhard verkleurend verkleurende verkleuring vermengd vermoedelijk vers verschillende
@@ -187,7 +188,7 @@ ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "kwarts", "sc
 MODIFIER_SUFFIXES = ("houdend", "houdende", "rijk", "rijke", "achtig", "achtige", "ig", "ige",
                      "vlekken", "vlekjes", "brokjes", "brokken", "lenzen", "laagjes", "gruis",
                      "resten", "rest", "restjes", "fragment", "fragmenten", "fragmentjes",
-                     "je", "jes", "stippen", "spikkels", "korrels", "sporen",
+                     "je", "jes", "stippen", "spikkels", "korrels", "sporen", "fractie",
                      "lens", "lensje", "lensjes")
 WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 MIN_LENGTH = 3  # one- and two-letter tokens are units and coded shorthand, not observations
