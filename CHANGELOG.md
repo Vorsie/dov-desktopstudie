@@ -85,6 +85,12 @@ zegt waar ze genomen is.
   ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
   Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
   die blijft - dan weer op een blad van zichzelf.
+- **De isopachen dragen leesbare diktecijfers.** De dienst tekent ze wel, maar dun, klein en grijs:
+  boven de GRB-ondergrond vielen ze weg. De kaart vraagt haar eigen belettering aan met een SLD in
+  de GetMap - dezelfde lijnen van de dienst, maar vette zwarte cijfers met een witte halo, langs de
+  lijn in plaats van erdoorheen, en om de zoveel centimeter herhaald. Diezelfde witte halo staat nu
+  ook om de sondeer- en boornummers op de overzichtskaart, waar ze in het midden tot een
+  onleesbare veeg samenliepen; wat daar nog botst wordt weggelaten in plaats van overheen getekend.
 - **Alle "geen gegevens"-antwoorden staan gebundeld op het laatste blad.** Een kaart zonder
   eenheden in de zone droeg een leeg legendablok onder haar kaartbeeld, en een stapel van die
   blokken midden in hoofdstuk 3 zei vijf keer dezelfde zin. Elke kaart houdt haar eigen kaartblad;
