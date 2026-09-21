@@ -57,76 +57,76 @@ from .model import LithologyLayer
 # a word that turns out to be ordinary after all; that is the knob, never the flagging rule.
 ORDINARY = frozenset("""
 aalter aan aangevuld aangevulde aantal abondants af affleure affleurement afgerond afw afwisselend
-afwisselende afwisseling ale alluviaal alluvial alluviale als alsmede altéré amas andere aquifère
-argile argiles argileuse argileuses argileux argilo arm asse assez au aux avec bas base basis
-basisklei beaucoup beetje beige bepaalde berm beschrijving bevatten bewaarde bien bigarré bij
-bijna bijzonder blanc blanche blanchâtre blauw blauwachtige blauwe blauwgrijs blauwgrijze
+afwisselende afwisseling ale alluviaal alluvial alluviale als alsmede altéré amas analogue andere
+aquifère argile argiles argileuse argileuses argileux argilo arm asse assez au aux avec bas base
+basis basisklei beaucoup beetje beige bepaalde berm beschrijving bevatten bewaarde bien bigarré
+bij bijna bijzonder blanc blanche blanchâtre blauw blauwachtige blauwe blauwgrijs blauwgrijze
 blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze
 bleke blekere bleu bleue bleuâtre blijft blokken boom boorbeschrijving boormeester boring bouwvoor
 bouwzand boven bovenaan bovengrond bovenste brede breed brisées brokje brokjes brokken brokstukken
 brosse bruin bruinachtig bruinachtige bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig
 bruingrijze bruingroen bruingroenachtig brun brune brunâtre calcaires calcarifère ce cette chemin
-chocolaté citadel clair claire cm coherent coherente cohérent compact compacte complex
+chocolaté citadel clair claire cm coherent coherente cohérent comme compact compacte complex
 concentratie concentraties contact contient coquillages coquille coquilles coquillier couche
 couches coupe cremebruin daaronder dan dans dat de deels delen demi des dessus determineerbare
 detritus devenant devient diameter dicht die diepte dik dikke divers dm doch donker donkerblauw
 donkerbruin donkerbruine donkerder donkere donkergrijs donkergrijze donkergroen donkergroene door
 doorheen doorschijnend droog du duidelijk dun dunne dunner dur dure débris eau ech edelmanboor een
 eenige einde elementen elle en enigszins enigzins enkele entre environ er est et exemplaren
-extreem facies fijn fijne fijner fijnste fijnzand fijnzandhoudende fin fine finement foncé foncée
-fond formatie fragmenten fragmentjes fragments friable gauche geboord gebroken gedeelte
-gedeeltelijk gedeelten gedraaid geel geelachtig geelbruin geelbruinachtig geelgrijs geelgroen
-geelgroenachtig geellichtgroen geelrode geen gegolfd gegolfde gehele gelaagd gelaagdheid gele
-geleidelijk gelijke gemarmerd gemengd gemiddeld geoprobe gepakt geroerd gerold gerolde gesorteerd
-gespikkeld gestippeld gevlekt gewassen gijze glad glaise glaiseuse glauconie glimmer glimmerachtig
-glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed grains grand grandes gras grens grenzen
-grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin grijsbruine grijsgeel grijsgroen
-grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere grind grindboring grindje gris grise
-grisâtre groen groenachtig groenachtige groenblauw groenbruin groene groengeel groengrijs
-groengrijsachtig groengrijze groenig grof grofzand grond groot gros grosse grosses grossier
-grossière grote grotere grove grover grovere gruis half halffijn halfstijve hard harde haut hebben
-heeft heel helft het heterogeen heterogene heteromorf hoekig hoeveelheden hoger homogeen homogène
-hoofdzakelijk horizontaal houdend hsc humeus humeuze humide humiques humus hétérogène ici idem
-ieperiaan iets in inférieur inférieure insluitsel insluitsels intercalaties is jaune jaunâtre
-jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern
-kernboor kist klei kleiachtig kleiachtige kleibrokjes kleibrokken kleigehalte kleihoudend
-kleihoudende kleiig kleiige kleiiger kleiigere kleilaagje kleilaagjes kleilagen kleilensjes
-kleilenzen klein kleine kleiner kleirijk kleiïg kleur komen korrel korrelgrootte korrelig korrels
-kwartair kwarts kwartsachtig kwartszand la laag laagje laagjes laagsgewijs lagen lang le lediaan
-leem leemachtig leemhoudend leemrijke lemig lemige lengte lensjes lentilles lenzen les licht
-lichtbeige lichtbruin lichte lichtgrijs lichtgroen lichtjes lid lijkt limon limoneuse limoneuses
-limoneux linéoles lit lithotheek lits lokaal lokale loodrecht los losse légèrement maar mais
-maldegem massa massief materiaal matig matières medium meer meerdere meestal met meter meters
-meuble micacé micacée micacées middelfijn middelgrof middelmatig middelmatige min mince minder mm
-modernes moins molle monster monsters mooi mooie morceaux mou même na naar nat nesten neutraal
-neutraalbruin neutraalgrijs niet niveau niveau_onbekend nog nogal noir noire noirs noirâtre
-nombreuses nombreux non nu of om omstreeks onbekend onder onderaan onderste ongeveer onregelmatig
-onregmatig ontbreekt ook ookpaniseliaan op opnieuw oranje oranjebruin organisch organische over
-overgaat overgang overvloed overwegend paar paillettes pailletée paillété paniseliaan par parfois
-partie parties pas passant percé percés petit petite petites petits peu plaats plaatselijk
-plaatselijke plaatsen place plant plantaardig plantaardige planten plantje plastique plastisch
-plastische plastischer plat platte plus pointillé pointillée polders pour profondeur puis
-pulsboring pur pure pâle quartair quarts quartseux quartzeux quaternaire que quelques qui
-ramkernsondering rares recente reeds resten rijk rode roestbruin roetzwart rond ronde rood
-roodachtig roodbruin rouge rougeâtre roulé roulés route roux rude rupeliaan sable sables sableuse
-sableuses sableux sablière sablonneux sale samenhangend sans saturé schelp schelpen schelpengruis
-schelpfragmenten schelpgruis schelphoudend schelpjes schelpstukken scherp scherpe schijn
-schilferachtig schilferig schilferige schuin sec silt silteus silteuse silteux silteuze
-silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht smalle sol sommet sommige
-soms sont sous spikkels spoelboring sporadisch sporadische sporen staal stabilisatiezand stalen
-steeds steekboor steen steentjes stenen sterk stevig stevige stijf stijgt stijve stippels stippen
-stoffen stratification stratifié stuk stukje stukjes stukken suite supérieur supérieure sur taai
-taaie taches talrijk talrijke tamelijk te terre tertiair terug toch toe top tot tout traces tres
-très trés tussen type typisch uit uiterst un une van vanaf vase vast vaste veel vele verbrijzeld
-verbrijzelde verdieping verdâtre verdâtres vergruisde verhard verkleurend verkleurende verkleuring
-vermengd vermoedelijk vers verschillende verspreid verspreide vert verte verticaal verweerd
-verweerde verwering verzadigd vet vette vettig visible vlekjes vlekken vochtig vol volgens
-volledig voor vooral voorkomen voornamelijk voorwerk vormen vrij waaronder waarschijnlijk was wat
-water waterzand weer weinig weke wemmeliaan werd wit witachtig witachtige witgeel witgrijs
-witgrijze witte wordt wortel wortels worteltjes zacht zachte zand zandachtig zandachtige zanden
-zandhoudend zandhoudende zandig zandige zandiger zandigere zandlaagjes zandlagen zavelgrond zeer
-zelfde zijn zoet zoetwater zoetwaterschelpen zonder zone zones zwak zwakke zware zwart zwartbruin
-zwartdonkergroene zwarte zwartgrijs één
+extreem facies fijn fijne fijner fijnste fijnzand fijnzandhoudende fin fine finement flandriaan
+flandrien foncé foncée fond formatie fragmenten fragmentjes fragments friable gauche geboord
+gebroken gedeelte gedeeltelijk gedeelten gedraaid geel geelachtig geelbruin geelbruinachtig
+geelgrijs geelgroen geelgroenachtig geellichtgroen geelrode geen gegolfd gegolfde gehele gelaagd
+gelaagdheid gele geleidelijk gelijke gemarmerd gemengd gemiddeld geoprobe gepakt geroerd gerold
+gerolde gesorteerd gespikkeld gestippeld gevlekt gewassen gijze glad glaise glaiseuse glauconie
+glimmer glimmerachtig glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed grains grand
+grandes gras grens grenzen grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin
+grijsbruine grijsgeel grijsgroen grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere
+grind grindboring grindje gris grise grisâtre groen groenachtig groenachtige groenblauw groenbruin
+groene groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand grond groot gros
+grosse grosses grossier grossière grote grotere grove grover grovere gruis half halffijn
+halfstijve hard harde haut hebben heeft heel helft het heterogeen heterogene heteromorf hoekig
+hoeveelheden hoger homogeen homogène hoofdzakelijk horizontaal houdend hsc humeus humeuze humide
+humiques humus hétérogène ici idem ieperiaan iets in inf inférieur inférieure insluitsel
+insluitsels intercalaties is jaune jaunâtre jusqu kakikleurig kalk kalkarm kalkhoudend
+kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern kernboor kist klei kleiachtig kleiachtige
+kleibrokjes kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiige kleiiger kleiigere
+kleilaagje kleilaagjes kleilagen kleilensjes kleilenzen klein kleine kleiner kleirijk kleiïg kleur
+komen korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartszand la laag laagje
+laagjes laagsgewijs lagen lang le lediaan leem leemachtig leemhoudend leemrijke lemig lemige
+lengte lensjes lentilles lenzen les licht lichtbeige lichtbruin lichte lichtgrijs lichtgroen
+lichtjes lid lijkt limon limoneuse limoneuses limoneux linéoles lit lithotheek lits lokaal lokale
+loodrecht los losse légèrement maar mais maldegem massa massief materiaal matig matières medium
+meer meerdere meestal met meter meters meuble micacé micacée micacées middelfijn middelgrof
+middelmatig middelmatige min mince minder mm moderne modernes moins molle monster monsters mooi
+mooie morceaux mou même na naar nat nesten neutraal neutraalbruin neutraalgrijs niet niveau
+niveau_onbekend nog nogal noir noire noirs noirâtre nombreuses nombreux non nu of om omstreeks
+onbekend onder onderaan onderste ongeveer onregelmatig onregmatig ontbreekt ook ookpaniseliaan op
+opnieuw oranje oranjebruin organisch organische over overgaat overgang overvloed overwegend paar
+paillettes pailletée paillété paniseliaan par parfois partie parties pas passant percé percés
+petit petite petites petits peu plaats plaatselijk plaatselijke plaatsen place plant plantaardig
+plantaardige planten plantje plastique plastisch plastische plastischer plat platte plus pointillé
+pointillée polders pour profondeur puis pulsboring pur pure pâle quartair quarts quartseux
+quartzeux quaternaire que quelques qui ramkernsondering rares recent recente reeds resten rijk
+rode roestbruin roetzwart rond ronde rood roodachtig roodbruin rouge rougeâtre roulé roulés route
+roux rude rupeliaan sable sables sableuse sableuses sableux sablière sablonneux sale samenhangend
+sans saturé schelp schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend schelpjes
+schelpstukken scherp scherpe schijn schilferachtig schilferig schilferige schuin sec semblable
+silt silteus silteuse silteux silteuze silthoudend silthoudende siltig siltrijk situ situé slap
+slappe slecht smalle sol sommet sommige soms sont sous spikkels spoelboring sporadisch sporadische
+sporen staal stabilisatiezand stalen steeds steekboor steen steentjes stenen sterk stevig stevige
+stijf stijgt stijve stippels stippen stoffen stratification stratifié stuk stukje stukjes stukken
+suite sup supérieur supérieure sur taai taaie taches talrijk talrijke tamelijk te terre tertiair
+terug toch toe top tot tout traces tres très trés tussen type typisch uit uiterst un une van vanaf
+vase vast vaste veel vegetale vele verbrijzeld verbrijzelde verdieping verdâtre verdâtres
+vergruisde verhard verkleurend verkleurende verkleuring vermengd vermoedelijk vers verschillende
+verspreid verspreide vert verte verticaal verweerd verweerde verwering verzadigd vet vette vettig
+visible vlekjes vlekken vochtig vol volgens volledig voor vooral voorkomen voornamelijk voorwerk
+vormen vrij végétale waaronder waarschijnlijk was wat water waterzand weer weinig weke wemmeliaan
+werd wit witachtig witachtige witgeel witgrijs witgrijze witte wordt wortel wortels worteltjes
+zacht zachte zand zandachtig zandachtige zanden zandhoudend zandhoudende zandig zandige zandiger
+zandigere zandlaagjes zandlagen zavelgrond zeer zelfde zijn zoet zoetwater zoetwaterschelpen
+zonder zone zones zwak zwakke zware zwart zwartbruin zwartdonkergroene zwarte zwartgrijs één
 """.split())
 
 # Words that surface whatever else the sentence says, because a geotechnician asked for them by
@@ -180,6 +180,7 @@ COLOUR_STEMS = ("bruin", "geel", "grijs", "grijze", "zwart", "groen", "rood", "r
 # Gewone stammen waarop een modificator gebouwd mag worden. Bewust NIET "steen": steenbrokken en
 # silexkeien zijn juist wat een geotechnicus wil zien.
 ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "schelp", "schelpen", "plant",
+                  "oxidatie", "verwering", "gley",
                   "planten", "wortel", "wortels", "glimmer", "mica", "humus", "zavel", "loess",
                   "löss", "slib", "detritus")
 # Achtervoegsels die van een gewone stam een gewone beschrijving maken: bijmenging, niet materiaal.
