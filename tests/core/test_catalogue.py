@@ -14,7 +14,7 @@ FIXTURE_FOR = {
     "hcov": "wfs_hcov_0100_vk_intersects.json",
     "gw_kwetsbaarheid": "wfs_gwkwb_kwbschaal_intersects.json",
     "erosie": "wfs_erosie_2014_intersects.json",
-    "krimp_zwel": "wfs_indexplastisch_intersects.json",
+    "krimp_zwel": "gfi_krimp_zwel_hit.json",
     "ovam": "wfs_ovam_uitspraak_intersects.json",
     "grondverschuiving_gevoeligheid": "wfs_grndversch_gevoeligh_intersects.json",
     "grondverschuiving_gekarteerd": "wfs_grndversch_gekarteerd_intersects.json",
