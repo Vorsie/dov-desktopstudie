@@ -1,0 +1,17 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "id": "",
+   "geometry": null,
+   "properties": {
+    "Categorie_gevoeligheid": 4
+   }
+  }
+ ],
+ "totalFeatures": "unknown",
+ "numberReturned": 1,
+ "timeStamp": "2026-09-21T19:32:00.040Z",
+ "crs": null
+}
