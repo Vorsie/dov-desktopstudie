@@ -498,7 +498,9 @@ CATALOGUE: List[MapEntry] = [
          field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
                        DISTANCE_FIELD: "Afstand tot de zone (m)"},
          guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
-         sld_body=ISOPACH_SLD),
+         sld_body=ISOPACH_SLD,
+         empty_meaning="De isopachenkartering 1/50 000 dekt deze locatie niet; er ligt geen "
+                       "contour in het kaartbeeld."),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
