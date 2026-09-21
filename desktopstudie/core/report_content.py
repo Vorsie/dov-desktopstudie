@@ -377,6 +377,14 @@ def _point_name(row: Optional[Dict[str, Any]]) -> str:
     return f"punt {index} op de rand van de zone"
 
 
+def _quartair_model_layer(result: StudyResult):
+    """De Quartairlaag die het periodemodel op het representatieve punt geeft, of None."""
+    borehole = result.virtual_boreholes.get("g3dv3_P")
+    layers = [layer for layer in (borehole.layers if borehole else [])
+              if layer.name.lower().startswith(QUARTAIR_UNIT)]
+    return layers[0] if layers else None
+
+
 def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
                   entry: catalogue.MapEntry) -> str:
     """The one line the thickness map still needs under it.
@@ -391,15 +399,18 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     parts = []
     spread = sorted({float(row[THICKNESS_FIELD]) for row in rows or []
                      if row.get(THICKNESS_FIELD) is not None})
+    if not spread and _quartair_model_layer(result) is not None:
+        # Geen contour in beeld EN de dikte staat al in de periodetabel van hoofdstuk 4: dan heeft
+        # dit blad niets eigens meer te zeggen. Een lege bladzijde met een modelzin erop leest als
+        # een fout, dus valt de kaart weg en komt ze op de gebundelde pagina achteraan te staan.
+        # Ontbreekt die tabel wel, dan is deze zin het enige dat de dikte nog noemt en blijft ze.
+        return ""
     if spread:
         seen = (f"{spread[0]:.1f} tot {spread[-1]:.1f} m" if spread[0] != spread[-1]
                 else f"{spread[0]:.1f} m")
         parts.append(f"Isopachen in beeld: {seen} dikte Quartair, met de waarde op de lijn zelf.")
-    borehole = result.virtual_boreholes.get("g3dv3_P")
-    layers = [layer for layer in (borehole.layers if borehole else [])
-              if layer.name.lower().startswith(QUARTAIR_UNIT)]
-    if layers:
-        layer = layers[0]
+    layer = _quartair_model_layer(result)
+    if layer is not None:
         parts.append(f"Modelwaarde G3Dv3 op het representatieve punt: {layer.thickness_m:.2f} m "
                      f"Quartair ({layer.top_mtaw:.2f} tot {layer.base_mtaw:.2f} mTAW). "
                      f"Een modelwaarde, geen boring.")
