@@ -62,7 +62,7 @@ aquifère argile argiles argileuse argileuses argileux argilo arm asse assez au 
 basis basisklei beaucoup beetje beige bepaalde berm beschrijving bevatten bewaarde bien bigarré
 bij bijna bijzonder blanc blanche blanchâtre blauw blauwachtige blauwe blauwgrijs blauwgrijze
 blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze
-bleke blekere bleu bleue bleuâtre blijft blokken boom boorbeschrijving boormeester boring bouwvoor
+bleke blekere bleu bleue bleuâtre blijft blokken boom boorbeschrijving boormeester boring bouwlaag bouwvoor
 bouwzand boven bovenaan bovengrond bovenste brede breed brisées brokje brokjes brokken brokstukken
 brosse bruin bruinachtig bruinachtige bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig
 bruingrijze bruingroen bruingroenachtig brun brune brunâtre calcaires calcarifère ce cette chemin
@@ -87,7 +87,7 @@ groene groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand g
 grosse grosses grossier grossière grote grotere grove grover grovere gruis half halffijn
 halfstijve hard harde haut hebben heeft heel helft het heterogeen heterogene heteromorf hoekig
 hoeveelheden hoger homogeen homogène hoofdzakelijk horizontaal houdend hsc humeus humeuze humide
-humiques humus hétérogène ici idem ieperiaan iets in inf inférieur inférieure insluitsel
+humiques humus hétérogène ici idem ieper ieperiaan iets in inf inférieur inférieure insluitsel
 insluitsels intercalaties is jaune jaunâtre jusqu kakikleurig kalk kalkarm kalkhoudend
 kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern kernboor kist klei kleiachtig kleiachtige
 kleibrokjes kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiige kleiiger kleiigere
@@ -96,8 +96,8 @@ komen korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartsz
 laagjes laagsgewijs lagen lang le lediaan leem leemachtig leemhoudend leemrijke lemig lemige
 lengte lensjes lentilles lenzen les licht lichtbeige lichtbruin lichte lichtgrijs lichtgroen
 lichtjes lid lijkt limon limoneuse limoneuses limoneux linéoles lit lithotheek lits lokaal lokale
-loodrecht los losse légèrement maar mais maldegem massa massief materiaal matig matières medium
-meer meerdere meestal met meter meters meuble micacé micacée micacées middelfijn middelgrof
+loodrecht los losse losser lossere légèrement maar mais maldegem massa massief materiaal matig matières
+medium meer meerdere meestal met meter meters meuble micacé micacée micacées middelfijn middelgrof
 middelmatig middelmatige min mince minder mm moderne modernes moins molle monster monsters mooi
 mooie morceaux mou même na naar nat nesten neutraal neutraalbruin neutraalgrijs niet niveau
 niveau_onbekend nog nogal noir noire noirs noirâtre nombreuses nombreux non nu of om omstreeks
@@ -125,7 +125,7 @@ visible vlekjes vlekken vochtig vol volgens volledig voor vooral voorkomen voorn
 vormen vrij végétale waaronder waarschijnlijk was wat water waterzand weer weinig weke wemmeliaan
 werd wit witachtig witachtige witgeel witgrijs witgrijze witte wordt wortel wortels worteltjes
 zacht zachte zand zandachtig zandachtige zanden zandhoudend zandhoudende zandig zandige zandiger
-zandigere zandlaagjes zandlagen zavelgrond zeer zelfde zijn zoet zoetwater zoetwaterschelpen
+zandigere zandlaagjes zandlagen zandleem zavel zavelgrond zeer zelfde zijn zoet zoetwater zoetwaterschelpen
 zonder zone zones zwak zwakke zware zwart zwartbruin zwartdonkergroene zwarte zwartgrijs één
 """.split())
 
@@ -179,15 +179,16 @@ COLOUR_STEMS = ("bruin", "geel", "grijs", "grijze", "zwart", "groen", "rood", "r
                 "gemarmerd")
 # Gewone stammen waarop een modificator gebouwd mag worden. Bewust NIET "steen": steenbrokken en
 # silexkeien zijn juist wat een geotechnicus wil zien.
-ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "schelp", "schelpen", "plant",
-                  "oxidatie", "verwering", "gley",
-                  "planten", "wortel", "wortels", "glimmer", "mica", "humus", "zavel", "loess",
-                  "löss", "slib", "detritus")
+ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "kwarts", "schelp",
+                  "schelpen", "plant", "planten", "wortel", "wortels", "glimmer", "mica",
+                  "humus", "zavel", "loess", "löss", "slib", "detritus",
+                  "oxidatie", "verwering", "gley")
 # Achtervoegsels die van een gewone stam een gewone beschrijving maken: bijmenging, niet materiaal.
 MODIFIER_SUFFIXES = ("houdend", "houdende", "rijk", "rijke", "achtig", "achtige", "ig", "ige",
                      "vlekken", "vlekjes", "brokjes", "brokken", "lenzen", "laagjes", "gruis",
                      "resten", "rest", "restjes", "fragment", "fragmenten", "fragmentjes",
-                     "je", "jes", "stippen", "spikkels", "korrels", "sporen")
+                     "je", "jes", "stippen", "spikkels", "korrels", "sporen",
+                     "lens", "lensje", "lensjes")
 WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 MIN_LENGTH = 3  # one- and two-letter tokens are units and coded shorthand, not observations
 # "Num. planulatus", "(Ech.)", "Incl. 10", "enz. (aangevuld)": a short token cut off by its own
@@ -265,6 +266,19 @@ def _is_modified_ordinary(word: str) -> bool:
     return False
 
 
+def _is_compound_ordinary(word: str) -> bool:
+    """Twee gewone stammen aan elkaar: zandleem, kleizand, leemzand.
+
+    Vlaamse boorbeschrijvingen bouwen textuurnamen door ze te plakken, en het paar zegt niets meer
+    dan elke helft apart. `ALWAYS_NOTABLE` gaat voor, dus veenzand en zandsteen blijven staan.
+    """
+    for stem in ORDINARY_STEMS:
+        if len(word) > len(stem) and word.endswith(stem):
+            if word[:-len(stem)].rstrip("-") in ORDINARY_STEMS:
+                return True
+    return False
+
+
 def is_ordinary(word: str) -> bool:
     """Whether a single word belongs to the plain vocabulary of a soil description.
 
@@ -284,6 +298,8 @@ def is_ordinary(word: str) -> bool:
     if lowered in FOSSILS:
         return True
     if _is_colour(lowered) or _is_modified_ordinary(lowered):
+        return True
+    if _is_compound_ordinary(lowered):
         return True
     return len(lowered) < MIN_LENGTH or lowered in ORDINARY
 
