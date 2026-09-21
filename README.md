@@ -1,6 +1,6 @@
 # DOV Desktopstudie
 
-**Status:** v0.1.0, eerste release. Kern en QGIS-schil zijn compleet: dialoog, lagen in het
+**Status:** v0.2.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het
 geopende project, PDF-rapport, headless script. De plugin staat als *experimenteel* gemarkeerd
 (`metadata.txt`) tot de eerste ronde gebruikersfeedback verwerkt is.
 
@@ -21,17 +21,41 @@ op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
    grondverschuivingen en gekarteerde grondverschuivingen, PFAS-no-regretzones.
 4. Virtuele boring (G3Dv3 en HCOV) op het representatieve punt van de zone - het punt dat
    gegarandeerd binnen de zone ligt, ook als die een hoefijzervorm heeft. Het rapport drukt
-   het zwaartepunt en het representatieve punt allebei af in de tabel Kerngegevens ligging.
+   het zwaartepunt en het representatieve punt allebei af in de tabel Kerngegevens ligging, en
+   hoofdstuk 4 zegt per model op welke X/Y en op welk maaiveld de boring genomen is. Elke genomen
+   boring - die op het representatieve punt en de doorprikpunten langs de doorsnedelijn - staat
+   ook als punt in de laag "Virtuele boringen".
 5. Bestaand grondonderzoek uit DOV binnen een instelbare straal: sonderingen (met qc-diagram),
-   boringen (met lithologie), peilputten (met laatste peil).
+   boringen (met lithologie), peilputten (met laatste peil). De tabel toont elke sondering binnen
+   de straal; voor de diagrammen krijgen de **elektrische** sonderingen voorrang op de
+   dichterbije mechanische, omdat die over de volledige diepte meten. Wat een boorbeschrijving
+   noemt en niet tot de gewone grond behoort - een concretie, een zandsteenbank, glauconiet, veen,
+   puin, grind, een fossielrijke laag - komt als opmerking onder die boring te staan en als
+   signalering in hoofdstuk 7, met de diepte en de zin van de beschrijving zelf. Soortnamen van
+   fossielen blijven buiten beschouwing: ze zeggen in welke formatie je staat, niet dat je iets
+   zult raken.
 6. Geologische doorsnede uit virtuele boringen langs een automatische of zelfgetekende lijn.
 7. Samenvatting en aandachtspunten: feiten uit de data met vaste signaleringen, plus een vaste
    tekst die naar bommenkaart.be verwijst voor de manuele controle op explosieven.
 8. Bronnen: elke geraadpleegde dienst met URL, ophaaltijdstip en of ze antwoordde.
 
-Elke kaart met een code krijgt naast het kaartblad een leeswijzer en een "Legenda voor de zone"
-met alleen de klassen die in de zone voorkomen. De historische NGI-reeks (1873–1989) en de
-bommenkaart staan in de catalogus maar uitgeschakeld; zie *Bekende beperkingen*.
+Elke kaart met een code krijgt een leeswijzer en een "Legenda voor de zone" met alleen de
+klassen die in de zone voorkomen. Allebei staan ze **onder het kaartkader op het kaartblad zelf** -
+eerst de leeswijzer, dan de legenda: het kader krimpt met wat ze nodig hebben (nooit verder dan een
+halve bladhoogte) en wat dan nog niet past loopt door op het volgende blad. Het hoogtemodel krijgt
+op dezelfde plaats de kleurbalk van de dienst zelf, met de zone erop gemarkeerd - een beugel tussen
+de laagste en de hoogste hoogte, of een streepje op het gemiddelde als die te dicht bij elkaar
+liggen om te tekenen - en de drie waarden eronder. De twee grondwaterstanden (GHG en GLG) dragen
+op dezelfde manier hun kleurbalk met haar klassegrenzen, en in de tabel erboven de gemodelleerde
+diepte onder het maaiveld met haar standaardafwijking en betrouwbaarheidsinterval - een
+modelwaarde uit de GxG-kaart, geen peilbuismeting.
+
+Een kaart die maar enkele procenten van haar uitsnede tekent - grondverschuivingen, watertoets,
+PFAS, OVAM, erosie - krijgt de GRB-basiskaart eronder gecomposeerd, zodat de lezer straten en
+gebouwen ziet onder het thema in plaats van een wit blad met een rode cirkel. Een kaart waarvan de
+dienst hier geen beeld levert krijgt geen blad; ze staat wel in het hoofdstuk Bronnen, met de reden.
+De historische NGI-reeks (1873–1989) en de bommenkaart staan in de catalogus maar uitgeschakeld;
+zie *Bekende beperkingen*.
 
 De plugin rekent niets uit en interpreteert niets zelf. Ze verzamelt, tekent en signaleert.
 
@@ -79,16 +103,22 @@ Eén van vier modi, gekozen met de keuzerondjes:
   blad. Uitgeschakelde kaarten staan grijs, met de reden als tooltip.
 - **Cache**: *Schijfcache gebruiken* (standaard), *Opnieuw ophalen (cache verversen)* of *Geen
   cache*. De cache staat in `<uitvoermap>/cache` en wordt door alle runs in die map gedeeld.
-- **Legenda's op aparte pagina's**: elke kaart met een legenda krijgt een legendablad achter haar
-  kaartblad. In de layout zelf schakelt de variabele `legendas` die bladen bij het exporteren.
+- **Legenda's op aparte pagina's**: staat **uit**. Aangevinkt krijgt elke kaart met een legenda
+  een legendablad achter haar kaartblad; de klassen die in de zone liggen staan sowieso al onder
+  hun eigen kaart. In de layout zelf schakelt de variabele `legendas` die bladen bij het
+  exporteren. De profieltypetekeningen van het Quartair komen er altijd, ook uitgevinkt: dat is
+  rapportinhoud.
+- **Compacte opmaak (meer op een blad)**: staat **uit**. Standaard vult een blad zich met alles
+  wat erop past zolang het uit hetzelfde hoofdstuk komt; aangevinkt mogen ook stukken uit het
+  volgende hoofdstuk mee, met die hoofdstukkop er klein bij. Kaartbladen blijven altijd alleen.
 
 ### Rapport
 
 Project (standaard "Desktopstudie"; de naam is ook de sleutel van de studie in het project en de
 naam van de uitvoermap), projectnummer, auteur, bedrijf, logo (PNG, JPG of SVG voor het titelblad)
 en de uitvoermap (standaard `<gebruikersmap>\Documents\Desktopstudies`). Bedrijf, auteur, logo, zoekstraal,
-uitvoermap, cache en legendakeuze worden onthouden in het QGIS-profiel (`QgsSettings`, sleutels
-`desktopstudie/...`).
+uitvoermap, cache, legendakeuze en compacte opmaak worden onthouden in het QGIS-profiel
+(`QgsSettings`, sleutels `desktopstudie/...`).
 
 ### Start
 
@@ -113,11 +143,11 @@ Elke run schrijft in een eigen map `<uitvoermap>/<project>_<yyyymmdd>_<HHMM>`:
 |---|---|
 | `rapport.pdf` | het rapport, staand A4, tekst selecteerbaar |
 | `studie.qgz` | een zelfstandig QGIS-project: de studielagen uit het GeoPackage plus de WMS-kaarten |
-| `data/studie.gpkg` | zone, doorsnedelijn en proefpunten |
+| `data/studie.gpkg` | zone, doorsnedelijn, proefpunten en de virtuele boringen |
 | `data/studie.json` | alle verzamelde feiten, signaleringen en bronnen, machineleesbaar |
-| `data/kaarten/` | de kaartbeelden van het rapport als PNG met wereldbestand |
+| `data/kaarten/` | de kaartbeelden van het rapport als PNG met wereldbestand, dunne thema's al over de basiskaart |
 | `figuren/` | sondering-, boring-, virtuele-boring- en doorsnedefiguren (PNG) |
-| `legendas/` | opgehaalde WMS-legenda's en de profieltypetekeningen van het Quartair |
+| `legendas/` | opgehaalde WMS-legenda's, de profieltypetekeningen van het Quartair en de kleurbalk van het hoogtemodel |
 
 De schijfcache staat ernaast in `<uitvoermap>/cache`, gedeeld door alle runs.
 
@@ -141,9 +171,10 @@ python3 scripts/run_headless.py --x 104326 --y 192506 --buffer 50 --out uitvoer/
 Kies de locatie met `--adres` of met `--x/--y` (Lambert 72). Verder: `--buffer` de straal van de
 zonecirkel, `--straal` de zoekstraal voor grondonderzoek, `--project/--projectnummer/--auteur/
 --bedrijf/--logo` voor het titelblad, `--cache use|refresh|off` voor de schijfcache,
-`--geen-legendas` om de aparte legendapagina's over te slaan (de profieltekeningen van het Quartair
-worden wel opgehaald, die horen bij de inhoud) en `--paginas` om elk blad ook als PNG in `paginas/`
-weg te schrijven. De uitvoermap krijgt dezelfde inhoud als een run uit de plugin; de cache staat
+`--legendas` om de aparte legendapagina's wel te maken (ze staan uit; de profieltekeningen van het
+Quartair worden altijd opgehaald, die horen bij de inhoud), `--compact` voor de compacte opmaak en
+`--paginas` om elk blad ook als PNG in `paginas/` weg te schrijven. `--geen-legendas` uit v0.1
+bestaat nog maar doet niets meer. De uitvoermap krijgt dezelfde inhoud als een run uit de plugin; de cache staat
 hier in `<out>/data/cache`. Het script zet `QT_QPA_PLATFORM=offscreen` zelf en zoekt de
 lettertypes van het systeem (zie *Ontwikkeling*).
 
@@ -154,6 +185,7 @@ duur af:
 |---|---|
 | Legendas | GetLegendGraphic per kaart |
 | Tekeningen van de profieltypes | de Quartair-tekeningen van het DOV-documentportaal |
+| Kleurschalen | de GetLegendGraphic van het hoogtemodel en de twee grondwaterstanden, waar de kleurbalk uit geknipt wordt |
 | Kaartbeelden | één GetMap per kaartblad, acht tegelijk |
 | Relief uit DHMV | WCS-uitsnede en zonale statistiek op de zone |
 | Lagen | de studielagen en de WMS-lagen in het project |
@@ -173,7 +205,11 @@ levert `data/studie.json` en `figuren/`, geen kaarten en geen PDF; dezelfde afsl
 ## Prestaties
 
 Reken op ongeveer een minuut per studie in de plugin; de eerste run op een locatie duurt langer
-omdat elke bron dan echt opgehaald wordt. Gemeten op 2026-09-16 voor een zone in Gent (115 bladen):
+omdat elke bron dan echt opgehaald wordt. Dezelfde zone in Gent telde 115 bladen in v0.1.0 en 62
+in 0.2.0 (gemeten 2026-09-20): de legendabladen staan uit, de leeswijzers en de legenda's voor de
+zone staan onder hun kaart, een kaart zonder kaartbeeld krijgt geen blad en een blad vult zich met
+alles wat erop past. De inktdekking per blad ging daarmee van gemiddeld 13,7 % naar 27,4 %, en het
+aantal vrijwel lege bladen van 67 naar twaalf. Gemeten op 2026-09-16 voor diezelfde zone (toen 115 bladen):
 in de plugin 149 s met koude cache, waarvan PDF-export 60 s, layout 24 s, lagen 8 s en de
 profieltypetekeningen 21 s (het documentportaal van DOV antwoordde traag); headless op een warme
 cache 46–48 s voor de schil, waarvan PDF-export 28 s, layout 9 s en GeoPackage plus projectbestand
@@ -193,12 +229,13 @@ vooraf in één GetMap per blad opgehaald, niet tegel na tegel tijdens het rende
   met zijn webpagina in plaats van de PNG (HTTP 200). De plugin herkent dat, haalt de directe link
   naar het bestand uit die pagina en volgt die - meestal komt de tekening daar alsnog uit - en
   probeert het anders nog één keer zonder cache. Blijft ze weg, dan staat ze als mislukte bron in
-  het hoofdstuk Bronnen en houdt het legendablad zijn regel met "tekening niet opgehaald".
+  het hoofdstuk Bronnen en houdt de legenda haar regel met "tekening niet opgehaald".
 - **Geen `log.txt` in de uitvoermap.** De plugin logt naar het logpaneel van QGIS, het script naar
   de terminal.
 - **Kaarten zonder dekking**: een dienst die op de locatie niets tekent (de Popp-kaart heeft geen
-  blad voor Gent) krijgt een blad met de regel "geen kaartbeeld op deze locatie" en staat in de
-  bronnenlijst als "ok - geen dekking op deze locatie"; dat is geen fout van de dienst.
+  blad voor Gent) krijgt geen blad in het rapport. Ze staat wel in de bronnenlijst, als
+  "ok - geen dekking op deze locatie"; dat is geen fout van de dienst. Een kaart waarvan het beeld
+  niet opgehaald raakte verliest haar blad net zo, en staat als mislukte bron in de lijst.
 - **Eén ring per zone.** Een multipolygoon wordt tot zijn grootste deel herleid, gaten vervallen.
 - **Gecodeerde lithologiecodes** (FZ, SI, SN, ...) staan rauw in de boringstabellen: de officiële
   DOV-codelijst is niet als open bestand beschikbaar, dus er is niets om ze mee te vertalen.

@@ -16,6 +16,7 @@ from pathlib import Path
 
 FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "core" / "fixtures"
 WFS = "https://www.dov.vlaanderen.be/geoserver/wfs"
+GXG = "https://www.dov.vlaanderen.be/geoserver/gxg/wms"
 VB = "https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/"
 VB_PROFILE = ("https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/"
               "{model}/profielbevraging/lagen")
@@ -73,6 +74,19 @@ def gfi(kind: str, x: int, y: int) -> str:
     }
     query = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
     return WATERINFO.format(kind=kind) + "?" + query
+
+
+def gxg(layer: str, x: float, y: float) -> str:
+    """GetFeatureInfo on one of the two mean groundwater levels, at the point the report asks
+    about. The value comes back as `<GHG|GLG>-waarde_m-mv`: metres below ground level."""
+    h = 25.0
+    params = {
+        "service": "WMS", "version": "1.1.1", "request": "GetFeatureInfo",
+        "layers": layer, "query_layers": layer, "styles": "gxg:gxg", "srs": "EPSG:31370",
+        "bbox": f"{x - h},{y - h},{x + h},{y + h}", "width": "101", "height": "101",
+        "x": "50", "y": "50", "info_format": "application/json", "feature_count": "5",
+    }
+    return GXG + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 
 
 def vb_profile(model: str, p: tuple[float, float], q: tuple[float, float], resolution: int) -> str:
@@ -133,9 +147,13 @@ FIXTURES: list[tuple[str, str]] = [
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          f"INTERSECTS(the_geom,{ZONE_EROSIE_HOOG})", 5,
          props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
-    ("wfs_quartair_isopachen_intersects.json",
-     wfs("dov-pub:Quartair_Isopachen", f"INTERSECTS(geometry,{ZONE_RURAL})", 5,
-         props=("objectid", "dikte"))),
+    # A contour never overlaps a plot, so this one is asked with DWITHIN - and WITHOUT
+    # propertyName: asking for named properties makes GeoServer answer "geometry": null on every
+    # feature, and the distance the report prints is measured from that geometry. The geometry
+    # field of this layer is `geom`, not `geometry`, and the study zone itself has contours within
+    # a few hundred metres, so ZONE serves where the coarse layer needed a rural square.
+    ("wfs_quartair_isopachen_dwithin.json",
+     wfs("quartair:qisopachen_quartair_50k", f"DWITHIN(geom,{ZONE},2000,meters)", 5)),
     ("wfs_grndversch_gevoeligh_intersects.json",
      wfs("grondverschuivingen:grndversch_gevoeligh", f"INTERSECTS(shape,{ZONE_RURAL})", 5,
          props=("ogc_fid", "gevoelighd", "klasse"))),
@@ -159,6 +177,8 @@ FIXTURES: list[tuple[str, str]] = [
     ("vb_hcovv2_S.json", VB + "hcovv2_S?x=104326&y=192506&crs=EPSG:31370"),
     ("vb_profile_g3dv3_F.json",
      vb_profile("g3dv3_F", (104126.0, 192506.0), (104526.0, 192506.0), 100)),
+    ("gxg_ghg_hit.json", gxg("gxg:ghg_mmv_main", 104326.8, 192506.7)),
+    ("gxg_glg_hit.json", gxg("gxg:glg_mmv_main", 104326.8, 192506.7)),
     ("watertoets_fluviaal_hit.json", gfi("fluviaal", 102000, 191500)),
     ("watertoets_pluviaal_empty.json", gfi("pluviaal", 104326, 192506)),
 ]

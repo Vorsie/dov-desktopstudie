@@ -3,6 +3,7 @@ All URLs and layer names were verified live on 2026-09-15 (see design spec); the
 to their workspace services on 2026-09-16, verified live against the global service the same day."""
 from __future__ import annotations
 
+import re
 import types
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -30,6 +31,31 @@ WATERINFO_WMS_URL = (
 # Reserved for the QGIS shell (plan 2): it loads the DTM as a WCS coverage to fill StudyResult.relief.
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
+# What the two ends of the DTM's colour ramp mean, in mTAW. Read off the service's own
+# GetLegendGraphic and not out of a document: it answers with a 102 x 68 px image holding the title
+# "Hoogte (m TAW)", a vertical gradient of 16 x 48 px and the range "300 - -50" printed beside it
+# (live 2026-09-17). The report prints that gradient as a horizontal strip under the map and needs
+# the two ends as numbers; the colours themselves stay the service's, never invented ones.
+DHMV_RAMP_MTAW = (-50.0, 300.0)
+
+# The base map: the one that opens checked in the project, and the one painted UNDER a thematic
+# overlay so the reader can see where the theme lies (`MapEntry.backdrop`). One constant, because
+# they are one idea - a legible background - and two copies of it would drift apart.
+BASE_MAP_ID = "grb"
+# The one fact field the study computes instead of reading: how far the feature lies from
+# the zone. Only a `fact_within_m` map has it, and no recorded answer ever contains it.
+DISTANCE_FIELD = "afstand_m"
+# Which of the GetFeatureInfo sample points a row came from: 0 is the representative point of the
+# zone, the rest are vertices of its ring. Also computed, never read from a service. Without it a
+# row from a vertex hundreds of metres away was printed as the value AT the representative point,
+# and the conversion to mTAW was anchored to the wrong place.
+POINT_FIELD = "punt_index"
+REPRESENTATIVE_POINT = 0
+
+# The printed width of a map frame, in millimetres. The layout draws to it; it lives here so a
+# map's scale and the paper it is drawn on stay one idea in one place.
+MAP_WIDTH_MM = 180.0
+
 
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
@@ -78,9 +104,9 @@ GUIDE_BODEMKAART = (
 GUIDE_QUARTAIR = (
     "Het profieltype is een nummer; elk nummer hoort bij een vaste opeenvolging van Quartaire "
     "afzettingen (zand, leem, klei of veen) boven de Tertiaire ondergrond. "
-    "Achter deze tabel staat per profieltype de tekening van DOV: eerst het type zelf met zijn "
-    "kleur, lettercode en omschrijving, daarna de eenhedentabel van het kaartblad, die van boven "
-    "naar onder loopt - van de jongste laag aan het maaiveld tot de oudste. "
+    "Onder de kaart staat per profieltype de tekening van DOV: het type zelf met zijn kleur, "
+    "lettercode en omschrijving. Op het blad daarna volgt de eenhedentabel van het kaartblad, die "
+    "van boven naar onder loopt - van de jongste laag aan het maaiveld tot de oudste. "
     "Het Quartair is de jongste geologische periode, alles wat de laatste 2,6 miljoen jaar is "
     "afgezet, en is meestal het pakket waarin gefundeerd wordt. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-150000")
@@ -94,6 +120,77 @@ GUIDE_QUARTAIR_200K = (
     "Deze kaart is een overzicht op 1/200 000; voor de zone zelf is de kaart 1/50 000 hierboven "
     "nauwkeuriger. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-1200000")
+# The isopach layer advertises one style and no halo variant, and its own lettering is thin, small
+# and grey - unreadable over the GRB backdrop the map is drawn on. GeoServer takes an inline SLD on
+# the GetMap, so the service still draws the geometry and we ask only for different lettering:
+# bold, black, a white halo, following the line instead of lying across it, repeated every 260 px
+# so one contour is numbered several times across the frame but never twice in the same place.
+#
+# The NamedLayer carries the BARE layer name. With the workspace in front of it GeoServer matches
+# nothing, applies its own style and says nothing about it - live on 2026-09-21 that returned an
+# image byte for byte identical to the one without an SLD, which is the sort of silence that
+# passes for success. Whoever edits this: change it, fetch it, and LOOK at the picture.
+def _compact_xml(xml: str) -> str:
+    """The same XML with the indentation taken out, for a style that has to fit in a URL.
+
+    An SLD travels as a GetMap parameter, and the gateway in front of DOV's GeoServer answers 502
+    Bad Gateway to a long one: with its indentation the isopach request ran to 3120 characters and
+    failed five times out of five; without it 1905 characters and succeeded five out of five
+    (live 2026-09-21). Every space between tags costs three characters once URL-encoded, so the
+    whitespace is where the fat is - and the style stays readable in the source, which is where a
+    person edits it.
+    """
+    return re.sub(r"\s+", " ", re.sub(r">\s+<", "><", xml)).strip()
+
+
+ISOPACH_SLD = _compact_xml("""<?xml version="1.0" encoding="UTF-8"?>
+<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"
+    xmlns:ogc="http://www.opengis.net/ogc">
+  <NamedLayer>
+    <Name>qisopachen_quartair_50k</Name>
+    <UserStyle>
+      <FeatureTypeStyle>
+        <Rule>
+          <LineSymbolizer>
+            <Stroke>
+              <CssParameter name="stroke">#000000</CssParameter>
+              <CssParameter name="stroke-width">0.9</CssParameter>
+            </Stroke>
+          </LineSymbolizer>
+          <TextSymbolizer>
+            <Label><ogc:PropertyName>Dikte_Quartair_m</ogc:PropertyName></Label>
+            <Font>
+              <CssParameter name="font-family">Arial</CssParameter>
+              <CssParameter name="font-size">15</CssParameter>
+              <CssParameter name="font-weight">bold</CssParameter>
+            </Font>
+            <LabelPlacement>
+              <LinePlacement><PerpendicularOffset>0</PerpendicularOffset></LinePlacement>
+            </LabelPlacement>
+            <Halo>
+              <Radius>2</Radius>
+              <Fill><CssParameter name="fill">#FFFFFF</CssParameter></Fill>
+            </Halo>
+            <Fill><CssParameter name="fill">#000000</CssParameter></Fill>
+            <VendorOption name="followLine">true</VendorOption>
+            <VendorOption name="repeat">260</VendorOption>
+            <VendorOption name="maxDisplacement">60</VendorOption>
+            <VendorOption name="group">no</VendorOption>
+          </TextSymbolizer>
+        </Rule>
+      </FeatureTypeStyle>
+    </UserStyle>
+  </NamedLayer>
+</StyledLayerDescriptor>""")
+GUIDE_QUARTAIR_DIKTE = (
+    "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden. "
+    "De dikte staat op de lijn zelf, in meter; tussen twee lijnen ligt de dikte ertussenin. "
+    "Het zijn contourlijnen uit de kartering op 1:50 000, geen waarden per perceel: waar de zone "
+    "tussen twee contouren valt, geeft de kaart een bereik en geen getal. "
+    "De regel onder de kaart noemt daarnaast de dikte die het model G3Dv3 op het representatieve "
+    "punt zelf berekent. "
+    "Die modelwaarde is een berekening, geen boring, en ze kan van de kaart afwijken: de "
+    "werkelijke dikte ter plaatse volgt uit het grondonderzoek.")
 GUIDE_TERTIAIR = (
     "De code noemt de Tertiaire eenheid onder het Quartair: de eerste twee letters staan voor de "
     "formatie, de twee daarna voor het lid, een onderdeel van die formatie. "
@@ -109,8 +206,24 @@ GUIDE_DHMV_DTM = (
     "300 m TAW. "
     "Binnen een bouwzone scheelt dat zelden meer dan enkele meters, dus verschilt de kleur er "
     "nauwelijks. "
-    "Het gemeten minimum, maximum en gemiddelde over de zone zelf staan in de tabel Kerngegevens "
-    "ligging.")
+    "De kleurbalk onder de kaart is die van de dienst zelf; het gemeten minimum, maximum en "
+    "gemiddelde over de zone staan eronder en in de tabel Kerngegevens ligging.")
+# The tick values of the GxG colour bar, read off the service's own GetLegendGraphic (live
+# 2026-09-17: 38 x 272 px, a band against the left edge with nine labels at even spacing). The
+# values are NOT evenly spaced - 0 to 5 in steps of one, then 10, 15, 20 - so the bar is a set of
+# classes of unequal width drawn at equal height, and a depth may never be interpolated along it.
+GXG_DEPTH_TICKS = (0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 10.0, 15.0, 20.0)
+GUIDE_GXG = (
+    "De GHG en de GLG zijn de gemiddeld hoogste en de gemiddeld laagste grondwaterstand: het "
+    "meerjarige gemiddelde van de hoogste, respectievelijk de laagste standen die per jaar "
+    "gemeten worden. "
+    "Beide staan in meter onder het maaiveld, dus een klein getal betekent water dicht onder de "
+    "oppervlakte. "
+    "De GHG hoort bij de natte periode en is de waarde waarmee gerekend wordt voor een bouwput, "
+    "een kelder of het opdrijven van een constructie; de GLG hoort bij de droge periode. "
+    "Het zijn gemodelleerde gemiddelden met een ruime spreiding - de tabel geeft de "
+    "standaardafwijking en de grenzen van het 80 %-betrouwbaarheidsinterval - en geen peilmeting "
+    "op het perceel zelf.")
 GUIDE_GW_KWETSBAARHEID = (
     "De index van twee of drie tekens vat de drie kolommen ernaast samen. "
     "De hoofdletter staat voor de watervoerende laag, de kleine letter voor de deklaag erboven en "
@@ -201,15 +314,49 @@ class MapEntry:
     # way, and a legend taller than a sheet is cut into page-high strips by the shell anyway.
     legend_options: str = "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
     fact_mode: Optional[str] = None  # None | "wfs" | "gfi"
+    # What a GetFeatureInfo may be asked to answer in. Not one value for everybody: the GeoServer
+    # of DOV answers `application/json` and returns a ServiceExceptionReport on
+    # `application/geo+json`, while the ArcGIS service behind the watertoets wants exactly that
+    # one (live, both services and both formats, 2026-09-17). Asked in the wrong format a map
+    # fails with "geen van de punten antwoordde" and arrives without a number.
+    gfi_format: str = "application/geo+json"
+    # How far around the zone a WFS fact query looks. None means "whatever overlaps the zone",
+    # which is right for a map of areas. A map of LINES needs a radius instead: the isopachs of
+    # the Quaternary are contour lines, and an overlap test against a zone of fifty metres never
+    # touches one (live 2026-09-17 at the Gent point: INTERSECTS 0, DWITHIN 5 km 0, DWITHIN 8 km
+    # 8 lines, the nearest at 5,68 km). The rows then come back nearest first, each with the
+    # distance it was found at.
+    fact_within_m: Optional[float] = None
     wfs_typename: Optional[str] = None
     fact_fields: Tuple[str, ...] = ()
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
+    # Paint this map OVER the base map instead of on white paper. True for a theme that covers a
+    # few percent of the sheet at most - the landslides, the flood classes, PFAS - because on its
+    # own such a sheet is a white rectangle with a red circle on it and nothing to place it by.
+    # False for a map that fills the extent itself (bodemkaart, Tertiair): a backdrop under that
+    # one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    backdrop: bool = False
+    # This map's legend is a continuous colour bar, not a list of classes: it belongs under the map
+    # as a strip (`report_content.ColourRamp`), where a sheet of its own would be a sheet holding a
+    # picture of three centimetres.
+    ramp: bool = False
+    # Which end of the service's own colour bar is the SMALLEST value. The height model draws its
+    # maximum at the top, the groundwater depths their minimum; on paper both have to run small to
+    # large from left to right, so one of the two is turned the other way (`layout.ramp_strip`).
+    ramp_low_at_top: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
     reading_guide: str = ""
+    # What an EMPTY answer means for THIS map. For most maps nothing is out of the ordinary about
+    # a zone that holds no units, but for a hazard map emptiness IS the answer, and printing the
+    # generic "Geen kaarteenheden binnen de zone" throws that answer away.
+    empty_meaning: str = ""
+    # Our own lettering for this map, as an inline SLD on the GetMap. Empty for every map whose
+    # own style is readable; see `ISOPACH_SLD` for the one that is not.
+    sld_body: str = ""
     # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
     # zone does not fit
     scale: int = 5000
@@ -237,13 +384,34 @@ def dov_wms(layer: str) -> Tuple[str, str]:
 def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs: Optional[str] = None,
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
-         guide: str = "") -> MapEntry:
+         guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
+         empty_meaning: str = "", sld_body: str = "") -> MapEntry:
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
-                    reading_guide=guide, scale=scale)
+                    reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
+                    empty_meaning=empty_meaning, sld_body=sld_body)
+
+
+def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
+    """One of the two mean groundwater levels. Both answer the same four fields under their own
+    name, so the fields are spelled once and the level ("GHG" / "GLG") is filled in."""
+    url, name = dov_wms(layer)
+    value = f"{level}-waarde_m-mv"
+    spread = f"Standaardafwijking_{level}_m"
+    low = f"Onderkant_80_procent_betrouwbaarheidsinterval_{level}_m-mv"
+    high = f"Bovenkant_80_procent_betrouwbaarheidsinterval_{level}_m-mv"
+    return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
+                    attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style="gxg:gxg",
+                    licence=DOV_LICENCE, opacity=0.7, legend=False, ramp=True,
+                    ramp_low_at_top=True, fact_mode="gfi", gfi_format="application/json",
+                    fact_fields=(value, spread, low, high),
+                    field_labels={value: f"{level} (m onder maaiveld)",
+                                  spread: "Standaardafwijking (m)",
+                                  low: "Ondergrens 80 % (m-mv)", high: "Bovengrens 80 % (m-mv)"},
+                    reading_guide=GUIDE_GXG, scale=25000)
 
 
 def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
@@ -268,7 +436,7 @@ CATALOGUE: List[MapEntry] = [
     # the colours mean - height in mTAW - is a sentence, and it stands in the reading guide below.
     MapEntry("dhmv_dtm", "ligging", "Digitaal Hoogtemodel Vlaanderen II - DTM 1 m",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMVII_DTM_1m", "Digitaal Vlaanderen - DHMV II", opacity=0.6,
-             legend=False, reading_guide=GUIDE_DHMV_DTM, scale=5000),
+             legend=False, ramp=True, reading_guide=GUIDE_DHMV_DTM, scale=5000),
     # --- historische kaarten ---
     _hist("ferraris", "Ferrariskaart (1777)", "https://geo.api.vlaanderen.be/HISTCART/wms", "ferraris", scale=25000),
     _hist("abw", "Atlas der Buurtwegen (ca. 1840)", "https://geo.api.vlaanderen.be/HISTCART/wms", "abw", scale=5000),
@@ -281,15 +449,18 @@ CATALOGUE: List[MapEntry] = [
           "image/jpeg", scale=5000),
     _hist("ortho_2000_03", "Orthofoto 2000-2003", "https://geo.api.vlaanderen.be/OMW/wms", "OMWRGB00_03VL",
           "image/jpeg", scale=5000),
+    # `note` van een uitgeschakelde entry wordt afgedrukt in de bronnenlijst en is dus tekst voor
+    # de LEZER: waarom de kaart niet in de studie zit en waar ze wel te vinden is. Geen enkele
+    # aanwijzing voor wie de plugin onderhoudt - die staat in de schuldlijst van CLAUDE.md.
     MapEntry("ngi_hist", "historisch", "Historische topografische kaarten NGI (1873-1989)", "", "",
              "Nationaal Geografisch Instituut", enabled=False,
-             note="Geen officiele open WMS beschikbaar (alleen het Cartesius-portaal). Vul wms_url en "
-                  "wms_layer in en zet enabled=True zodra een service bestaat.", scale=25000),
+             note="Het NGI publiceert deze reeks niet als open kaartdienst; ze is te raadplegen via "
+                  "het Cartesius-portaal van het NGI.", scale=25000),
     MapEntry("bommenkaart", "historisch", "Bommenkaart - conventionele en toxische explosieven", "", "",
              "Bommenkaart.be - Bom-Be BV", licence="Geen open data", enabled=False,
-             note="Bommenkaart.be (Bom-Be BV) is geen open data en biedt geen WMS/WFS; raadpleeg de "
-                  "kaart manueel en vermeld het risico op conventionele en toxische explosieven "
-                  "(WOI/WOII) in de studie.", scale=10000),
+             note="Bommenkaart.be (Bom-Be BV) is geen open data en biedt geen kaartdienst aan; "
+                  "raadpleeg de kaart apart en beoordeel het risico op conventionele en toxische "
+                  "explosieven (WOI/WOII) zelf.", scale=10000),
     # --- geologie en bodem ---
     # legend=False on purpose: the soil legend lists every soil series in Flanders, which fills
     # pages nobody reads. The fact table below the map names the types inside the zone instead.
@@ -313,9 +484,21 @@ CATALOGUE: List[MapEntry] = [
          ("type", "profiel"), wfs="quartair:quartair_200k",
          field_labels={"type": "Type", "profiel": "Profiel"}, guide=GUIDE_QUARTAIR_200K,
          scale=100000),
-    _dov("quartair_dikte", "Dikte van het Quartair (isopachen)", "dov-pub:Quartair_Isopachen",
-         ("dikte",), wfs="dov-pub:Quartair_Isopachen", legend=False, field_labels={"dikte": "Dikte (m)"},
-         scale=50000),
+    # De isopachen van de kartering op 1:50 000, niet de grove reeks `dov-pub:Quartair_Isopachen`
+    # voor heel Vlaanderen. Dat verschil is het verschil tussen een leeg blad en een bruikbaar:
+    # de grove reeks telt 780 lijnen en haar dichtstbijzijnde lag 5,6 km van de Gentse zone, deze
+    # geeft er vier binnen 300 m (live 2026-09-20: 67 m / 5 m, 71 m / 10 m, 146 m / 2,5 m,
+    # 270 m / 2,5 m). Dit is ook de laag die de DOV-verkenner zelf tekent, mét de dikte op de
+    # lijnen: een GetMap brengt die labels mee, dus het blad heeft geen eigen legenda nodig.
+    # Niet te verwarren met `quartair:Qisopachen_Tertair_50k`, dat het tertiair oppervlak geeft.
+    # Het dikteveld heet `Dikte_Quartair_m` en de geometrie `geom` (DescribeFeatureType, idem).
+    _dov("quartair_dikte", "Dikte van het Quartair (isopachen)",
+         "quartair:qisopachen_quartair_50k",
+         ("Dikte_Quartair_m", DISTANCE_FIELD), wfs="quartair:qisopachen_quartair_50k", legend=False,
+         field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
+                       DISTANCE_FIELD: "Afstand tot de zone (m)"},
+         guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
+         sld_body=ISOPACH_SLD),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
@@ -336,25 +519,34 @@ CATALOGUE: List[MapEntry] = [
     # GxG is a pair - the mean highest (GHG) and the mean lowest (GLG) level - and one page titled
     # "GxG" hides which of the two the reader has in front of him, so each level is its own entry.
     # gxg:glg_mmv_main with gxg:gxg verified live 2026-09-15 (GetMap -> HTTP 200, image/png).
-    _dov("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", legend=True, scale=25000,
-         style="gxg:gxg"),
-    _dov("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", legend=True, scale=25000,
-         style="gxg:gxg"),
+    # GetFeatureInfo gives the level itself, which is what a geotechnical reader came for. The
+    # field names are the service's own, verified live on 2026-09-17 against the Gent
+    # representative point; the "-waarde_m-mv" in them is the unit: metres BELOW GROUND LEVEL.
+    # legend=False and ramp=True: the GetLegendGraphic is a colour bar of depth classes, and under
+    # the map it costs a strip instead of a sheet.
+    _gxg("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", "gxg:ghg_mmv_main", "GHG"),
+    _gxg("gxg_glg", "Gemiddeld laagste grondwaterstand (GLG)", "gxg:glg_mmv_main", "GLG"),
     MapEntry("watertoets_pluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden pluviaal",
              WATERINFO_WMS_URL.format(kind="pluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
-             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000),
+             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
+             backdrop=True,
+             empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
+                           "pluviaal (klasse A: geen overstroming gemodelleerd)."),
     MapEntry("watertoets_fluviaal", "geologie", "Watertoets - overstromingsgevoelige gebieden fluviaal",
              WATERINFO_WMS_URL.format(kind="fluviaal"), "0", "Vlaamse Milieumaatschappij - waterinfo.be",
              licence="VMM - geen beperkingen", opacity=0.7, legend=True, fact_mode="gfi",
              fact_fields=("gridcode",), value_labels={"gridcode": WATERTOETS_LABELS},
-             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000),
+             field_labels={"gridcode": "Klasse"}, reading_guide=GUIDE_WATERTOETS, scale=10000,
+             backdrop=True,
+             empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
+                           "fluviaal (klasse A: geen overstroming gemodelleerd)."),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          field_labels={"Erosieklasse_ALV": "Erosieklasse", "Totale_erosie": "Totale erosie"},
-         guide=GUIDE_EROSIE, scale=10000),
+         guide=GUIDE_EROSIE, scale=10000, backdrop=True),
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
          ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch",
          field_labels={"Eenheid_G3Dv3_0": "Eenheid", "hoofdlithologie": "Hoofdlithologie",
@@ -363,17 +555,19 @@ CATALOGUE: List[MapEntry] = [
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
                        "risico_inrichting": "Risico-inrichting", "onder_voorbehoud": "Onder voorbehoud"},
-         scale=5000),
+         scale=5000, backdrop=True),
     _dov("grondverschuiving_gevoeligheid", "Gevoeligheid voor grondverschuivingen",
          "grondverschuivingen:grndversch_gevoeligh", ("gevoelighd", "klasse"),
          wfs="grondverschuivingen:grndversch_gevoeligh",
          field_labels={"gevoelighd": "Gevoeligheid", "klasse": "Klasse"},
-         guide=GUIDE_GRONDVERSCHUIVING, scale=25000),
+         guide=GUIDE_GRONDVERSCHUIVING, scale=25000, backdrop=True),
     _dov("grondverschuiving_gekarteerd", "Gekarteerde grondverschuivingen",
          "grondverschuivingen:grndversch_gekarteerd", ("type", "naam", "gemeente", "helling", "rapport"),
          wfs="grondverschuivingen:grndversch_gekarteerd",
          field_labels={"type": "Type", "naam": "Naam", "gemeente": "Gemeente", "helling": "Helling",
-                       "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000),
+                       "rapport": "Rapport"}, guide=GUIDE_GRONDVERSCHUIVING_GEKARTEERD, scale=10000,
+         backdrop=True,
+         empty_meaning="Er is binnen de zone geen grondverschuiving gekarteerd."),
     # The WMS layer is pfas:no_regret_huidig; "no_regret_zones" is one of its named STYLES, not a
     # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
     MapEntry("pfas_no_regret", "geologie", "PFAS - no-regretmaatregelen", *dov_wms("pfas:no_regret_huidig"),
@@ -386,7 +580,7 @@ CATALOGUE: List[MapEntry] = [
                            # "(bron)", not "(link)": the report prints the URL folded, and the
                            # fragment that points at the measure itself does not survive that.
                            "no_regret_maatregelen": "Maatregelen (bron)"},
-             reading_guide=GUIDE_PFAS, scale=10000),
+             reading_guide=GUIDE_PFAS, scale=10000, backdrop=True),
 ]
 
 

@@ -2,7 +2,131 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
-## [Unreleased]
+## [0.2.0] - 2026-09-18
+
+Compactere opmaak na de eerste gebruikersronde: minder wit, minder bladen, en de virtuele boring
+zegt waar ze genomen is.
+
+### Toegevoegd
+- **Kleurschaal onder het hoogtemodel**: de GetLegendGraphic van het DHMV is een kleurbalk over
+  heel Vlaanderen. De schil knipt die balk eruit, legt hem op zijn kant en zet hem als strookje
+  onder de DTM-kaart, met de uiteinden van de dienst (-50 en 300 mTAW) en de laagste, gemiddelde
+  en hoogste hoogte van de zone eronder. Komt de balk niet binnen of ziet de legenda er anders
+  uit, dan worden er geen kleuren getekend - een verzonnen schaal hoort niet bij de kaart erboven -
+  en zegt de regel eronder waarom. De zone staat op die balk gemarkeerd: een beugel tussen haar
+  laagste en hoogste hoogte, of - als die op papier te dicht bij elkaar liggen, wat op een schaal
+  van 350 m het gewone geval is - een streepje op het gemiddelde met een aanwijslijn. Zonder die
+  markering zegt een balk over heel Vlaanderen niets over een bouwzone van vier meter.
+- **Compacte opmaak**: `Settings.compact`, het vinkje "Compacte opmaak (meer op een blad)" op het
+  tabblad Instellingen en `--compact` in `run_headless.py`. Uit levert de voorspelbare opmaak:
+  hoogstens twee korte stukken per blad. Aan gaat er zoveel op een blad als erop past.
+- **Laag "Virtuele boringen"**: elke virtuele boring die de studie nam - die op het representatieve
+  punt, per model, en de doorprikpunten langs de doorsnedelijn - als punt met model, X, Y, maaiveld
+  en aantal lagen. Paars ruitje, duidelijk anders dan de sonderingen en boringen, gelabeld met het
+  model; in het GeoPackage, in de studiegroep en in `studie.qgz`.
+- **Hoofdstuk 4 zegt waar de boring genomen is**: een tabel "Plaats van de virtuele boringen" met
+  X en Y in Lambert 72 en het maaiveld, per model.
+- `PipelineResult.sheets` en de samenvatting van `run_headless.py` noemen het aantal bladen naast
+  het aantal rapportpagina's.
+- **De grondwaterstanden dragen hun getal en hun legenda.** GHG en GLG hadden een gekleurde kaart
+  en verder niets. Ze vragen hun waarde nu op bij de dienst (GetFeatureInfo op het representatieve
+  punt: `GHG-waarde_m-mv` 2,85 en `GLG-waarde_m-mv` 3,54 voor Gent, live geverifieerd 2026-09-17)
+  en zetten die met de standaardafwijking en het 80 %-betrouwbaarheidsinterval in een tabel onder
+  de kaart. De dienst antwoordt in meter ONDER MAAIVELD; de regel eronder rekent dat om naar mTAW
+  met het gemeten gemiddelde maaiveld van de zone en noemt die aanname. De kleurbalk van de dienst
+  staat er als strookje onder, met haar klassegrenzen (0-1-2-3-4-5-10-15-20 m) erbij: die klassen
+  zijn niet even breed, dus wie ze niet uitschrijft leest de helft van de balk als tien meter waar
+  ze vijf is. Beide kaarten kregen een leeswijzer die uitlegt wat een gemiddeld hoogste en een
+  gemiddeld laagste grondwaterstand zijn.
+- **Een dun thema krijgt de basiskaart eronder.** Een kaart die enkele procenten van de uitsnede
+  tekent - grondverschuivingen, watertoets, PFAS, OVAM, erosie, dikte van het Quartair - leverde
+  een wit blad met een rode cirkel. `MapEntry.backdrop` laat de basiskaart bij dezelfde uitsnede en
+  hetzelfde pixelformaat ophalen en tekent het thema erover in het ene beeld dat de pagina
+  afdrukt, met de doorzichtigheid die de catalogus voor dat thema kiest. Elke ondergrond is een
+  eigen bron; valt ze weg, dan wordt het thema alleen getekend en houdt het blad zijn plaats.
+
+- **Opmerkingen uit de boorbeschrijvingen.** Wat een beschrijving noemt en niet tot de gewone
+  grond behoort - een concretie, een zandsteenbank, glauconiet, veen, puin, baksteen, grind,
+  keien, een fossielrijke laag - komt als regel onder de boring te staan en als signalering in
+  hoofdstuk 7, met de diepte erbij en de zin van de beschrijving zelf geciteerd. De regel werkt
+  omgekeerd aan wat je zou verwachten: `core/lithology.ORDINARY` is een lijst van GEWONE woorden
+  (de matrix zand/klei/leem/silt, de modificatoren, de kleuren, het Frans van de oude records) en
+  alles wat daar niet op staat vlagt. Een onvolledige lijst geeft dus ruis, nooit een gemiste
+  vondst. De lijst is gecureerd op 3630 lagen uit 512 boringen rond twaalf punten verspreid over
+  Vlaanderen; `scripts/lithology_vocabulary.py` telt ze opnieuw wanneer DOV verandert.
+  Twee dingen bepalen wat er van dat alles op papier komt zonder de vlagregel aan te raken.
+  Een kort brokstuk met een punt is een afkorting en wordt niet gedrukt: "Num. planulatus" zette
+  eerst het zinloze "num" in het rapport. En soortnamen van fossielen (`FOSSILS`) worden
+  onderdrukt, net als de gewone woorden: ze zeggen in welke formatie je staat, niet dat je iets
+  zult raken. Een boring die alleen soortnamen noemt krijgt dus geen opmerkingsregel en geen
+  signalering meer. De geciteerde zin verandert niet - staat er "Num. planulatus" in, dan blijft
+  dat staan. Een schelpenbank blijft wel vlaggen: die draagt haar eigen woord.
+- **De diktekaart van het Quartair toont nu de isopachen die DOV zelf tekent.** Ze wees naar
+  `dov-pub:Quartair_Isopachen`, een grove reeks van 780 lijnen voor heel Vlaanderen waarvan de
+  dichtstbijzijnde 5,6 km van de Gentse zone lag - vandaar een leeg kaartbeeld, een schaal van
+  1:100 000 en een tabel met afstanden. De kaart is nu `quartair:qisopachen_quartair_50k`, de
+  kartering op 1:50 000: rond diezelfde zone liggen er vier contouren binnen 300 m (5, 10 en twee
+  van 2,5 m). Ze staat op 1:25 000, de dienst tekent de dikte op de lijnen zelf, en de tabel met
+  afstanden is vervangen door één regel: welke diktes er in beeld liggen, en daarnaast de
+  modelwaarde die G3Dv3 op het representatieve punt berekent. Die twee mogen verschillen - op de
+  Gentse zone zegt het model 3,78 m waar de kaart 5 tot 10 m contouren toont - en dat verschil
+  blijft staan zoals het is: het is informatie voor wie het rapport leest, geen fout om glad te
+  strijken.
+
+### Gewijzigd
+- **De leeswijzer en de "Legenda voor de zone" staan onder hun eigen kaart**, niet meer op bladen
+  ernaast: vier regels leeswijzer of twee legenda-regels op een A4 is een blad vol wit. Eerst de
+  leeswijzer, dan de legenda. Het kaartkader krimpt met precies wat ze samen nodig hebben en
+  nooit verder dan een halve bladhoogte; wat dan nog niet past loopt door op het volgende blad. De uitsnede houdt haar breedte, dus de schaal in het infovak, de schaalbalk
+  en het opgehaalde kaartbeeld blijven ongewijzigd. Geldt ook voor de profieltypestrookjes van het
+  Quartair; alleen de eenhedentabel van een kaartblad houdt haar eigen blad. Past de leeswijzer
+  zelf niet meer onder een leesbare kaart, dan begint het hele blok op het blad erachter.
+- **Een kaart zonder kaartbeeld krijgt geen blad meer.** Geen dekking op deze locatie, of een
+  ophaling die mislukte: het blad vervalt, en het hoofdstuk Bronnen zegt per kaart wat er gebeurde.
+  Per kader, niet per kaart. De legenda voor de zone komt uit de WFS en niet uit het beeld, dus
+  die blijft - dan weer op een blad van zichzelf.
+- **De isopachen dragen leesbare diktecijfers.** De dienst tekent ze wel, maar dun, klein en grijs:
+  boven de GRB-ondergrond vielen ze weg. De kaart vraagt haar eigen belettering aan met een SLD in
+  de GetMap - dezelfde lijnen van de dienst, maar vette zwarte cijfers met een witte halo, langs de
+  lijn in plaats van erdoorheen, en om de zoveel centimeter herhaald. Diezelfde witte halo staat nu
+  ook om de sondeer- en boornummers op de overzichtskaart, waar ze in het midden tot een
+  onleesbare veeg samenliepen; wat daar nog botst wordt weggelaten in plaats van overheen getekend.
+- **Alle "geen gegevens"-antwoorden staan gebundeld op het laatste blad.** Een kaart zonder
+  eenheden in de zone droeg een leeg legendablok onder haar kaartbeeld, en een stapel van die
+  blokken midden in hoofdstuk 3 zei vijf keer dezelfde zin. Elke kaart houdt haar eigen kaartblad;
+  het lege blok eronder verdwijnt en de zin komt op een gebundelde pagina achteraan, gegroepeerd
+  per antwoord ("Geen kaarteenheden binnen de zone. Geldt voor: A, B"). Er gaat niets verloren:
+  het hoofdstuk Bronnen noemt nog altijd elke kaart met haar eigen status.
+- **Een figuur die krimpt om mee te passen, past ook echt.** De kolom van HCOV v2 kreeg een blad
+  voor zichzelf terwijl de tabel erboven een kwart blad vulde - de figuur werd tot op de
+  millimeter van de beschikbare ruimte gekrompen, waarna de controle "past dit?" dezelfde som
+  twee keer berekende en op 1e-14 mm omviel. Hoofdstuk 4 toont nu alle vier de modellen op
+  dezelfde manier: tabel en kolom samen op een blad.
+- **Een blad vult zich**: een korte tabel, een kleine figuur en de tekst erna komen op hetzelfde
+  blad zolang er iets bij past - niet meer tot twee stukken, want een blad met een tabel van vier
+  regels erop is nog altijd een blad vol wit. Een blad draagt een hoofdstukkop, dus een stuk uit
+  het volgende hoofdstuk begint een nieuw blad; met `compact` mag het mee, met die kop er klein
+  bij. Kaartbladen niet: die blijven
+  alleen. Een figuur wordt niet langer opgeblazen tot bladbreedte maar hoogstens op ware grootte
+  getekend. De voettekst wordt per blad geschreven in plaats van per rapportpagina.
+- **De aparte legendapagina's staan standaard UIT.** Het vinkje "Legenda's op aparte pagina's"
+  begint leeg, `PluginSettings.legendas` is standaard `False`, en `run_headless.py` heeft
+  `--legendas` om ze wel te maken. De profieltypetekeningen van het Quartair komen er hoe dan ook:
+  dat is rapportinhoud, geen legendablad.
+- **Een elektrische sondering krijgt voorrang op een dichterbije mechanische** bij de keuze welke
+  sonderingen een qc-diagram krijgen. Een continu elektrische sondering meet over de volledige
+  diepte, een discontinu mechanische met stappen; afstand beslist binnen elke groep. De tabel
+  toont nog altijd elke sondering binnen de straal, op afstand gesorteerd, met de regel als noot
+  erboven: waarom een elektrische van 300 m getekend is en een mechanische van 40 m niet. Zo'n
+  noot krijgt nu de hoogte van zijn eigen regels in plaats van een vaste strook van twee.
+- **Een uitgeschakelde kaart krijgt geen blad meer** tussen de historische kaarten. Ze staat in
+  het hoofdstuk Bronnen, in de tabel "Niet opgenomen kaarten", met de reden erbij. De reden zelf
+  is herschreven voor een lezer: de NGI-regel gaf een instructie aan wie de plugin onderhoudt
+  ("vul de kaartdienst in"), en dat hoort niet in het rapport van een klant.
+
+### Verouderd
+- `--geen-legendas` in `run_headless.py` doet niets meer (de legendapagina's staan al uit) en logt
+  een waarschuwing. Het argument blijft bestaan zodat een script uit v0.1 er niet op afbreekt.
 
 ## [0.1.0] - 2026-09-16
 
@@ -83,5 +207,6 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Vorsie/dov-desktopstudie/releases/tag/v0.1.0

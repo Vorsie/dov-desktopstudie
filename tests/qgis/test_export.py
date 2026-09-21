@@ -74,7 +74,7 @@ def three_pages(project, gent_zone, tmp_path):
     report = Report(title="Desktopstudie testproject", meta={},
                     chapters=[Chapter(1, "Ligging en topografie", [page])])
     return layout.build_layout(project, report, {"zone": [zone]}, tmp_path,
-                               gent_zone.ring, _meta(),
+                               gent_zone.ring, _meta(), legends=True,
                                legend_images={MAP_ID: write_png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)})
 
 

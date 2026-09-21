@@ -56,7 +56,7 @@ def _fake_result(zone):
 def _fake_prepared():
     from desktopstudie.qgis.pipeline import Prepared
 
-    return Prepared({}, {}, {}, set(), [], [("Kaartbeelden", 0.1)])
+    return Prepared({}, {}, {}, set(), [], set(), [("Kaartbeelden", 0.1)])
 
 
 def test_the_worker_runs_core_and_prepare_and_hands_the_outcome_to_the_main_thread(qgs_app, tmp_path,
@@ -235,7 +235,8 @@ def test_debug_lines_stay_out_of_the_message_log_by_default(qgs_app):
 def _pipeline_result(result, pdf, failures=()):
     from desktopstudie.qgis.pipeline import PipelineResult
 
-    return PipelineResult(result, None, pdf, None, None, [], list(failures), [("Layout", 0.1)])
+    return PipelineResult(result, None, pdf, None, None, [], 1, list(failures),
+                          [("Layout", 0.1)])
 
 
 def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs_app, tmp_path,
@@ -253,10 +254,12 @@ def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs
     result, prepared = _fake_result(request.zone), _fake_prepared()
     seen = {}
 
-    def fake_finish(project, res, meta, out_dir, log, progress=None, legends=True, should_cancel=None,
-                    client=None, cache_mode="use", pngs=False, study_groups=True, prepared=None):
+    def fake_finish(project, res, meta, out_dir, log, progress=None, legends=False, should_cancel=None,
+                    client=None, cache_mode="use", pngs=False, study_groups=True, prepared=None,
+                    compact=False):
         seen.update(thread=threading.current_thread().name, prepared=prepared, project=project,
-                    legends=legends, cancel=should_cancel(), frozen=iface.canvas.isFrozen())
+                    legends=legends, compact=compact, cancel=should_cancel(),
+                    frozen=iface.canvas.isFrozen())
         progress(0.5, "Layout")
         pdf = tmp_path / "rapport.pdf"
         pdf.write_bytes(b"%PDF-1.4")
@@ -277,6 +280,7 @@ def test_the_runner_finishes_on_the_main_thread_with_what_the_worker_fetched(qgs
     assert seen["thread"] == threading.current_thread().name, "finish hoort op de hoofdthread"
     assert seen["prepared"] is prepared and seen["project"] is QgsProject.instance()
     assert seen["legends"] is False and seen["cancel"] is False
+    assert seen["compact"] is False, "de compacte opmaak reist mee uit de instellingen"
     # Every layer added to the open project would otherwise start a render that pulls tiles on
     # the main thread; the canvas is frozen for the project half and refreshed once at the end.
     assert seen["frozen"] is True and not iface.canvas.isFrozen()

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import hashlib
 import math
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
@@ -35,17 +36,20 @@ from qgis.core import (
     Qgis,
     QgsCoordinateReferenceSystem,
     QgsExpressionContextUtils,
+    QgsFillSymbol,
     QgsLayoutFrame,
     QgsLayoutItemLabel,
     QgsLayoutItemMap,
     QgsLayoutItemPage,
     QgsLayoutItemPicture,
     QgsLayoutItemScaleBar,
+    QgsLayoutItemShape,
     QgsLayoutItemTextTable,
     QgsLayoutMultiFrame,
     QgsLayoutObject,
     QgsLayoutTable,
     QgsLayoutTableColumn,
+    QgsLayoutUtils,
     QgsMapLayer,
     QgsPrintLayout,
     QgsProject,
@@ -53,10 +57,18 @@ from qgis.core import (
     QgsRectangle,
     QgsTextFormat,
 )
-from qgis.PyQt.QtGui import QColor, QFont, QFontMetricsF, QImage
+from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QImage,
+    QPainter,
+    QTransform,
+)
 
 from ..core import catalogue, geometry, parallel
-from ..core.catalogue import MapEntry
+from ..core.catalogue import BASE_MAP_ID, MapEntry
 from ..core.geometry import BBox
 from ..core.model import StudyResult
 from ..core.report_content import (
@@ -64,6 +76,7 @@ from ..core.report_content import (
     QUARTAIR_ID,
     QUARTAIR_IMAGE,
     Chapter,
+    ColourRamp,
     FigurePage,
     LegendPage,
     MapPage,
@@ -76,6 +89,7 @@ from ..core.report_content import (
 )
 from ..core.services.dov_portal import PNG_MAGIC, content_link
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
+from . import layers
 from .compat import point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
 from .layers import CRS_AUTHID
@@ -93,14 +107,15 @@ CONTENT_W = 180.0
 CONTENT_H = 245.0
 CONTENT_TOP = 30.0
 CONTENT_RIGHT = MARGIN + CONTENT_W  # 195 mm: the right edge the info boxes are pinned to
-MAP_W, MAP_H = 180.0, 200.0
+# The width lives in the catalogue, because the report text reasons about how many metres a
+# sheet covers at a map's own scale; one number, drawn here and reasoned about there.
+MAP_W, MAP_H = catalogue.MAP_WIDTH_MM, 200.0
 NOTE_Y = 25.5
 FOOTER_Y = 285.0
-INFO_TOP_Y, INFO_BOTTOM_Y = 46.0, 210.0
+INFO_TOP_Y = 46.0
 INFO_W, INFO_H = 55.0, 22.0
 INFO_MARGIN_MM = 1.0
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
-SCALE_BAR_Y = 232.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
 LEGEND_DIR = "legendas"
@@ -127,7 +142,27 @@ MM_PER_PX = 25.4 / 96.0
 MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, not a long table
 # A table of this many columns does not fit a portrait sheet, whatever the widths: the sonderingen
 # table has nine, and squeezed into 180 mm its last column falls off the paper.
-WIDE_TABLE_COLUMNS = 7
+# How tightly a table may be squeezed before it is laid on its side. Decided on MEASURED widths,
+# not on the column count: eight narrow columns fit 180 mm easily, and a landscape sheet for them
+# cost a three-row table a sheet of its own that nothing else could join. Measured on the real
+# tables (portrait budget ~160-170 mm): the nine-column sounding table wants 169 mm and cannot go
+# below 127 mm (0.80 of its budget) - squeezed that hard every cell wraps and the fiche numbers
+# are unreadable, so it goes landscape. The four-column signal table wants 240 mm but falls back
+# to 75 mm (0.44), because its columns are sentences that are MEANT to wrap - it stays portrait.
+TABLE_MAX_SQUEEZE = 0.65
+# QGIS' own defaults for a text table, spelled out so the orientation can be decided before a table
+# exists. `_new_table` reads them off the table itself and the two must agree; the check below
+# fails loudly if a QGIS release ever moves them.
+TABLE_CELL_MARGIN = 1.0
+TABLE_GRID_WIDTH = 0.3
+UNBOUNDED_WIDTH = 10_000.0  # no cap: what the columns WANT, not what they are allowed
+# The shortest a figure may be squeezed to in order to share a sheet. Below this a qc diagram over
+# thirty-five metres is a smudge, and white paper beats an unreadable drawing.
+FIGURE_MIN_H = 120.0
+# The key under the overview map: a swatch of this size and a line of this height per symbol.
+KEY_SWATCH = 3.0
+KEY_ROW_H = 4.2
+
 # QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
 # line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
 # that factor - a column measured too narrow wraps text that had room.
@@ -138,6 +173,67 @@ TABLE_FONT_PT = 7.0
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
 DEFAULT_EXTENT_FACTOR = 3.0
+# What a map page keeps for its map, and what it gives to the legend under it. There were already
+# four centimetres of white paper under every map frame (the frame ends at 230 mm, the band at
+# 275), so a short zone legend costs the map nothing; a longer one shortens the frame, and never
+# past MAP_MIN_H - a map of less than half a sheet has stopped being a map.
+MAP_MIN_H = 120.0
+# Slack for "does this still fit on the paper" comparisons. Heights are millimetres computed by
+# adding and subtracting the same constants in a different order, so an exact fit lands a hair
+# either side of zero; below this nothing is drawable anyway.
+FIT_TOLERANCE_MM = 0.01
+# Between the map frame and what stands under it: the scale bar (12.3 mm measured on 3.40.15)
+# plus air. Everything below the frame is placed from here, so the bar and the legend cannot
+# collide when the frame moves up.
+UNDER_MAP_GAP = 16.0
+UNDER_MAP_TITLE_H = 5.0
+UNDER_MAP_BLOCK_GAP = 3.0
+INFO_BOTTOM_LIFT = 20.0  # the bottom info box, measured up from the foot of the map frame
+SCALE_BAR_LIFT = 2.0  # the scale bar, measured down from the foot of the map frame
+# The colour strip of a map that has no classes but a continuous scale: half the page wide, with
+# its two ends named under it and the zone's own heights below that.
+RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
+RAMP_LINE_H = 4.5
+RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
+# Marking the zone on the strip. Over a scale of 350 metres a building plot is a millimetre wide,
+# so a bracket is only drawn when the two ends are this far apart on paper; below it the mean gets
+# one tick with a leader line down to its label.
+RAMP_SPAN_MIN_MM = 6.0
+RAMP_TICK_W = 0.5
+RAMP_TICK_H = 2.5
+RAMP_MARK_H = RAMP_TICK_H + 0.5
+# The line that names the mark stands AT the mark, not at the margin - a leader pointing right
+# with its label away to the left points nowhere. Wide enough for "zone 12.52 - 16.25 mTAW", and
+# slid back onto the paper when the mark sits near the right end.
+RAMP_MARK_LABEL_W = 48.0
+RAMP_TICK_LABEL_W = 10.0
+RULE_COLOUR = "#000000"
+RAMP_SUFFIX = "_schaal"
+# A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
+# swatch, not a ramp, and then no strip is cut at all - see `ramp_rect`.
+RAMP_MIN_ROWS = 10
+RAMP_MIN_COLUMNS = 4
+WHITE_RGB = bytes((255, 255, 255))
+# A sheet keeps taking pieces of content while they fit: a sheet holding one four-row table is a
+# sheet of white paper, and that was the complaint this whole round started from. One chapter per
+# sheet, though - a heading belongs to what stands under it. `compact` lifts that last rule too
+# and repeats the new chapter's heading, small, where the sheet changes chapter.
+PACK_GAP = 6.0
+PACKED_TITLE_H = 6.0
+PACKED_CHAPTER_H = 5.0
+CAPTION_H = 12.0
+NOTE_BLOCK_H = 6.0
+TEXT_FONT_PT = 9.0
+# A label measured on its stripped text still wraps a little worse than measured: words do not
+# break, so the last word of a line moves down. A label a millimetre short clips its last line;
+# a millimetre too much costs white paper, so the estimate is deliberately generous.
+TEXT_HEIGHT_FUDGE = 1.3
+TEXT_HEIGHT_PAD = 8.0
+# Halvings to find the shortest frame a table still fits in, and the millimetre of slack on the
+# answer. Ten steps over a sheet is a quarter of a millimetre - finer than anything on paper.
+TABLE_FIT_STEPS = 10
+TABLE_FIT_MARGIN = 1.0
+TAGS = re.compile(r"<[^>]+>")
 NO_COVERAGE_NOTE = "Deze bron levert geen kaartbeeld op deze locatie (geen dekking)."
 MISSING_MAP_NOTE = "Kaartbeeld van deze bron niet opgehaald (zie hoofdstuk Bronnen)."
 # One GetMap per map page, fetched up front and in parallel, instead of letting the WMS provider
@@ -151,6 +247,10 @@ MAP_IMAGE_WORKERS = 8
 # a legend - but one retry only: the page can be printed without its background.
 MAP_IMAGE_TIMEOUT_S = 30.0
 MAP_IMAGE_RETRIES = 1
+# A theme that paints a few percent of the sheet is a white rectangle with a red circle on it
+# unless something recognisable lies under it. `MapEntry.backdrop` asks for the base map at the
+# very same box and pixel size, and the theme is painted over it into the one PNG the page draws -
+# at the opacity the catalogue gives that map, so the streets stay readable through it.
 # The quartair profile-type drawings land next to the map legends, under their own prefix so a
 # second run overwrites the file of the same profile type instead of collecting copies.
 ZONE_LEGEND_PREFIX = "quartair_"
@@ -412,6 +512,95 @@ def fetch_legend(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Opti
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
     return path
+
+
+def ramp_rect(image: QImage) -> Optional[Tuple[int, int, int, int]]:
+    """The colour-ramp band inside a legend graphic: (x, y, width, height), or None.
+
+    A ramp legend is drawn as one solid band against the LEFT edge, its title above it and its
+    range printed beside it - that is what the DHMV service answers (102 x 68 px, a band of
+    16 x 48, live 2026-09-17). So the rows that BEGIN with a run of one colour are the band, and
+    the narrowest of those runs is its width.
+
+    None for a legend shaped any other way, and then the report prints no colours at all: a strip
+    whose colours are not the map's is worse than no strip.
+    """
+    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
+    width, height, stride = rgba.width(), rgba.height(), rgba.bytesPerLine()
+    buffer = rgba.constBits()
+    buffer.setsize(height * stride)
+    data = bytes(buffer)
+    # Per row: where its solid run of one colour starts and how long it is. Not "column zero":
+    # the GxG legend leaves a white pixel against the edge, and a search that insists on the very
+    # first column finds nothing there and leaves that map without a legend.
+    bands: List[Tuple[int, int]] = []
+    for y in range(height):
+        row = data[y * stride:y * stride + width * 4]
+        start, run = 0, 0
+        while start < width:
+            pixel = row[start * 4:start * 4 + 4]
+            if pixel[3] != 0 and pixel[:3] != WHITE_RGB:
+                run = 1
+                while start + run < width and row[(start + run) * 4:(start + run) * 4 + 4] == pixel:
+                    run += 1
+                break
+            start += 1
+        bands.append((start, run) if run >= RAMP_MIN_COLUMNS else (-1, 0))
+    best_top, best_rows, best_start = 0, 0, -1
+    top = None
+    for y, (start, _run) in enumerate(bands + [(-1, 0)]):
+        # One band: the rows have to open at the same column, or a stack of legend swatches would
+        # read as one long bar.
+        if start >= 0 and (top is None or bands[top][0] == start):
+            top = y if top is None else top
+            continue
+        if top is not None and y - top > best_rows:
+            best_top, best_rows, best_start = top, y - top, bands[top][0]
+        top = y if start >= 0 else None
+    if best_rows < RAMP_MIN_ROWS:
+        return None
+    return (best_start, best_top,
+            min(run for _start, run in bands[best_top:best_top + best_rows]), best_rows)
+
+
+def ramp_strip(legend_png, target, flip: bool = False) -> Optional[Path]:
+    """The colour band of a legend graphic, cut out, laid on its side and saved as `target`.
+
+    The band runs high-to-low downwards (the DTM is brown at 300 mTAW on top, green at -50 at the
+    bottom) while a reader expects a horizontal scale to run low on the left. So it is turned a
+    quarter clockwise, which puts the top of the band on the right. Turning and stretching change
+    no colour - which is the whole point: what lands under the map is the service's own ramp.
+    """
+    image = QImage(str(legend_png))
+    if image.isNull():
+        return None
+    rect = ramp_rect(image)
+    if rect is None:
+        return None
+    # A quarter clockwise puts the TOP of the band on the right, which is where the height model
+    # wants its maximum. A bar whose smallest value sits on top turns the other way, so that both
+    # read small-left to large-right (`MapEntry.ramp_low_at_top`).
+    band = image.copy(*rect).transformed(QTransform().rotate(-90 if flip else 90))
+    target = Path(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target if band.save(str(target)) else None
+
+
+def fetch_ramp(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Optional[Path]:
+    """The colour strip of one map, cut from that map's own GetLegendGraphic.
+
+    Report content, not a legend page: the height model's legend is a ramp over the whole of
+    Flanders, which fills a sheet with a picture of three centimetres. Under the map, next to the
+    three heights measured over the zone, the same picture says everything it has to say.
+    """
+    legend = fetch_legend(entry, out_dir, client, log)
+    if legend is None:
+        return None
+    strip = ramp_strip(legend, Path(legend).with_name(f"{entry.id}{RAMP_SUFFIX}.png"),
+                       flip=entry.ramp_low_at_top)
+    if strip is None and log:
+        log.warning(f"Kleurschaal van {entry.id}: geen herkenbare kleurbalk in de legenda")
+    return strip
 
 
 def prepare_legends(entries: Sequence[MapEntry], out_dir, client: HttpClient,
@@ -706,6 +895,35 @@ def map_extent(zone_ring: Sequence, scale: int, extent_factor: float,
     return QgsRectangle(cx - width / 2.0, cy - height / 2.0, cx + width / 2.0, cy + height / 2.0)
 
 
+def map_height(needed: float) -> float:
+    """The height the map frame keeps when `needed` millimetres have to fit under it.
+
+    Nothing shrinks for the first four centimetres: that band was white paper already. Beyond it
+    the frame gives way millimetre for millimetre, down to MAP_MIN_H - what a legend needs past
+    that point runs on to the next sheet, because half a page of map is the least a reader can
+    still read.
+    """
+    if needed <= 0.0:
+        return MAP_H
+    return max(MAP_MIN_H, min(MAP_H, CONTENT_H - UNDER_MAP_GAP - needed))
+
+
+def crop_extent(extent: QgsRectangle, height_mm: float) -> QgsRectangle:
+    """The same box at the same WIDTH, cropped to the paper height the frame really gets.
+
+    The width is what sets the scale and what the fetched image was planned on (`plan_map_images`
+    always computes the full-height extent), so it is never touched: a shorter frame shows less
+    ground above and below the very same picture. Narrowing instead would change the scale printed
+    in the info box and send the page looking for an image nobody fetched.
+    """
+    if height_mm >= MAP_H:
+        return extent
+    height = extent.width() * height_mm / MAP_W
+    centre = extent.center()
+    return QgsRectangle(extent.xMinimum(), centre.y() - height / 2.0,
+                        extent.xMaximum(), centre.y() + height / 2.0)
+
+
 # --- does this service draw anything here? ---------------------------------------------------------
 
 @dataclass(frozen=True)
@@ -731,6 +949,11 @@ def wms_map_url(entry: MapEntry, extent: QgsRectangle, width: int, height: int) 
               "TRANSPARENT": "TRUE", "WIDTH": width, "HEIGHT": height,
               "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
                       f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
+    if entry.sld_body:
+        # Our own lettering for a map whose published style is unreadable at report size. The
+        # service still draws the geometry; only the labels are ours. It travels in the URL, so
+        # this one map has a GetMap of a few kilobytes - the sources table prints it shortened.
+        params["SLD_BODY"] = entry.sld_body
     return build_url(entry.wms_url, params)
 
 
@@ -811,9 +1034,45 @@ def _write_world_file(path: Path, request: MapRequest) -> None:
                     encoding="utf-8")
 
 
+def _load_tile(data: bytes) -> Optional[QImage]:
+    """The bytes of a GetMap as an image, or None when the service sent something else."""
+    image = QImage()
+    return image if data and image.loadFromData(data) else None
+
+
+def _over_backdrop(theme: QImage, backdrop: QImage, opacity: float) -> QImage:
+    """The theme painted over the base map, at the opacity the catalogue gives the theme.
+
+    Both come from the same box at the same pixel size, so they line up by construction - the
+    page draws ONE picture and nothing has to be registered afterwards.
+    """
+    canvas = backdrop.convertToFormat(QImage.Format.Format_ARGB32)
+    painter = QPainter(canvas)
+    painter.setOpacity(opacity)
+    painter.drawImage(0, 0, theme)
+    painter.end()
+    return canvas
+
+
+def _backdrop_for(request: MapRequest, client: HttpClient, log=None) -> Tuple[Optional[QImage], str]:
+    """The base map under one theme: (image, why not). A backdrop that does not come back costs
+    the theme its background, never its page."""
+    base = catalogue.by_id(BASE_MAP_ID)
+    url = wms_map_url(base, request.extent, request.width, request.height)
+    try:
+        image = _load_tile(client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES))
+    except HttpError as exc:
+        image, reason = None, str(exc)
+    else:
+        reason = "" if image is not None else "antwoord van de basiskaart is geen afbeelding"
+    if image is None and log:
+        log.warning(f"Ondergrond voor {request.map_id} niet opgehaald: {reason}")
+    return image, reason
+
+
 def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClient, log=None,
                        should_cancel: Optional[Callable[[], bool]] = None
-                       ) -> Tuple[Dict[str, Path], Set[str]]:
+                       ) -> Tuple[Dict[str, Path], Set[str], Dict[str, str]]:
     """({key -> PNG}, keys whose service drew nothing here), fetched in parallel.
 
     This is the phase that used to be spread over ninety sheets of rendering: the WMS provider
@@ -828,25 +1087,50 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
     Emptiness is reported per REQUEST, not per map: one map carries several framings (the GRB base
     map three), and a mosaic that has no sheet for the wide frame may well cover the narrow one.
     Keyed per map, one empty tile would print "geen dekking" on every other sheet of that map.
+
+    The third answer is the backdrops: map id -> "" when the base map went under that theme, or
+    the reason it did not. Only for `MapEntry.backdrop` maps, and only ever as an extra request -
+    a theme whose backdrop failed is still drawn, on white paper, and says so in the sources.
     """
     out_dir = Path(out_dir)
     images: Dict[str, Path] = {}
     empty: Set[str] = set()
+    backdrops: Dict[str, str] = {}
 
     def fetch(request: MapRequest) -> None:
         entry = catalogue.by_id(request.map_id)
         url = wms_map_url(entry, request.extent, request.width, request.height)
         data = client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES)
-        image = QImage()
-        if not data or not image.loadFromData(data):
+        image = _load_tile(data)
+        if image is None:
             raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
                                        f"({len(data)} bytes)")
+        # Asked of the THEME, before anything is painted under it: a backdrop would answer the
+        # coverage question with the base map's own ink. Asked of EVERY map, not only of the ones
+        # without facts - a themed map that draws nothing here is the sheet that showed a base map,
+        # an empty legend and a guide to a table that was not there. What such a tile costs is
+        # decided where the legend is known (`pipeline._pages_without_an_image`), not here.
+        blank = _is_empty(image)
         path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{_image_name(request.key)}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
+        if entry.backdrop:
+            under, reason = _backdrop_for(request, client, log)
+            # Keyed per MAP while eight threads write it, so two framings of one map race for the
+            # same slot. Both framings ask the same base map, so the two answers are the same
+            # sentence and the winner does not matter; CPython's dict assignment is atomic, so
+            # nothing is lost either. Keep the LOSING one only when it explains a failure that the
+            # winner does not, so a reason never silently becomes "fine".
+            if reason or request.map_id not in backdrops:
+                backdrops[request.map_id] = reason
+            if under is not None:
+                data = None
+                if not _over_backdrop(image, under, entry.opacity).save(str(path)):
+                    raise HttpError(url, None, f"beeld van {request.map_id} niet weggeschreven")
+        if data is not None:
+            path.write_bytes(data)
         _write_world_file(path.with_suffix(".pgw"), request)
         images[request.key] = path
-        if entry.fact_mode is None and _is_empty(image):
+        if blank:
             empty.add(request.key)
 
     parallel.load_each(list(requests), fetch, "kaartbeeld", MAP_IMAGE_WORKERS, log, should_cancel)
@@ -857,7 +1141,37 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
         missing = [request.map_id for request in requests if request.key not in images]
         if missing:
             log.warning(f"Geen kaartbeeld voor: {', '.join(sorted(set(missing)))}")
-    return images, empty
+        under = sorted(map_id for map_id, reason in backdrops.items() if not reason)
+        if under:
+            log.info(f"Basiskaart als ondergrond onder: {', '.join(under)}")
+    return images, empty, backdrops
+
+
+def _fits_portrait(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> bool:
+    """Whether these columns can be read on a portrait sheet.
+
+    Two questions, in order. Do they simply fit? Then portrait, whatever their number - that is
+    the eight narrow columns of the peilput table, 63 mm in a 161 mm budget, which used to earn a
+    landscape sheet of their own purely by being eight. Do they not fit? Then how hard would the
+    squeeze be: a column can be narrowed to its longest word and no further, so the sum of those
+    words against the budget says whether wrapping still leaves a readable table or turns every
+    cell into a stack of fragments.
+
+    The table's own furniture - a cell margin either side of every column and a grid line between
+    and outside them - comes off the budget first, the same way `_new_table` computes it.
+    """
+    count = len(columns)
+    budget = CONTENT_W - 2 * TABLE_CELL_MARGIN * count - (count + 1) * TABLE_GRID_WIDTH
+    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
+             for index in range(count)]
+    wanted = sum(max(_text_width_mm([column], TABLE_FONT_PT, bold=True),
+                     _text_width_mm(column_cells, TABLE_FONT_PT))
+                 for column, column_cells in zip(columns, cells))
+    if wanted <= budget:
+        return True
+    floor = sum(_floor_width(column, column_cells, UNBOUNDED_WIDTH, TABLE_FONT_PT)
+                for column, column_cells in zip(columns, cells))
+    return floor <= budget * TABLE_MAX_SQUEEZE
 
 
 def _is_empty(image: QImage) -> bool:
@@ -946,17 +1260,40 @@ def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
     return strips
 
 
+class Slot(NamedTuple):
+    """Where one piece of content landed: its sheet, the y it starts at, and whether it shares
+    that sheet with something above it - a note that stands in the header band on a sheet of its
+    own has to move under the title when it does not."""
+    page: int
+    top: float
+    packed: bool
+
+
+class UnderMap(NamedTuple):
+    """What goes below a map frame: how tall it is, and how to draw it once the frame is placed.
+
+    Measured first and drawn later, because the height of the frame follows from the measurement
+    and the position of the block follows from the frame. `minimum` is what the FIRST piece needs:
+    a legend that does not fit runs on to the next sheet, but a reading guide that does not even
+    start under a readable map takes the whole block with it - half a paragraph under a map and
+    the other half overleaf reads worse than a block that begins on a sheet of its own.
+    """
+    height: float
+    draw: Callable[[int, float], None]
+    minimum: float = 0.0
+
+
 class LayoutBuilder:
     """One report -> one layout. Build it once; `build()` is not idempotent."""
 
     def __init__(self, project: QgsProject, report: Report,
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
-                 legends: bool = True, legend_images: Optional[Dict[str, Path]] = None,
+                 legends: bool = False, legend_images: Optional[Dict[str, Path]] = None,
                  log=None, should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None):
+                 name: Optional[str] = None, compact: bool = False):
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
         to draw on top of its map image; name: what the layout is called in the layout manager
         (`layout_name`), the bare plugin name when left empty;
@@ -966,12 +1303,14 @@ class LayoutBuilder:
         key -> the raster layer of the image fetched for it, which a map page draws instead of the
         live WMS layer; overlay_boxes: what a page widens for, as `overlay_boxes` gives it - the same
         boxes the images were planned on. Without them the page widens for its layers' extents,
-        which is fine when nobody planned an image for it (the direct tests)."""
+        which is fine when nobody planned an image for it (the direct tests);
+        compact: put as many pieces of content on one sheet as fit, instead of at most two."""
         self.project, self.report = project, report
         self.overlays = overlays
         self.overlay_boxes = overlay_boxes
         self.out_dir, self.zone_ring, self.meta = Path(out_dir), list(zone_ring), meta
         self.legends = legends
+        self.compact = compact
         self.legend_images = dict(legend_images or {})
         self.no_coverage = set(no_coverage or ())
         self.map_images = dict(map_images or {})
@@ -982,6 +1321,70 @@ class LayoutBuilder:
         self.layout.setName(name or LAYOUT_NAME)
         QgsExpressionContextUtils.setLayoutVariable(self.layout, LEGEND_VARIABLE, 1 if legends else 0)
         self._first_page_used = False
+        # The sheet being filled: which one, how far down it is used, how many pieces stand on it,
+        # in which orientation and under which chapter heading. A fresh sheet resets all five
+        # (`_start`).
+        self._sheet = -1
+        self._cursor = CONTENT_TOP
+        self._sheet_metrics = _METRICS[PORTRAIT]
+        self._sheet_chapter: Optional[int] = None
+
+    # --- which sheet does this piece of content go on? --------------------------------------------
+
+    def _room_left(self, chapter: Chapter, metrics: PageMetrics) -> float:
+        """How much height a new piece could still take on the sheet being filled, its heading and
+        the gap already subtracted; 0.0 when nothing can join that sheet at all."""
+        same = chapter.number == self._sheet_chapter
+        if (self._sheet < 0 or not (same or self.compact)
+                or metrics.orientation != self._sheet_metrics.orientation):
+            return 0.0
+        room = CONTENT_TOP + self._sheet_metrics.content_h - self._cursor
+        heading = PACKED_TITLE_H + (0.0 if same else PACKED_CHAPTER_H)
+        return max(0.0, room - PACK_GAP - heading)
+
+    def _start(self, chapter: Chapter, title: str, content_h: float,
+               metrics: PageMetrics = _METRICS[PORTRAIT], packable: bool = True) -> Slot:
+        """Room for one piece of content, with its heading written.
+
+        On the sheet being filled for as long as things fit on it - a sheet holding one short
+        table is a sheet of white paper - and on a fresh one otherwise. A sheet has one
+        orientation, so a portrait piece never joins a landscape one, and one chapter heading, so
+        a piece from the next chapter starts its own sheet; `compact` lets it share and repeats
+        the new heading, small, where the chapter changes. A map page never shares at all, and
+        fills its sheet so that nothing lands behind it either.
+        """
+        room = CONTENT_TOP + self._sheet_metrics.content_h - self._cursor
+        same = chapter.number == self._sheet_chapter
+        heading = PACKED_TITLE_H + (0.0 if same else PACKED_CHAPTER_H)
+        packed = (packable and self._sheet >= 0
+                  and metrics.orientation == self._sheet_metrics.orientation
+                  and (same or self.compact)
+                  and PACK_GAP + heading + content_h <= room)
+        if packed:
+            index, top = self._sheet, self._cursor + PACK_GAP
+            if not same:
+                # The heading belongs to what stands under it; a table of chapter 4 under
+                # "3. Geologie en bodem" is read as chapter 3.
+                self.label(f"{chapter.number}. {chapter.title}", MARGIN, top, metrics.content_w,
+                           PACKED_CHAPTER_H, index, size=9, bold=True)
+                top += PACKED_CHAPTER_H
+                self._sheet_chapter = chapter.number
+            self.label(title, MARGIN, top, metrics.content_w, PACKED_TITLE_H, index, size=10,
+                       bold=True)
+            top += PACKED_TITLE_H
+        else:
+            index = self.new_page(metrics.orientation)
+            self.header(chapter, title, index, metrics)
+            top = CONTENT_TOP
+            self._sheet, self._sheet_metrics = index, metrics
+            self._sheet_chapter = chapter.number
+        self._cursor = top + content_h
+        return Slot(index, top, packed)
+
+    def _seal(self, index: int, metrics: PageMetrics = _METRICS[PORTRAIT]) -> None:
+        """This sheet is full: whatever comes next starts a new one."""
+        self._sheet, self._sheet_metrics = index, metrics
+        self._cursor = CONTENT_TOP + metrics.content_h
 
     # --- page furniture ---------------------------------------------------------------------------
 
@@ -1072,6 +1475,19 @@ class LayoutBuilder:
                           page, size=7)
         item.setId(FOOTER_ID)
 
+    def _footer_every_sheet(self) -> None:
+        """One footer per SHEET, written once every sheet exists.
+
+        Per sheet and not per report page: two short pieces of content can share a sheet, and two
+        footers on one sheet would read as two page numbers on one piece of paper. The orientation
+        comes from the sheet itself - a landscape table sheet puts its footer higher up.
+        """
+        collection = self.layout.pageCollection()
+        for index in range(collection.pageCount()):
+            size = collection.page(index).pageSize()
+            self.footer(index, _page_metrics(LANDSCAPE if size.width() > size.height()
+                                             else PORTRAIT))
+
     def _footer_text(self, number: int, total: int) -> str:
         return _joined(self.meta.get("company"), self.meta.get("project"), f"pagina {number} / {total}")
 
@@ -1116,8 +1532,8 @@ class LayoutBuilder:
         return (list(self.overlays.get("zone", [])) + self._page_overlays(page)
                 + ([snapshot] if snapshot is not None else []))
 
-    def _scale_bar(self, map_item: QgsLayoutItemMap, real_scale: int,
-                   page: int) -> QgsLayoutItemScaleBar:
+    def _scale_bar(self, map_item: QgsLayoutItemMap, real_scale: int, page: int,
+                   y: float) -> QgsLayoutItemScaleBar:
         bar = QgsLayoutItemScaleBar(self.layout)
         self.layout.addLayoutItem(bar)
         bar.setStyle(SCALE_BAR_STYLE)
@@ -1131,29 +1547,47 @@ class LayoutBuilder:
         bar.setNumberOfSegments(SCALE_BAR_SEGMENTS)
         bar.setNumberOfSegmentsLeft(0)
         bar.setUnitsPerSegment(_segment_length(real_scale))  # refreshes and re-fits the bar itself
-        bar.attemptMove(point_mm(MARGIN, SCALE_BAR_Y), page=page)
+        bar.attemptMove(point_mm(MARGIN, y), page=page)
         return bar
 
     def map_page(self, chapter: Chapter, page: MapPage) -> None:
-        index = self.new_page()
-        self.header(chapter, page.title, index)
+        """One map, with what belongs under it on the same sheet.
+
+        The frame is as tall as it can be once the legend of the zone (and a colour ramp, where a
+        map has one instead of classes) has its room: that legend used to cost a sheet of its own
+        for two rows. The frame only ever loses HEIGHT - the extent keeps its width, so the scale
+        printed in the info box and the image fetched for this framing are the same either way.
+        """
+        slot = self._start(chapter, page.title, CONTENT_H, packable=False)
+        index = slot.page
         entry = catalogue.by_id(page.map_id)
         extent = self.map_extent(page.scale, page.extent_factor, self._page_boxes(page))
+        block = self._under_map(chapter, page, index)
+        height = map_height(block.height)
+        # Not even the first piece fits under a map that is still readable: the frame keeps its
+        # full height and the whole block starts on the sheet behind it. With room to spare, mind:
+        # `map_height` shrinks the frame to exactly what the block asked for, so the two sides of
+        # this comparison are the same sum computed twice and differ by 1e-14 mm - which is how
+        # the map key ended up alone on a sheet of 0.6 % ink. A hundredth of a millimetre is
+        # smaller than anything a printer can draw and larger than any rounding error.
+        overleaf = block.minimum > CONTENT_H - height - UNDER_MAP_GAP + FIT_TOLERANCE_MM
+        if overleaf:
+            height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
         map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
         map_item.setLayers(self._map_layers(page, extent))
         map_item.setFrameEnabled(True)
         self.layout.addLayoutItem(map_item)
         map_item.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
-        map_item.attemptResize(size_mm(MAP_W, MAP_H))
-        map_item.setExtent(extent)
+        map_item.attemptResize(size_mm(MAP_W, height))
+        map_item.setExtent(crop_extent(extent, height))
         real_scale = int(round(map_item.scale()))
         # What the reader needs to judge the map: which map, of which project, at which scale...
         self.info_box([self.meta.get("project", ""), self._date(), entry.title,
                        f"schaal 1:{_thousands(real_scale)}"], INFO_TOP_Y, index, size=7)
         # ... and where it came from, on the same sheet, so a printed page stays attributable.
         self.info_box([entry.attribution, entry.licence, f"opgehaald {self._date()}"],
-                      INFO_BOTTOM_Y, index, size=6)
+                      CONTENT_TOP + height - INFO_BOTTOM_LIFT, index, size=6)
         arrow = QgsLayoutItemPicture(self.layout)
         arrow.setPicturePath(str(NORTH_ARROW))
         arrow.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
@@ -1163,9 +1597,11 @@ class LayoutBuilder:
         self.layout.addLayoutItem(arrow)
         arrow.attemptMove(point_mm(*ARROW_XY), page=index)
         arrow.attemptResize(size_mm(ARROW_WH, ARROW_WH))
-        self._scale_bar(map_item, real_scale, index)
+        self._scale_bar(map_item, real_scale, index, CONTENT_TOP + height + SCALE_BAR_LIFT)
         # The map stays on the sheet even without coverage - the zone circle is what the reader
-        # came for - but the note says why the background is empty.
+        # came for - but the note says why the background is empty. A page whose image never
+        # arrived is normally left out of the tree altogether (`report_content.build_report`);
+        # this is what a caller that did not pass that information still gets to see.
         key = map_image_key(page.map_id, extent)
         empty = key in self.no_coverage
         missing = key not in self.map_images
@@ -1173,47 +1609,313 @@ class LayoutBuilder:
                                           MISSING_MAP_NOTE if missing and not empty else "") if part)
         if note:
             self.label(note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
-        self.footer(index)
+        self._seal(index)
+        if overleaf:
+            index = self.new_page()
+            self.header(chapter, f"{page.title} (vervolg)", index)
+            self._seal(index)
+            block.draw(index, CONTENT_TOP)
+        else:
+            block.draw(index, CONTENT_TOP + height + UNDER_MAP_GAP)
         if page.legend and self.legends and not empty:
             self.legend_pages(chapter, page)
 
-    def zone_legend_page(self, chapter: Chapter, page: LegendPage) -> None:
-        """Every class of one map on a sheet: a label per entry, its drawing under it.
+    # --- what stands under a map frame ------------------------------------------------------------
+
+    def _under_map(self, chapter: Chapter, page: MapPage, index: int) -> UnderMap:
+        """Everything that belongs under this map frame, measured and ready to draw.
+
+        In the order the reader needs it: first how to read the map (the leeswijzer), then what it
+        says about this zone - the classes inside it, or the colour scale for a map that has one
+        instead of classes.
+        """
+        blocks: List[UnderMap] = []
+        if page.show_investigations or page.show_section_line:
+            blocks.append(self._symbol_key_block(page))
+        if page.guide is not None:
+            blocks.append(self._guide_block(page.guide))
+        if page.ramp is not None:
+            blocks.append(self._ramp_block(page.ramp))
+        if page.zone_legend is not None:
+            blocks.append(self._zone_legend_block(chapter, page.zone_legend, index))
+        if not blocks:
+            return UnderMap(0.0, lambda sheet, top: None)
+        height = (sum(block.height for block in blocks)
+                  + UNDER_MAP_BLOCK_GAP * (len(blocks) - 1))
+
+        def draw(sheet: int, top: float) -> None:
+            y = top
+            for block in blocks:
+                block.draw(sheet, y)
+                y += block.height + UNDER_MAP_BLOCK_GAP
+
+        return UnderMap(height, draw, blocks[0].height)
+
+    def _symbol_key_block(self, page: MapPage) -> UnderMap:
+        """What the dots and the dashed line on the overview map mean.
+
+        The map drew five kinds of point and a line and named none of them; this round added the
+        purple diamonds of the virtual boreholes on top of that. The key goes where every other
+        map's legend now goes - under the frame - as a swatch and a word per line.
+        """
+        rows = [(layers.ZONE_COLOUR, "Onderzoekszone")]
+        if page.show_investigations:
+            rows += [(layers.POINT_STYLE[kind][0], layers.POINT_NAMES[kind])
+                     for kind in ("sondering", "boring", "peilput")]
+            rows.append((layers.VB_STYLE[0], layers.VB_NAME))
+        if page.show_section_line:
+            rows.append((layers.SECTION_LINE_COLOUR, "Doorsnedelijn"))
+        height = UNDER_MAP_TITLE_H + len(rows) * KEY_ROW_H
+
+        def draw(sheet: int, top: float) -> None:
+            self.label("Legenda bij de kaart", MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet,
+                       size=8, bold=True)
+            y = top + UNDER_MAP_TITLE_H
+            for colour, name in rows:
+                self._swatch(MARGIN, y + (KEY_ROW_H - KEY_SWATCH) / 2.0, colour, sheet)
+                self.label(name, MARGIN + KEY_SWATCH + 1.5, y, CONTENT_W, KEY_ROW_H, sheet, size=7)
+                y += KEY_ROW_H
+
+        return UnderMap(height, draw, height)
+
+    def _swatch(self, x: float, y: float, colour: str, page: int) -> None:
+        """One coloured square of the map key, drawn the same way the points are coloured."""
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple(
+            {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"}))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(KEY_SWATCH, KEY_SWATCH))
+
+    def _guide_block(self, page: TextPage) -> UnderMap:
+        """How to read this map, under its own frame instead of on a sheet of its own."""
+        height = self._text_height(page.html, CONTENT_W)
+
+        def draw(sheet: int, top: float) -> None:
+            self.label(page.html, MARGIN, top, CONTENT_W, height, sheet, size=TEXT_FONT_PT,
+                       html=True)
+
+        return UnderMap(height, draw, height)
+
+    def _rule(self, x: float, y: float, width: float, height: float, page: int) -> None:
+        """A thin black bar: a tick under the colour strip, or the line that joins two of them.
+
+        A shape rather than a label with a background: a rule is a rule, and a label carries a
+        margin and a text layout that has nothing to do here.
+        """
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple({"color": RULE_COLOUR, "outline_style": "no"}))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(width, height))
+
+    def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> Tuple[str, float]:
+        """Put this zone on the colour strip; answer with the line that names it and where it goes.
+
+        A bracket between its lowest and highest value when those are far enough apart to tell
+        apart on paper; otherwise one tick at the mean with a leader to the label, because two
+        ticks half a millimetre apart are one fat tick that means nothing. The label starts at the
+        mark and is slid back onto the paper when the mark sits near the right end.
+        """
+        if ramp.band is None or ramp.mean_at is None:
+            return "", MARGIN
+        left = MARGIN + ramp.band[0] * RAMP_STRIP_W
+        right = MARGIN + ramp.band[1] * RAMP_STRIP_W
+        if right - left >= RAMP_SPAN_MIN_MM:
+            self._rule(left, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+            self._rule(right, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+            self._rule(left, y + RAMP_TICK_H - RAMP_TICK_W, right - left + RAMP_TICK_W,
+                       RAMP_TICK_W, sheet)
+            return ramp.band_label, left
+        middle = MARGIN + ramp.mean_at * RAMP_STRIP_W
+        self._rule(middle, y, RAMP_TICK_W, RAMP_TICK_H, sheet)
+        self._rule(middle, y + RAMP_TICK_H - RAMP_TICK_W, RAMP_TICK_W * 2, RAMP_TICK_W, sheet)
+        return ramp.mean_label, middle
+
+    def _ramp_block(self, ramp: ColourRamp) -> UnderMap:
+        """A colour scale as a strip: the service's own band, its two ends named under it and the
+        zone's own values below that.
+
+        Without the band no colours are drawn at all. A ramp painted from numbers would not match
+        the picture right above it, and a legend that disagrees with its map is worse than none.
+        """
+        image = self.out_dir / ramp.image_path if ramp.image_path else None
+        strip_h = RAMP_STRIP_H + RAMP_LABEL_GAP if image is not None else 0.0
+        # The zone is only marked where there IS a strip: a tick beside no colours points nowhere.
+        marked = image is not None and ramp.band is not None
+        ticks = ramp.ticks if image is not None else []
+        height = (UNDER_MAP_TITLE_H + strip_h + (RAMP_MARK_H + RAMP_LINE_H if marked else 0.0)
+                  + (RAMP_LINE_H if ticks else 0.0)
+                  + RAMP_LINE_H * (2 if ramp.note else 1) + RAMP_LINE_H)
+
+        def draw(sheet: int, top: float) -> None:
+            y = top
+            self.label(ramp.title, MARGIN, y, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9,
+                       bold=True)
+            y += UNDER_MAP_TITLE_H
+            if image is not None:
+                strip = QgsLayoutItemPicture(self.layout)
+                strip.setPicturePath(str(image))
+                # Stretch, not Zoom: the band is a gradient of a few pixels and the strip it has to
+                # fill is a fixed one, so the aspect of the source says nothing.
+                strip.setResizeMode(QgsLayoutItemPicture.ResizeMode.Stretch)
+                strip.setFrameEnabled(True)
+                self.layout.addLayoutItem(strip)
+                strip.attemptMove(point_mm(MARGIN, y), page=sheet)
+                strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
+                y += strip_h
+            if marked:
+                # Against the bar, not a gap below it: a pointer that touches nothing points at
+                # nothing. `strip_h` carries the air for the LABELS underneath, not for the mark.
+                zone, at = self._mark_the_zone(ramp, sheet, y - RAMP_LABEL_GAP)
+                y += RAMP_MARK_H
+                self.label(zone, min(at, CONTENT_RIGHT - RAMP_MARK_LABEL_W), y,
+                           RAMP_MARK_LABEL_W, RAMP_LINE_H, sheet, size=7, bold=True)
+                y += RAMP_LINE_H
+            for at, label in ticks:
+                # A mark ON the bar as well as a number under it. The GxG classes are not evenly
+                # spaced in value while the bar draws them at equal width, so numbers alone still
+                # read as a linear scale; the tick says where each boundary actually falls.
+                if image is not None:
+                    self._rule(MARGIN + at * RAMP_STRIP_W - RAMP_TICK_W / 2.0,
+                               y - RAMP_LABEL_GAP, RAMP_TICK_W, RAMP_TICK_H, sheet)
+                # Centred on the boundary, and never off the paper at either end.
+                left = MARGIN + at * RAMP_STRIP_W - RAMP_TICK_LABEL_W / 2.0
+                left = min(max(left, MARGIN), CONTENT_RIGHT - RAMP_TICK_LABEL_W)
+                centred = self.label(label, left, y, RAMP_TICK_LABEL_W, RAMP_LINE_H, sheet, size=6)
+                centred.setHAlign(Qt.AlignmentFlag.AlignHCenter)
+            if ticks:
+                y += RAMP_LINE_H
+            self.label(ramp.low, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
+            high = self.label(ramp.high, MARGIN, y, RAMP_STRIP_W, RAMP_LINE_H, sheet, size=7)
+            high.setHAlign(Qt.AlignmentFlag.AlignRight)
+            y += RAMP_LINE_H
+            self.label(ramp.summary, MARGIN, y, CONTENT_W, RAMP_LINE_H, sheet, size=8)
+            if ramp.note:
+                self.label(ramp.note, MARGIN, y + RAMP_LINE_H, CONTENT_W, RAMP_LINE_H, sheet,
+                           size=7)
+
+        return UnderMap(height, draw)
+
+    def _zone_legend_block(self, chapter: Chapter, page, index: int) -> UnderMap:
+        """The legend of the classes inside the zone, measured for the space under its map."""
+        if isinstance(page, LegendPage):
+            return self._legend_entries_block(chapter, page)
+        return self._legend_table_block(chapter, page, index)
+
+    def _legend_table_block(self, chapter: Chapter, page: TablePage, index: int) -> UnderMap:
+        rows = [[str(cell) for cell in row] for row in page.rows]
+        metrics = _page_metrics(PORTRAIT)
+        if not rows:
+            def draw_note(sheet: int, top: float) -> None:
+                self._block_title(page.title, sheet, top)
+                self.label(page.note, MARGIN, top + UNDER_MAP_TITLE_H, CONTENT_W, NOTE_BLOCK_H,
+                           sheet, size=7)
+
+            return UnderMap(UNDER_MAP_TITLE_H + NOTE_BLOCK_H, draw_note)
+        table, frame, wanted = self._new_table(page, metrics, rows, index)
+        # A note beside a FILLED table is not "why is this empty" but a sentence the table cannot
+        # hold - the modelled thickness under the isopach map, the reason no contour is in view -
+        # and it used to be dropped without a trace.
+        note_h = self._text_height(page.note, CONTENT_W) if page.note else 0.0
+
+        def draw(sheet: int, top: float) -> None:
+            self._block_title(page.title, sheet, top)
+            body = top + UNDER_MAP_TITLE_H
+            if page.note:
+                self.label(page.note, MARGIN, body, CONTENT_W, note_h, sheet, size=7)
+                body += note_h
+            room = CONTENT_TOP + metrics.content_h - body
+            last = self._place_table(table, frame, sheet, body, min(wanted, room), metrics)
+            for extra in range(sheet + 1, last + 1):
+                self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+            self._seal(last, metrics)
+
+        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw)
+
+    def _legend_entries_block(self, chapter: Chapter, page: LegendPage) -> UnderMap:
+        height = UNDER_MAP_TITLE_H + self._legend_entries_height(page)
+        if page.note:
+            height += NOTE_BLOCK_H
+
+        def draw(sheet: int, top: float) -> None:
+            self._block_title(page.title, sheet, top)
+            y = top + UNDER_MAP_TITLE_H
+            if page.note:
+                self.label(page.note, MARGIN, y, CONTENT_W, NOTE_BLOCK_H, sheet, size=7)
+                y += NOTE_BLOCK_H
+            last = self._draw_legend_entries(chapter, page, sheet, y, CONTENT_TOP + CONTENT_H)
+            self._seal(last)
+
+        return UnderMap(height, draw)
+
+    def _block_title(self, title: str, sheet: int, top: float) -> None:
+        self.label(title, MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9, bold=True)
+
+    def _legend_strip_size(self, entry) -> Tuple[float, float]:
+        """The size the drawing of one legend entry is printed at; (0, 0) when there is none."""
+        if not entry.image_path:
+            return 0.0, 0.0
+        return _natural_size(self.out_dir / entry.image_path, CONTENT_W, LEGEND_STRIP_MAX_H)
+
+    def _legend_entries_height(self, page: LegendPage) -> float:
+        """What the labels and strips of a legend page need, before anything is placed."""
+        total = 0.0
+        for entry in page.entries:
+            _width, height = self._legend_strip_size(entry)
+            total += LEGEND_LABEL_H + (height or LEGEND_LABEL_H) + LEGEND_GAP
+        return total
+
+    def _draw_legend_entries(self, chapter: Chapter, page: LegendPage, index: int, top: float,
+                             bottom: float) -> int:
+        """A label per entry with its drawing under it, down the sheet from `top`.
 
         The strips are what the reader looks at, so they are drawn at their own size rather than
-        stretched, and they follow one another down the sheet. When the next entry no longer fits,
-        the rest goes on a continuation sheet - a strip that runs off the paper helps nobody.
+        stretched, and they follow one another down. When the next entry no longer fits, the rest
+        goes on a continuation sheet - a strip that runs off the paper helps nobody. Returns the
+        last sheet used.
         """
-        index = self.new_page()
-        self.header(chapter, page.title, index)
-        y = CONTENT_TOP
-        if page.note:
-            self.label(page.note, MARGIN, NOTE_Y, CONTENT_W, 5, index, size=7)
+        y = top
         for entry in page.entries:
-            image = self.out_dir / entry.image_path if entry.image_path else None
-            width, height = (_natural_size(image, CONTENT_W, LEGEND_STRIP_MAX_H)
-                             if image is not None else (0.0, 0.0))
-            needed = LEGEND_LABEL_H + height + LEGEND_GAP
-            if y + needed > CONTENT_TOP + CONTENT_H:
-                self.footer(index)  # the sheet being left, not the one being started
+            width, height = self._legend_strip_size(entry)
+            needed = LEGEND_LABEL_H + (height or LEGEND_LABEL_H) + LEGEND_GAP
+            if y + needed > bottom:
                 index = self.new_page()
                 self.header(chapter, f"{page.title} (vervolg)", index)
-                y = CONTENT_TOP
+                y, bottom = CONTENT_TOP, CONTENT_TOP + CONTENT_H
             self.label(f"Profieltype {entry.code} - kaartblad {entry.sheet}", MARGIN, y, CONTENT_W,
                        LEGEND_LABEL_H, index, size=9, bold=True)
             y += LEGEND_LABEL_H
-            if image is None:
+            if not entry.image_path:
                 self.label(MISSING_DRAWING, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
                 y += LEGEND_LABEL_H + LEGEND_GAP
                 continue
             picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(image))
+            picture.setPicturePath(str(self.out_dir / entry.image_path))
             picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
             self.layout.addLayoutItem(picture)
             picture.attemptMove(point_mm(MARGIN, y), page=index)
             picture.attemptResize(size_mm(width, height))
             y += height + LEGEND_GAP
-        self.footer(index)
+        return index
+
+    def zone_legend_page(self, chapter: Chapter, page: LegendPage) -> None:
+        """The classes of one map on a sheet of their own.
+
+        Only reached when the map itself is not in the report - its image never arrived - because
+        a legend that has a map to stand under stands under it (`_zone_legend_block`).
+        """
+        height = self._legend_entries_height(page) + (NOTE_BLOCK_H if page.note else 0.0)
+        slot = self._start(chapter, page.title, min(height, CONTENT_H))
+        y = slot.top
+        if page.note:
+            self.label(page.note, MARGIN, y, CONTENT_W, NOTE_BLOCK_H, slot.page, size=7)
+            y += NOTE_BLOCK_H
+        last = self._draw_legend_entries(chapter, page, slot.page, y, CONTENT_TOP + CONTENT_H)
+        if last != slot.page:
+            self._seal(last)
 
     def legend_pages(self, chapter: Chapter, page: MapPage) -> None:
         """The legend of the preceding map page, on sheets of its own.
@@ -1241,7 +1943,7 @@ class LayoutBuilder:
             self.layout.addLayoutItem(picture)
             picture.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
             picture.attemptResize(size_mm(width, height))
-            self.footer(index)
+            self._seal(index)
 
     # --- figure, table and text pages --------------------------------------------------------------
 
@@ -1252,19 +1954,32 @@ class LayoutBuilder:
         # A figure wider than it is tall (the section) fills a landscape sheet; on a portrait one
         # it shrinks to a strip across the top and leaves two thirds of the paper empty.
         metrics = _page_metrics(LANDSCAPE if size.width() > size.height() else PORTRAIT)
-        index = self.new_page(metrics.orientation)
-        self.header(chapter, page.title, index, metrics)
-        width, height = _drawn_size(image, metrics.content_w, metrics.content_h - 12.0)
+        # Never LARGER than it was drawn: a picture of three centimetres blown up to a hand's
+        # width is a blurred banner, and a small figure that keeps its size leaves room for
+        # whatever follows it on the same sheet.
+        caption_h = CAPTION_H if page.caption else 0.0
+        width, height = _natural_size(image, metrics.content_w, metrics.content_h - CAPTION_H)
+        # A full-height column diagram after a four-row table used to leave that table alone on
+        # 98 % white paper. The figure is already capped at its natural size, so capping it a
+        # little further to join the open sheet costs legibility, not content - but only down to
+        # FIGURE_MIN_H, below which a sounding diagram is a smudge and deserves its own sheet.
+        room = self._room_left(chapter, metrics) - caption_h
+        if height > room >= FIGURE_MIN_H:
+            # A hair under the room, not exactly it: shrinking to the millimetre and then asking
+            # `_start` whether that fits compares the same sum computed two ways, and the answer
+            # turned on 1e-14 mm. That is what gave the HCOV column a sheet of its own while the
+            # same column fitted under the longer G3Dv3 tables.
+            width, height = _drawn_size(image, metrics.content_w, room - FIT_TOLERANCE_MM)
+        slot = self._start(chapter, page.title, height + caption_h, metrics)
         picture = QgsLayoutItemPicture(self.layout)
         picture.setPicturePath(str(image))
         picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
         self.layout.addLayoutItem(picture)
-        picture.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
+        picture.attemptMove(point_mm(MARGIN, slot.top), page=slot.page)
         picture.attemptResize(size_mm(width, height))
         if page.caption:
-            self.label(page.caption, MARGIN, CONTENT_TOP + height + 2.0, metrics.content_w, 10, index,
-                       size=7)
-        self.footer(index, metrics)
+            self.label(page.caption, MARGIN, slot.top + height + 2.0, metrics.content_w, 10,
+                       slot.page, size=7)
 
     def _fit_continuation_frames(self, table: QgsLayoutMultiFrame, metrics: PageMetrics) -> int:
         """Pull the follow-on frames into the content band; return the last page the table uses.
@@ -1292,25 +2007,15 @@ class LayoutBuilder:
                              "paginanummers kunnen verspringen")
         return max((frame.page() for frame in table.frames()), default=collection.pageCount() - 1)
 
-    def table_page(self, chapter: Chapter, page: TablePage) -> None:
-        """One table, on as many sheets as it needs.
+    def _new_table(self, page: TablePage, metrics: PageMetrics, rows: List[List[str]],
+                   index: int) -> Tuple[QgsLayoutItemTextTable, QgsLayoutFrame, float]:
+        """The table of one TablePage, built and measured but not yet in its final place.
 
-        Two decisions before anything is drawn. A table of WIDE_TABLE_COLUMNS columns or more gets
-        a landscape sheet - nine columns in 180 mm cost the last one, which is how the DOV fiche
-        numbers walked off the paper. And every column is given an explicit width measured from
-        its own content, because the default (equal shares, clipped) is what cut every contractor
-        name in half.
+        Every column is given an explicit width measured from its own content, because the default
+        (equal shares, clipped) is what cut every contractor name in half. The frame is parked on
+        `index` at the full content height only to have somewhere to live while it is measured;
+        `_place_table` moves it where it belongs.
         """
-        rows = [[str(cell) for cell in row] for row in page.rows]
-        metrics = _page_metrics(LANDSCAPE if len(page.columns) >= WIDE_TABLE_COLUMNS else PORTRAIT)
-        index = self.new_page(metrics.orientation)
-        self.header(chapter, page.title, index, metrics)
-        if not rows:
-            # A row of column headings with nothing under it promises a table that never comes; the
-            # note ("Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar.") is the answer.
-            self.label(page.note, MARGIN, NOTE_Y, metrics.content_w, 5, index, size=7)
-            self.footer(index, metrics)
-            return
         table = QgsLayoutItemTextTable(self.layout)
         self.layout.addMultiFrame(table)
         # What the columns may share is the frame minus what the table spends around them: a cell
@@ -1327,8 +2032,6 @@ class LayoutBuilder:
             columns.append(column)
         table.setColumns(columns)
         table.setHeaderMode(QgsLayoutTable.HeaderMode.AllFrames)
-        # A borehole table easily outgrows one sheet; truncating it silently would lose rows.
-        table.setResizeMode(QgsLayoutMultiFrame.ResizeMode.ExtendToNextPage)
         # With fixed widths a long sentence has to break inside its column; without this QGIS
         # writes it straight through the next column and off the sheet.
         table.setWrapBehavior(QgsLayoutTable.WrapBehavior.WrapText)
@@ -1343,24 +2046,140 @@ class LayoutBuilder:
         frame.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
         frame.attemptResize(size_mm(metrics.content_w, metrics.content_h))
         table.addFrame(frame)  # recalculates the frame sizes itself
-        last = self._fit_continuation_frames(table, metrics)
+        return table, frame, self._table_height(table, len(rows), metrics.content_h)
+
+    def _table_height(self, table: QgsLayoutTable, rows: int, available: float,
+                      first_row: int = 0) -> float:
+        """The shortest frame that still holds every row, asked of the table itself.
+
+        `totalSize()` is no help here: it never reports less than the frame it was given, so a
+        table of two rows in a full-page frame claims a full page (measured on 3.40.15). What does
+        answer honestly is `rowsVisible` - how many rows fit in a height - so the height is found
+        by halving the interval, with a millimetre of slack on the answer.
+        """
+        context = QgsLayoutUtils.createRenderContextForLayout(self.layout, None)
+        if table.rowsVisible(context, available, first_row, True, False) < rows:
+            return available  # it does not fit whatever we do; let it run on
+        low, high = 0.0, available
+        for _ in range(TABLE_FIT_STEPS):
+            middle = (low + high) / 2.0
+            if table.rowsVisible(context, middle, first_row, True, False) >= rows:
+                high = middle
+            else:
+                low = middle
+        return min(available, high + TABLE_FIT_MARGIN)
+
+    def _place_table(self, table: QgsLayoutTable, frame: QgsLayoutFrame, index: int, top: float,
+                     height: float, metrics: PageMetrics) -> int:
+        """Put the measured table where it belongs and let it run on; returns its last sheet."""
+        frame.attemptMove(point_mm(MARGIN, top), page=index)
+        frame.attemptResize(size_mm(metrics.content_w, height))
+        # A borehole table easily outgrows one sheet; truncating it silently would lose rows.
+        table.setResizeMode(QgsLayoutMultiFrame.ResizeMode.ExtendToNextPage)
+        table.recalculateFrameSizes()
+        return self._fit_continuation_frames(table, metrics)
+
+    def table_page(self, chapter: Chapter, page: TablePage) -> None:
+        """One table, on as much of a sheet as it needs and as many sheets as it needs.
+
+        A table gets a landscape sheet when its columns do not fit the portrait width - nine wide
+        columns in 180 mm cost the last one, which is how the DOV fiche numbers walked off the
+        paper - and keeps a portrait one when they do.
+        """
+        rows = [[str(cell) for cell in row] for row in page.rows]
+        metrics = _page_metrics(PORTRAIT if _fits_portrait(page.columns, rows) else LANDSCAPE)
+        if not rows:
+            # A row of column headings with nothing under it promises a table that never comes; the
+            # note ("Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar.") is the answer,
+            # and it is all this piece of content costs.
+            slot = self._start(chapter, page.title, NOTE_BLOCK_H, metrics)
+            self.label(page.note, MARGIN, slot.top if slot.packed else NOTE_Y, metrics.content_w,
+                       NOTE_BLOCK_H, slot.page, size=7)
+            return
+        # A note of its own lines, not a fixed strip: the rule about which soundings are drawn runs
+        # to four lines, and a 6 mm band either clipped it or let it run over the first rows.
+        note_h = max(NOTE_BLOCK_H, self._text_height(page.note, metrics.content_w))             if page.note else 0.0
+        table, frame, wanted = self._new_table(page, metrics, rows, max(self._sheet, 0))
+        slot = self._start(chapter, page.title, min(wanted + note_h, metrics.content_h), metrics)
+        top = slot.top
         if page.note:
-            self.label(page.note, MARGIN, NOTE_Y, metrics.content_w, 5, index, size=7)
-        self.footer(index, metrics)
-        for extra in range(index + 1, last + 1):
+            # Above the table when it shares a sheet; in the header band when it is short enough to
+            # live there for free, which is where this note has always stood. A longer one starts
+            # the content band instead and pushes the table down - it may not cross its own table.
+            in_band = not slot.packed and note_h <= CONTENT_TOP - NOTE_Y
+            self.label(page.note, MARGIN, NOTE_Y if in_band else top, metrics.content_w,
+                       note_h, slot.page, size=7)
+            if not in_band:
+                top += note_h
+        room = CONTENT_TOP + metrics.content_h - top
+        last = self._place_table(table, frame, slot.page, top, min(wanted, room), metrics)
+        for extra in range(slot.page + 1, last + 1):
             self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
-            self.footer(extra, metrics)
+        bottom = self._table_bottom(table, last, metrics)
+        if last != slot.page:
+            # A table that ran on used to declare its last sheet full, even when it stopped a
+            # third of the way down it - which is how a two-row "Niet opgenomen kaarten" earned a
+            # sheet of its own. The sheet is as full as the table actually left it.
+            self._sheet, self._sheet_metrics = last, metrics
+            self._cursor = bottom
         fiches = _fiche_note(page.links or [])
         if fiches:
-            # Under the table, on its last sheet: that is where the reader has the numbers.
-            self.label(fiches, MARGIN, CONTENT_TOP + metrics.content_h + 2.0, metrics.content_w, 5,
-                       last, size=6)
+            # Under the TABLE, on its last sheet - not at the foot of the paper. A three-row table
+            # left the note floating a hand's width below it, reading as a footer of the sheet
+            # rather than a line about those three rows.
+            self.label(fiches, MARGIN, bottom + 2.0, metrics.content_w, 5, last, size=6)
+            self._cursor = max(self._cursor, bottom + 2.0 + 5.0)
+
+    def _table_bottom(self, table: QgsLayoutTable, sheet: int, metrics: PageMetrics) -> float:
+        """Where this table really ends on `sheet`, never past the content band.
+
+        Not the frame geometry: `_fit_continuation_frames` gives every continuation frame the whole
+        band whatever it holds, so a table that stops a third of the way down still owns a
+        full-height frame. What it actually used is the height its rows need, so the frames are
+        walked in order - `rowsVisible` says how many rows each one swallowed - and the rows left
+        for the last frame are measured with the same bisection that sized the first.
+        """
+        floor = CONTENT_TOP + metrics.content_h
+        frames = table.frames()
+        wanted = [f for f in frames if f.page() == sheet]
+        if not wanted:
+            return floor
+        context = QgsLayoutUtils.createRenderContextForLayout(self.layout, None)
+        first_row, rows = 0, table.contents()
+        for frame in frames:
+            if frame is wanted[0]:
+                break
+            first_row += table.rowsVisible(context, frame.rect().height(), first_row, True, False)
+        left = max(0, len(rows) - first_row)
+        used = self._table_height(table, left, metrics.content_h, first_row)
+        # `pos()` is LAYOUT space - page two starts three hundred millimetres down - so the page
+        # origin comes off before this is compared with anything measured from the top of a sheet.
+        origin = self.layout.pageCollection().page(sheet).pos().y()
+        return min(min(f.pos().y() for f in wanted) - origin + used, floor)
+
+    def _text_height(self, html: str, width: float) -> float:
+        """How tall a paragraph of HTML needs to be, measured on its plain text.
+
+        An HTML label sized by `adjustSizeToText` measures the width of its MARKUP, so the tags are
+        stripped first and the text measured the way an info box is. The answer is deliberately
+        generous: a label a millimetre too short clips its last line, one a millimetre too tall
+        only costs white paper.
+        """
+        plain = " ".join(TAGS.sub(" ", html).split())
+        probe = QgsLayoutItemLabel(self.layout)
+        probe.setTextFormat(_text_format(TEXT_FONT_PT))
+        self.layout.addLayoutItem(probe)
+        try:
+            _width, height = _fit_box(probe, [plain], width, 0.0)
+        finally:
+            self.layout.removeLayoutItem(probe)
+        return min(CONTENT_H, height * TEXT_HEIGHT_FUDGE + TEXT_HEIGHT_PAD)
 
     def text_page(self, chapter: Chapter, page: TextPage) -> None:
-        index = self.new_page()
-        self.header(chapter, page.title, index)
-        self.label(page.html, MARGIN, CONTENT_TOP, CONTENT_W, CONTENT_H, index, size=9, html=True)
-        self.footer(index)
+        height = self._text_height(page.html, CONTENT_W)
+        slot = self._start(chapter, page.title, height)
+        self.label(page.html, MARGIN, slot.top, CONTENT_W, height, slot.page, size=TEXT_FONT_PT,
+                   html=True)
 
     # --- title page --------------------------------------------------------------------------------
 
@@ -1394,7 +2213,7 @@ class LayoutBuilder:
                    size=9, html=True)
         self.label(self.meta.get("disclaimer", ""), MARGIN, 240, CONTENT_W, 30, index,
                    size=7, html=True)
-        self.footer(index)
+        self._seal(index)
 
     def build(self) -> QgsPrintLayout:
         # Nobody will ever undo the building of a report, but QGIS records a command for every
@@ -1416,6 +2235,7 @@ class LayoutBuilder:
                         self.table_page(chapter, page)
                     else:
                         self.text_page(chapter, page)
+            self._footer_every_sheet()
             self._number_footers()
         finally:
             undo.blockCommands(False)
@@ -1428,13 +2248,13 @@ class LayoutBuilder:
 
 def build_layout(project: QgsProject, report: Report,
                  overlays: Dict[str, List[QgsMapLayer]], out_dir, zone_ring: Sequence, meta: dict,
-                 legends: bool = True, legend_images: Optional[Dict[str, Path]] = None, log=None,
+                 legends: bool = False, legend_images: Optional[Dict[str, Path]] = None, log=None,
                  should_cancel: Optional[Callable[[], bool]] = None,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None) -> QgsPrintLayout:
+                 name: Optional[str] = None, compact: bool = False) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
-                         map_images, overlay_boxes, name).build()
+                         map_images, overlay_boxes, name, compact).build()

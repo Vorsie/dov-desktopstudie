@@ -294,7 +294,8 @@ class StudyRunner(QObject):
             return pipeline.finish(QgsProject.instance(), outcome.result, request.meta, request.out_dir,
                                    self.log, progress=part_of(self._show_progress, CORE_SHARE, 1.0),
                                    legends=request.legends, should_cancel=self._should_cancel,
-                                   cache_mode=request.cache_mode, prepared=outcome.prepared)
+                                   cache_mode=request.cache_mode, prepared=outcome.prepared,
+                                   compact=request.settings.compact)
         except StudyCancelled:
             return self._stopped()
         except Exception as exc:  # noqa: BLE001 - reported to the user, never swallowed

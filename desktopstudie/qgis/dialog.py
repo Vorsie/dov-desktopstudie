@@ -58,8 +58,13 @@ NO_HITS = "Geen kandidaat gevonden."
 NOTHING_DRAWN = "Nog niets getekend."
 DRAW_RING_HINT = "Klik de hoekpunten op de kaart; rechtsklik sluit af."
 DRAW_LINE_HINT = "Klik begin- en eindpunt op de kaart; rechtsklik sluit af."
-LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter het kaartblad. In de "
-               "layout zelf schakelt de variabele 'legendas' die pagina's bij het exporteren.")
+LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter het kaartblad. Uit "
+               "tenzij u ze aanvinkt: de klassen die in de zone liggen staan al onder hun eigen "
+               "kaart. In de layout zelf schakelt de variabele 'legendas' die pagina's bij het "
+               "exporteren.")
+COMPACT_TIP = ("Zet zoveel korte tabellen en figuren op een blad als erop passen. Uit levert de "
+               "voorspelbare opmaak: hoogstens twee stukken per blad, en kaartbladen blijven "
+               "altijd alleen.")
 CACHE_DIR_NAME = "cache"  # under the output folder, shared by every run written there
 # A user is waiting at the address box: one try, and not the client's minute.
 GEOCODE_TIMEOUT_S = 15.0
@@ -211,6 +216,10 @@ class StudyDialog(QDialog):
         self.legends_check.setChecked(self.settings.legends)
         self.legends_check.setToolTip(LEGENDS_TIP)
         form.addRow("", self.legends_check)
+        self.compact_check = QCheckBox("Compacte opmaak (meer op een blad)")
+        self.compact_check.setChecked(self.settings.compact)
+        self.compact_check.setToolTip(COMPACT_TIP)
+        form.addRow("", self.compact_check)
         self._section_mode_changed(SECTION_AUTO)
         return tab
 
@@ -356,7 +365,8 @@ class StudyDialog(QDialog):
         zone.section_line = self.section_line()
         settings = Settings(radius_m=self.radius_spin.value(), n_cpt_figures=self.cpt_spin.value(),
                             n_borehole_figures=self.borehole_spin.value(),
-                            section_extension_m=self.extension_spin.value(), map_ids=self.map_ids())
+                            section_extension_m=self.extension_spin.value(), map_ids=self.map_ids(),
+                            compact=self.compact_check.isChecked())
         meta = ReportMeta(project=self.project_edit.text().strip() or zone_input.DEFAULT_PROJECT_NAME,
                           author=self.author_edit.text().strip(), company=self.company_edit.text().strip(),
                           project_number=self.number_edit.text().strip(),
@@ -379,6 +389,7 @@ class StudyDialog(QDialog):
         settings.output_dir = self.output_edit.text().strip()
         settings.cache_mode = self.cache_combo.currentData()
         settings.legends = self.legends_check.isChecked()
+        settings.compact = self.compact_check.isChecked()
         settings.sync()
 
     # --- the address -------------------------------------------------------------------------------

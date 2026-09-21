@@ -411,3 +411,84 @@ def test_validate_returns_the_signals_it_was_given():
     signals = [Signalering("a", "y", "z", "w", severity="info"),
                Signalering("b", "y", "z", "w", severity="aandacht")]
     assert checks.validate(signals) == signals
+
+
+def _borehole(number, layers):
+    from desktopstudie.core.model import Borehole, LithologyLayer
+
+    return Borehole(number, number, 104000.0, 192000.0, 8.0, 10.0, "1970-01-01", "spoelboring",
+                    "geologie", None, f"https://www.dov.vlaanderen.be/data/boring/{number}", 80.0,
+                    lithology=[LithologyLayer(top, base, text) for top, base, text in layers])
+
+
+def test_a_notable_word_in_a_borehole_description_becomes_a_signalering(gent_ring):
+    """Wat een boorbeschrijving vermeldt en niet gewoon is, hoort in de samenvatting te staan -
+    met de boring, het woord en de diepte, in de woorden van de beschrijving zelf."""
+    from desktopstudie.core.model import StudyResult, StudyZone
+
+    result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="t")
+    result.boreholes = [_borehole("kb22-B1", [(0.0, 0.2, "Straatsteen"),
+                                              (2.6, 4.2, "veenhoudende leem")])]
+
+    signals = checks.check_borehole_remarks(result)
+
+    assert len(signals) == 1
+    signal = signals[0]
+    assert "kb22-B1" in signal.fact
+    assert "straatsteen" in signal.fact and "0.00-0.20 m" in signal.fact
+    assert "veenhoudende" in signal.fact
+    assert signal.severity == "aandacht"
+    assert signal.source.startswith("DOV boring")
+    assert "grondonderzoek" in signal.advice.lower()
+
+
+def test_a_plain_borehole_raises_nothing(gent_ring):
+    """Een gewone zandbeschrijving is geen signalering; anders staat de tabel vol met niets."""
+    from desktopstudie.core.model import StudyResult, StudyZone
+
+    result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="t")
+    result.boreholes = [_borehole("kb22-B2", [(0.0, 2.0, "matig fijn zand, grijsgroen")])]
+
+    assert checks.check_borehole_remarks(result) == []
+
+
+def test_the_remarks_signalering_quotes_and_never_concludes(gent_ring):
+    """De signalering citeert wat er staat. Wat zandsteen betekent voor een fundering is een
+    conclusie, en die hoort niet in een rapport dat alleen verzamelt."""
+    from desktopstudie.core.model import StudyResult, StudyZone
+
+    result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="t")
+    result.boreholes = [_borehole("B3", [(4.2, 4.8, "Groen zand met zandsteenconcreties")])]
+
+    signal = checks.check_borehole_remarks(result)[0]
+
+    assert "Groen zand met zandsteenconcreties" in signal.fact
+    for verdict in ("draagkracht", "risico", "ongeschikt", "moeilijk", "waarschijnlijk"):
+        assert verdict not in (signal.fact + signal.advice).lower()
+
+
+def test_the_modelled_groundwater_depth_reaches_chapter_seven(gent_ring):
+    """De GHG staat sinds deze ronde met een getal onder haar kaart, maar hoofdstuk 7 zweeg
+    erover - terwijl een peilbuis onder de twee meter er wel een regel krijgt. Een GHG ondieper
+    dan twee meter is hetzelfde aandachtspunt, met de modelwaarde als bron benoemd."""
+    from desktopstudie.core.model import MapFact
+
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)",
+                                    [{"GHG-waarde_m-mv": 1.2}]))
+
+    facts = [s.fact for s in checks.run_all(result) if s.code == "ondiepe_ghg"]
+
+    assert facts and "1.2" in facts[0] and "model" in facts[0].lower()
+    assert "GHG" in facts[0]
+
+
+def test_a_deep_modelled_groundwater_level_says_nothing(gent_ring):
+    """Vier meter onder maaiveld is geen aandachtspunt en hoort geen regel te krijgen."""
+    from desktopstudie.core.model import MapFact
+
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)",
+                                    [{"GHG-waarde_m-mv": 4.0}]))
+
+    assert not [s for s in checks.run_all(result) if s.code == "ondiepe_ghg"]

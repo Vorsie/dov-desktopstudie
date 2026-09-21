@@ -83,9 +83,36 @@ class Settings:
     max_features: int = 2000
     max_workers: int = 4
     map_ids: Optional[List[str]] = None  # None = all enabled catalogue entries
+    # Pack as many short tables and figures on one sheet as fit, instead of at most two. A layout
+    # choice rather than a fetch, but it travels with the settings the dialog collects, so the
+    # shell reads it in one place along with everything else the user chose. Off by default: the
+    # standard report has to come out the same shape every time.
+    compact: bool = False
 
 
 _now = now_iso  # one spelling of "now" for every provenance stamp; the shell stamps with it too
+
+# Which soundings get a qc figure. An electrical cone outranks a mechanical one whatever the
+# distance: a continu elektrische sondering measures the cone resistance over the whole depth
+# while a discontinu mechanische one steps through it, so for a diagram the electrical test is
+# worth more than a few hundred metres of proximity. Distance decides inside each group.
+# The word lives in `sondeermethode` ("continu elektrisch" / "discontinu mechanisch"), not in
+# `conus`: both were filled on all 133 Gent soundings and agreed exactly (110 mechanical, 23
+# electrical, live 2026-09-17), but `conus` is a device code ("M4", "E") whose vocabulary is
+# open, while the method is the sentence that says what was done.
+ELECTRICAL = "elektrisch"
+
+
+def is_electrical(sounding) -> bool:
+    """Whether this sounding was pushed with an electrical cone, read from its own method."""
+    return ELECTRICAL in (sounding.method or "").lower()
+
+
+def for_figures(soundings: Sequence[Cpt], count: int) -> List[Cpt]:
+    """The soundings that get a qc figure: the electrical ones first, nearest first within each
+    group. The overview table keeps every sounding in distance order - only this choice changes."""
+    ranked = sorted(soundings, key=lambda c: (not is_electrical(c), c.distance_m))
+    return ranked[:count]
 
 
 def _prop(props, key, cast=None):
@@ -181,14 +208,15 @@ class _Runner:
         out.sort(key=lambda c: c.distance_m)
         self.result.cpts = out
         self._note_municipality(feats)
-        nearest = [c for c in out if c.url][: self.s.n_cpt_figures]
+        nearest = for_figures([c for c in out if c.url], self.s.n_cpt_figures)
 
         def load(c: Cpt) -> None:
             c.profile = dov_xml.parse_cpt_profile(self._item(c.url + ".xml"), log=self.xml_log)
 
         failed = self._load_each(nearest, load, "sondering")
+        electrical = sum(1 for c in nearest if is_electrical(c))
         self.log.info(f"{len(out)} sonderingen binnen {self.s.radius_m:.0f} m, "
-                      f"{len(nearest) - failed} opgehaald, {failed} mislukt")
+                      f"{len(nearest) - failed} opgehaald ({electrical} elektrisch), {failed} mislukt")
 
     def boreholes(self) -> None:
         feats = self.wfs.within_distance("dov-pub:Boringen", self.zone.wkt, self.s.radius_m, self.s.max_features)
@@ -301,7 +329,8 @@ class _Runner:
         def ask(numbered) -> None:
             index, (x, y) = numbered
             per_point[index] = wms_gfi.feature_info_at_point(self.client, entry.wms_url, entry.wms_layer,
-                                                             x, y, log=gfi_log)
+                                                             x, y, info_format=entry.gfi_format,
+                                                             log=gfi_log)
 
         # Two workers, not the full pool: this runs INSIDE the pool over the maps, so the two
         # multiply. Four maps times four points is sixteen requests at once from one desktop, and
@@ -323,11 +352,48 @@ class _Runner:
                 key = tuple(str(row.get(k)) for k in entry.fact_fields)
                 if key not in seen:
                     seen.add(key)
-                    rows.append({k: row.get(k) for k in entry.fact_fields})
+                    # Which point answered travels WITH the row. Point 0 is the representative
+                    # point; the rest are ring vertices up to the search radius away, and a report
+                    # that calls one of those "the value at the representative point" is wrong
+                    # about where its own number was measured.
+                    kept = {k: row.get(k) for k in entry.fact_fields}
+                    kept[catalogue.POINT_FIELD] = index
+                    rows.append(kept)
+        return rows
+
+    def _nearest_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+        """The features of a LINE map around the zone, nearest first, each with its distance.
+
+        A contour never overlaps a building plot - the isopachs of the Quaternary are drawn every
+        five metres of thickness across the whole of Flanders - so asking what intersects the zone
+        answers nothing at all. What a reader can use is the nearest contour and how far away it
+        is, and that is what `MapEntry.fact_within_m` asks for.
+        """
+        feats = self.wfs.within_distance(entry.wfs_typename, self.zone.wkt, entry.fact_within_m,
+                                         self.s.max_features)
+        rows = []
+        without_geometry = 0
+        for feature in feats:
+            distance = geometry.distance_to_geometry(feature.get("geometry"), self.zone.ring)
+            if distance is None:
+                # A feature with no geometry cannot be measured, so it cannot be reported. Saying
+                # how many fell away beats a short table that looks like the whole answer - and a
+                # WFS asked with `propertyName` returns exactly this, every row geometry-less.
+                without_geometry += 1
+                continue
+            row = {k: feature["properties"].get(k) for k in entry.fact_fields}
+            row[catalogue.DISTANCE_FIELD] = round(distance)
+            rows.append(row)
+        if without_geometry:
+            self.log.warning(f"{entry.id}: {without_geometry} van {len(feats)} objecten zonder "
+                             "geometrie overgeslagen; de afstand is niet te meten")
+        rows.sort(key=lambda row: row[catalogue.DISTANCE_FIELD])
         return rows
 
     def _fact_rows(self, entry: catalogue.MapEntry) -> List[dict]:
         if entry.fact_mode == "wfs":
+            if entry.fact_within_m:
+                return self._nearest_rows(entry)
             feats = self.wfs.intersecting(entry.wfs_typename, self.zone.wkt, self.s.max_features)
             return [{k: f["properties"].get(k) for k in entry.fact_fields} for f in feats]
         return self._gfi_rows(entry)

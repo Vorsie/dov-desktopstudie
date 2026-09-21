@@ -9,7 +9,7 @@ FIXTURE_FOR = {
     "bodemkaart": "wfs_bodemtypes_intersects.json",
     "quartair": "wfs_quartair_samengesteld_intersects.json",
     "quartair_200k": "wfs_quartair_200k_intersects.json",
-    "quartair_dikte": "wfs_quartair_isopachen_intersects.json",
+    "quartair_dikte": "wfs_quartair_isopachen_dwithin.json",
     "tertiair": "wfs_tertiair_50k_intersects.json",
     "hcov": "wfs_hcov_0100_vk_intersects.json",
     "gw_kwetsbaarheid": "wfs_gwkwb_kwbschaal_intersects.json",
@@ -21,6 +21,8 @@ FIXTURE_FOR = {
     "pfas_no_regret": "wfs_pfas_no_regret_intersects.json",
     "watertoets_pluviaal": "watertoets_fluviaal_hit.json",
     "watertoets_fluviaal": "watertoets_fluviaal_hit.json",
+    "gxg_ghg": "gxg_ghg_hit.json",
+    "gxg_glg": "gxg_glg_hit.json",
 }
 
 
@@ -33,6 +35,8 @@ def test_fact_fields_exist_in_recorded_fixtures():
         features = data["features"]
         assert features, f"{e.id}: fixture {FIXTURE_FOR[e.id]} has no features"
         for field_name in e.fact_fields:
+            if field_name == c.DISTANCE_FIELD:
+                continue  # de studie rekent dit veld zelf uit; het staat in geen enkel antwoord
             assert field_name in features[0]["properties"], f"{e.id}: missing field {field_name!r}"
 
 
@@ -51,7 +55,7 @@ def test_enabled_entries_have_a_wms_url_and_layer():
 def test_ngi_historic_is_a_documented_empty_slot():
     slot = c.by_id("ngi_hist")
     assert slot.enabled is False
-    assert "WMS" in slot.note
+    assert "kaartdienst" in slot.note, "de reden hoort in de taal van de lezer te staan"
 
 
 def test_fact_entries_declare_fields():
@@ -135,7 +139,7 @@ def test_bommenkaart_is_a_documented_empty_slot_naming_the_explosives_risk():
     slot = c.by_id("bommenkaart")
     assert slot.chapter == "historisch"
     assert slot.enabled is False
-    assert "geen open data" in slot.note and "WMS" in slot.note
+    assert "geen open data" in slot.note and "kaartdienst" in slot.note
     assert "explosieven" in slot.note
 
 
@@ -199,7 +203,7 @@ def test_the_groundwater_level_maps_are_a_highest_and_a_lowest_one():
     assert glg.wms_style == "gxg:gxg"
     assert glg.chapter == ghg.chapter == "geologie"
     assert glg.attribution == ghg.attribution and glg.licence == ghg.licence
-    assert glg.legend is True and glg.scale == 25000
+    assert glg.legend is False and glg.scale == 25000  # de kleurbalk staat onder de kaart
     # they stay neighbours, so the report shows the highest and the lowest level side by side
     ids = [e.id for e in c.entries("geologie")]
     assert ids.index("gxg_glg") == ids.index("gxg_ghg") + 1
@@ -291,3 +295,134 @@ def test_the_legend_options_ask_for_a_readable_font_and_two_columns():
     assert c.MapEntry.legend_options == "columns:2;columnheight:1100;fontSize:9;forceLabels:on"
     for entry in c.CATALOGUE:
         assert "fontSize:9" in entry.legend_options, entry.id
+
+
+def test_a_sparse_theme_asks_for_a_base_map_under_it_and_a_full_cover_map_does_not():
+    """Een thema dat maar enkele procenten van de uitsnede bedekt - gekarteerde
+    grondverschuivingen, watertoets, PFAS - levert zonder ondergrond een wit blad met een rood
+    cirkeltje: de lezer ziet niet waar iets ligt. Die kaarten vragen de basiskaart eronder; een
+    kaart die de hele uitsnede vult (bodemkaart, tertiair) zou ze alleen maar verbergen.
+
+    Gemeten op de Gent-uitsnede (2026-09-17, doorzichtig deel van de GetMap): gekarteerde
+    grondverschuivingen 100 %, erosie 100 %, watertoets fluviaal 100 %, dikte van het Quartair
+    100 %, watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het
+    Tertiair, HCOV en de kwetsbaarheidskaart.
+    """
+    from desktopstudie.core import catalogue
+
+    over = {e.id for e in catalogue.entries() if e.backdrop}
+    assert over == {"quartair_dikte", "watertoets_pluviaal", "watertoets_fluviaal", "erosie",
+                    "ovam", "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd",
+                    "pfas_no_regret"}
+    for map_id in ("grb", "ortho", "ferraris", "dhmv_dtm", "bodemkaart", "tertiair", "hcov"):
+        assert not catalogue.by_id(map_id).backdrop, map_id
+
+
+def test_the_base_map_is_named_once():
+    """De kaart die als ondergrond dient en de kaart die in het project aanstaat zijn dezelfde;
+    twee constanten met dezelfde waarde drijven uit elkaar."""
+    from desktopstudie.core import catalogue
+
+    assert catalogue.BASE_MAP_ID == "grb"
+    assert catalogue.by_id(catalogue.BASE_MAP_ID).chapter == "ligging"
+
+
+def test_the_groundwater_levels_ask_the_service_for_their_value():
+    """GHG en GLG droegen een kaart zonder getal en zonder legenda. De grondwaterstand is voor een
+    geotechnische studie een van de belangrijkste cijfers, dus vraagt de kaart haar waarde op bij
+    de dienst - met de veldnamen die de dienst echt teruggeeft.
+
+    Live geverifieerd op 2026-09-17 (GetFeatureInfo op het representatieve punt van de Gent-zone,
+    104326.8 / 192506.7, EPSG:31370): `GHG-waarde_m-mv` = 2.85 en `GLG-waarde_m-mv` = 3.54, met de
+    standaardafwijking en de twee grenzen van het 80 %-betrouwbaarheidsinterval ernaast. De naam
+    zegt de eenheid: meter ONDER MAAIVELD, geen peil in mTAW.
+    """
+    from desktopstudie.core import catalogue
+
+    ghg = catalogue.by_id("gxg_ghg")
+    assert ghg.fact_mode == "gfi"
+    assert ghg.fact_fields == ("GHG-waarde_m-mv", "Standaardafwijking_GHG_m",
+                               "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv",
+                               "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv")
+    assert "m onder maaiveld" in ghg.field_labels["GHG-waarde_m-mv"]
+    glg = catalogue.by_id("gxg_glg")
+    assert glg.fact_fields[0] == "GLG-waarde_m-mv"
+    for entry in (ghg, glg):
+        assert "grondwaterstand" in entry.reading_guide
+        assert "onder het maaiveld" in entry.reading_guide
+        assert entry.ramp, "de klassenbalk hoort onder de kaart, niet op een legendablad"
+        assert not entry.legend, "en dus niet ook nog als eigen legendablad"
+
+
+def test_only_the_maps_whose_legend_is_a_colour_bar_ask_for_one():
+    """Een kleurbalk onder de kaart is voor een kaart met een doorlopende schaal; een kaart met
+    klassen in een tabel heeft er geen."""
+    from desktopstudie.core import catalogue
+
+    assert {e.id for e in catalogue.entries() if e.ramp} == {"dhmv_dtm", "gxg_ghg", "gxg_glg"}
+
+
+def test_a_map_carries_the_answer_format_its_own_service_speaks():
+    """Niet elke dienst kent hetzelfde antwoordformaat voor GetFeatureInfo. De GeoServer van DOV
+    antwoordt op `application/json` en geeft op `application/geo+json` een ServiceExceptionReport;
+    de ArcGIS-dienst van de watertoets kent juist wel `application/geo+json`. Live gecontroleerd op
+    2026-09-17, beide diensten en beide formaten - dus reist het formaat mee met de kaart.
+    """
+    from desktopstudie.core import catalogue
+
+    assert catalogue.by_id("gxg_ghg").gfi_format == "application/json"
+    assert catalogue.by_id("gxg_glg").gfi_format == "application/json"
+    assert catalogue.by_id("watertoets_pluviaal").gfi_format == "application/geo+json"
+
+
+def test_a_line_layer_asks_for_the_nearest_feature_instead_of_an_overlap():
+    """De isopachen van het Quartair zijn CONTOURLIJNEN, geen vlakken: een INTERSECTS met een
+    zonecirkel van 50 m raakt er nooit een, dus wordt er met DWITHIN gezocht. Op de 50 000-laag
+    die DOV zelf tekent liggen ze wel ter plaatse - live 2026-09-20 rond het Gent-testpunt vier
+    lijnen binnen 300 m (67 m / 5 m, 71 m / 10 m, 146 m / 2,5 m, 270 m / 2,5 m) - dus hoeft de
+    straal niet ruim te zijn en kan de kaart op perceelschaal staan."""
+    from desktopstudie.core import catalogue
+
+    entry = catalogue.by_id("quartair_dikte")
+    assert entry.fact_within_m == 2000.0
+    assert entry.scale == 25000
+    assert "Dikte_Quartair_m" in entry.fact_fields and "afstand_m" in entry.fact_fields
+    # de andere kaarten zijn vlakken en blijven op overlap zoeken
+    assert catalogue.by_id("bodemkaart").fact_within_m is None
+    assert catalogue.by_id("tertiair").fact_within_m is None
+
+
+def test_the_isopach_guide_describes_the_map_the_reader_now_gets():
+    """De leeswijzer beschreef de grove reeks: lijnen in stappen van vijf meter die "zelden binnen
+    het kaartbeeld" liggen, en een tabel met afstanden. Alle drie zijn niet meer waar - de
+    kartering op 1:50 000 tekent contouren ter plaatse, met de dikte op de lijn zelf."""
+    from desktopstudie.core import catalogue
+
+    guide = catalogue.by_id("quartair_dikte").reading_guide
+
+    assert "zelden" not in guide, "de lijnen liggen hier wel in beeld"
+    assert "stappen van vijf meter" not in guide
+    assert "op de lijn" in guide, "de dikte staat op de contour zelf"
+    assert "G3Dv3" in guide, "en de modelwaarde blijft uitgelegd"
+
+
+def test_the_isopachs_ask_for_their_own_lettering():
+    """De dienst tekent de dikte wel op de lijn, maar dun, klein en grijs: boven een drukke
+    GRB-ondergrond is dat onleesbaar. De laag adverteert maar een stijl en geen variant met halo,
+    dus vraagt de kaart haar eigen belettering aan met een SLD in de GetMap - dezelfde lijnen, een
+    vette letter met een WITTE halo eromheen, langs de lijn in plaats van erdoorheen.
+
+    De naam in de NamedLayer is de kale laagnaam: met het workspace-voorvoegsel erbij vindt
+    GeoServer de laag niet en valt hij stilzwijgend terug op zijn eigen stijl (live 2026-09-21:
+    byte voor byte hetzelfde beeld als zonder SLD)."""
+    from desktopstudie.core import catalogue
+
+    sld = catalogue.by_id("quartair_dikte").sld_body
+
+    assert sld, "de isopachen vragen hun eigen belettering"
+    assert "<Name>qisopachen_quartair_50k</Name>" in sld, "kale laagnaam, geen workspace ervoor"
+    assert "<Halo>" in sld and "#FFFFFF" in sld, "witte halo rond de letters"
+    assert "followLine" in sld, "het getal volgt de lijn"
+    assert "Dikte_Quartair_m" in sld
+    assert all(entry.sld_body == "" for entry in catalogue.CATALOGUE
+               if entry.id != "quartair_dikte"), "alleen deze kaart heeft het nodig"

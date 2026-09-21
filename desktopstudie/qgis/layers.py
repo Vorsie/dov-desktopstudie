@@ -24,15 +24,18 @@ from qgis.core import (
     QgsPointXY,
     QgsProject,
     QgsRasterLayer,
+    QgsTextBufferSettings,
     QgsTextFormat,
     QgsVectorFileWriter,
     QgsVectorLayer,
     QgsVectorLayerSimpleLabeling,
 )
+from qgis.PyQt.QtGui import QColor
 
 from ..core import catalogue
 from ..core.catalogue import MapEntry
-from ..core.model import Borehole, Cpt, GwFilter, StudyZone
+from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
+from .compat import drop_colliding_labels
 
 CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
@@ -64,7 +67,23 @@ FIGURED_KINDS = ("sondering", "boring")
 DEPTH_ALIAS = "diepte / filterbasis (m)"
 LABEL_FIELD = "nummer"
 LABEL_SIZE_PT = 7.0
+# A white ring around every label. Small enough not to fatten the lettering, wide enough that a
+# number stays readable over a dark roof or over water.
+LABEL_HALO_MM = 0.6
+LABEL_HALO_COLOUR = "#ffffff"
 POINT_SIZE_MM = "2.6"
+# The virtual boreholes: a shape and a colour of their own, because a modelled column must never
+# be mistaken for a sounding or a real borehole on the same map. Its fields are its own too - a
+# virtual borehole has no number, no contractor and no fiche, it has a model and a ground level.
+VB_NAME = "Virtuele boringen"
+VB_STYLE = ("#7030a0", "diamond")
+# The zone's own outline and the section line, named so the map key under a report map can show
+# the same colours the map draws with instead of a second copy that quietly drifts.
+ZONE_COLOUR = "#ff0000"
+SECTION_LINE_COLOUR = "#000000"
+VB_LABEL_FIELD = "model"
+VB_FIELDS = [("model", "string"), ("x", "double"), ("y", "double"), ("maaiveld_mtaw", "double"),
+             ("aantal_lagen", "integer")]
 SECTION_LABEL = "A-A'"
 ZONE_NAME = "Onderzoekszone"
 SECTION_NAME = "Doorsnedelijn"
@@ -81,7 +100,7 @@ INVESTIGATION_GROUP = "Grondonderzoek DOV"
 GPKG_GROUPS = (
     (ZONE_GROUP, (ZONE_NAME, SECTION_NAME)),
     (INVESTIGATION_GROUP, (POINT_NAMES["sondering"], POINT_NAMES["boring"], POINT_NAMES["peilput"],
-                           SEARCH_AREA_NAME)),
+                           VB_NAME, SEARCH_AREA_NAME)),
 )
 LOCKED_HINT = "sluit de lagen van een vorige studie in QGIS en probeer opnieuw"
 
@@ -156,7 +175,7 @@ def _zone_polygon(zone: StudyZone) -> QgsGeometry:
 def style_zone_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
     """The study zone: red outline, lightly filled so the map stays readable underneath."""
     layer.renderer().setSymbol(QgsFillSymbol.createSimple(
-        {"color": "255,0,0,30", "outline_color": "#ff0000", "outline_width": "0.8"}))
+        {"color": "255,0,0,30", "outline_color": ZONE_COLOUR, "outline_width": "0.8"}))
     return layer
 
 
@@ -170,6 +189,25 @@ def style_search_area_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
 def style_section_line_layer(layer: QgsVectorLayer) -> QgsVectorLayer:
     layer.renderer().setSymbol(QgsLineSymbol.createSimple({"color": "#000000", "width": "0.6"}))
     return layer
+
+
+def _label_format() -> QgsTextFormat:
+    """The lettering every point label on a report map uses: small, with a white halo.
+
+    Without the halo the numbers of the soundings and boreholes run together over dark roofs and
+    over water in the middle of the overview map and read as a smudge. The halo costs nothing and
+    makes them legible over any backdrop.
+    """
+    text_format = QgsTextFormat()
+    text_format.setSize(LABEL_SIZE_PT)
+    text_format.setSizeUnit(Qgis.RenderUnit.Points)
+    buffer = QgsTextBufferSettings()
+    buffer.setEnabled(True)
+    buffer.setSize(LABEL_HALO_MM)
+    buffer.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    buffer.setColor(QColor(LABEL_HALO_COLOUR))
+    text_format.setBuffer(buffer)
+    return text_format
 
 
 def style_points_layer(layer: QgsVectorLayer, kind: str,
@@ -193,15 +231,38 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     figured_only = label_only_figured and kind in FIGURED_KINDS
     settings.fieldName = FIGURED_LABEL if figured_only else LABEL_FIELD
     settings.isExpression = figured_only
-    text_format = QgsTextFormat()
-    text_format.setSize(LABEL_SIZE_PT)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
-    settings.setFormat(text_format)
+    settings.setFormat(_label_format())
+    drop_colliding_labels(settings)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
     layer.setLabelsEnabled(True)
     index = layer.fields().indexOf("diepte_m")
     if index >= 0:  # a peilput carries its filter base here; the alias says so in the table
         layer.setFieldAlias(index, DEPTH_ALIAS)
+    return layer
+
+
+def style_virtual_boreholes_layer(layer: QgsVectorLayer, labels: bool = True) -> QgsVectorLayer:
+    """The virtual boreholes: a purple diamond, labelled with the model it came from.
+
+    Deliberately unlike the three investigation kinds. A reader who cannot tell a modelled column
+    from a real sounding at a glance reads the map wrong, and no legend fixes that.
+
+    `labels=False` is the version the report maps draw: a dozen doorprik points along one section
+    line all carry the same model name, and a dozen copies of "g3dv3_F" over that line is a grey
+    smudge. In QGIS the label stays - there the reader can zoom and click.
+    """
+    colour, marker = VB_STYLE
+    symbol = QgsMarkerSymbol.createSimple(
+        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
+         "outline_width": "0.3"})
+    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    layer.renderer().setSymbol(symbol)
+    settings = QgsPalLayerSettings()
+    settings.fieldName = VB_LABEL_FIELD
+    settings.setFormat(_label_format())
+    drop_colliding_labels(settings)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(labels)
     return layer
 
 
@@ -213,7 +274,7 @@ def style_by_name(layer: QgsVectorLayer, log=None) -> QgsVectorLayer:
     if kind is not None:
         return style_points_layer(layer, kind)
     styles = {ZONE_NAME: style_zone_layer, SEARCH_AREA_NAME: style_search_area_layer,
-              SECTION_NAME: style_section_line_layer}
+              SECTION_NAME: style_section_line_layer, VB_NAME: style_virtual_boreholes_layer}
     if name in styles:
         return styles[name](layer)
     if log:
@@ -282,6 +343,40 @@ def points_layer(kind: str, items: Iterable[Investigation],
         features.append(feature)
     _add(layer, features)
     return style_points_layer(layer, kind)
+
+
+def virtual_boreholes_layer(result: StudyResult) -> QgsVectorLayer:
+    """Every virtual borehole this study took, as one point layer.
+
+    Two kinds in one layer, because they are the same thing asked at different places: the ones at
+    the representative point (one per model, so several points on one coordinate) and the doorprik
+    points along the section line. A reader of the map has to be able to see WHERE the column in
+    chapter 4 and the section in chapter 6 were taken - the report prints the coordinates, this is
+    the same fact on the map.
+
+    Always valid, even for a study that got none: the GeoPackage and `studie.qgz` carry the same
+    layer names every run, and a name that is sometimes missing is reported as lost.
+    """
+    layer = _memory("Point", VB_NAME, VB_FIELDS)
+    taken: List[VirtualBorehole] = list(result.virtual_boreholes.values())
+    if result.section is not None:
+        taken += list(result.section.boreholes)
+    features = []
+    seen = set()
+    for borehole in taken:
+        # One model at one place is one point. The doorprik that lands on the representative point
+        # IS the virtual borehole of chapter 4, and the GeoPackage carried it twice.
+        key = (borehole.model, round(float(borehole.x), 2), round(float(borehole.y), 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        feature = QgsFeature(layer.fields())
+        feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(borehole.x, borehole.y)))
+        feature.setAttributes([borehole.model, float(borehole.x), float(borehole.y),
+                               borehole.surface_mtaw, len(borehole.layers)])
+        features.append(feature)
+    _add(layer, features)
+    return style_virtual_boreholes_layer(layer)
 
 
 # --- project tree and GeoPackage -----------------------------------------------------------------

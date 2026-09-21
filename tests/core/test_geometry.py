@@ -97,3 +97,23 @@ def test_chainages_measure_each_point_by_its_real_position_not_its_index():
     points = [(0.0, 0.0), (40.0, 5.0), (80.0, -5.0), (160.0, 0.0), (400.0, 0.0)]
     assert g.chainages(line, points) == pytest.approx([0.0, 40.0, 80.0, 160.0, 400.0])
     assert g.chainages(line, []) == []
+
+
+def test_the_distance_to_a_line_is_measured_and_the_nearest_one_leads(gent_ring):
+    """De isopachentabel drijft op deze twee helpers, en geen test raakte ze: elke afstand in het
+    rapport kwam uit een fixture die hem al bevatte. Twee contourlijnen op bekende afstand van een
+    zone van 200 m: de dichtstbijzijnde hoort vooraan en haar afstand hoort te kloppen."""
+    zone_edge_x = 104426.0  # gent_ring loopt van 104226 tot 104426 in x
+    near = {"type": "LineString", "coordinates": [[zone_edge_x + 1000.0, 192506.0],
+                                                  [zone_edge_x + 1200.0, 192600.0]]}
+    far = {"type": "LineString", "coordinates": [[zone_edge_x + 5000.0, 192506.0],
+                                                 [zone_edge_x + 5200.0, 192600.0]]}
+
+    distances = [g.distance_to_geometry(line, gent_ring) for line in (near, far)]
+
+    assert distances[0] == pytest.approx(1000.0, abs=1.0)
+    assert distances[1] == pytest.approx(5000.0, abs=1.0)
+    assert sorted(distances) == distances, "dichtstbij eerst"
+    assert set(g.vertices(near)) == {(zone_edge_x + 1000.0, 192506.0),
+                                     (zone_edge_x + 1200.0, 192600.0)}  # volgorde doet er niet toe
+    assert g.distance_to_geometry({"type": "LineString", "coordinates": []}, gent_ring) is None

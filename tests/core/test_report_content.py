@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import pytest
+
+from desktopstudie.core import catalogue
 from desktopstudie.core import report_content as rc
 from desktopstudie.core.model import (
     Cpt,
@@ -44,11 +47,11 @@ def test_map_pages_come_from_catalogue_and_tables_from_data(gent_ring):
     geo = report.chapters[2]
     # chapter 3 interleaves: map page, how to read its codes, then what lies in the zone
     assert isinstance(geo.pages[0], rc.MapPage) and geo.pages[0].map_id == "bodemkaart"
-    assert isinstance(geo.pages[1], rc.TextPage) and geo.pages[1].title.startswith("Leeswijzer")
-    tables = [p for p in geo.pages if isinstance(p, rc.TablePage)]
-    assert tables[0].title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
-    assert tables[0].rows[0][0] == "OB"
-    assert tables[0].columns[2] == "Omschrijving"  # readable header, not the raw DOV field name
+    assert geo.pages[0].guide.title.startswith("Leeswijzer")
+    legend = geo.pages[0].zone_legend  # onder de kaart, niet op een blad ernaast
+    assert legend.title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
+    assert legend.rows[0][0] == "OB"
+    assert legend.columns[2] == "Omschrijving"  # readable header, not the raw DOV field name
     inv = report.chapters[4]
     cpt_table = next(p for p in inv.pages if isinstance(p, rc.TablePage) and p.title.startswith("Sonderingen"))
     assert cpt_table.columns[0] == "Nummer" and cpt_table.rows[0][1] == "210"
@@ -116,23 +119,31 @@ def test_meta_has_no_none_values(gent_ring):
 
 
 def test_the_bomb_map_slot_and_the_manual_check_name_the_explosives_risk(gent_ring):
+    """De bommenkaart krijgt geen blad tussen de historische kaarten - de manuele controle zegt al
+    wat de lezer moet doen - maar de bronnenlijst noemt haar met de reden."""
     report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
     hist = report.chapters[1]
-    texts = [p for p in hist.pages if isinstance(p, rc.TextPage)]
-    slot = next(p for p in texts if p.title.startswith("Bommenkaart"))
-    assert "geen open data" in slot.html and "explosieven" in slot.html
     assert not any(isinstance(p, rc.MapPage) and p.map_id == "bommenkaart" for p in hist.pages)
-    manual = next(p for p in texts if p.title.startswith("Manuele controle"))
+    manual = next(p for p in hist.pages if p.title.startswith("Manuele controle"))
     assert "conventionele en toxische explosieven" in manual.html
     assert "bommenkaart.be" in manual.html and "DOVO" in manual.html
 
+    left_out = next(p for p in report.chapters[7].pages if p.title.startswith("Niet opgenomen"))
+    bombs = next(row for row in left_out.rows if "ommenkaart" in row[0])
+    assert "geen open data" in bombs[1] and "explosieven" in bombs[1]
+
 
 def test_the_new_geology_maps_get_a_map_page_and_a_zone_legend(gent_ring):
-    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("pfas_no_regret", "PFAS - no-regretmaatregelen", [
+        {"pfasdossiernr": "PFAS-1", "gemeente": "Gent", "straat": "Kortrijksesteenweg",
+         "nrm_status_zone": "vastgesteld", "zone_geldig_vanaf": "2026-01-01",
+         "no_regret_maatregelen": "https://www.vlaanderen.be/pfas#sb-1"}]))
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
     geo = report.chapters[2]
     map_ids = [p.map_id for p in geo.pages if isinstance(p, rc.MapPage)]
     assert {"grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd", "pfas_no_regret"} <= set(map_ids)
-    pfas = next(p for p in geo.pages if isinstance(p, rc.TablePage) and "PFAS" in p.title)
+    pfas = _zone_legend(geo, "PFAS")
     # "(bron)", niet "(link)": de ingekorte URL noemt de bron, ze is niet meer aan te klikken - het
     # fragment (#sb-...) waar de maatregel zelf staat, valt bij het inkorten weg.
     assert pfas.columns == ["PFAS-dossier", "Gemeente", "Straat", "Status", "Geldig vanaf",
@@ -180,31 +191,38 @@ def _geologie(result, zone_legend_images=None):
                            zone_legend_images=zone_legend_images).chapters[2]
 
 
+def _zone_legend(chapter, title_part):
+    """De legenda voor de zone van een kaart, waar ze staat: onder het kaartkader van haar eigen
+    kaartpagina, niet als blad in het hoofdstuk."""
+    return next(page.zone_legend for page in chapter.pages
+                if isinstance(page, rc.MapPage) and page.zone_legend is not None
+                and title_part in page.zone_legend.title)
+
+
 def test_the_zone_legend_lists_only_the_classes_that_lie_in_the_zone(gent_ring):
     """De volledige bodemlegende telt honderden series; de lezer heeft er een nodig. "Legenda voor
     de zone" zet de klassen die in deze zone voorkomen op een rij, met hun omschrijving erbij."""
     geo = _geologie(_result(gent_ring))
 
-    legend = next(p for p in geo.pages if p.title == "Legenda voor de zone - Bodemkaart van Vlaanderen")
+    legend = _zone_legend(geo, "Bodemkaart van Vlaanderen")
     # De gegeneraliseerde legende ("Antropogeen") zegt iets wat geen andere kolom zegt en verhuist
     # mee nu de feitentabel verdwijnt; de textuur- en drainagecode herhalen alleen hun eigen naam.
     assert legend.columns == ["Bodemtype", "Serie", "Omschrijving", "Textuur", "Drainage", "Legende"]
     assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
 
 
-def test_the_reading_guide_stands_between_the_map_and_the_zone_legend(gent_ring):
-    """De volgorde waarin de lezer het nodig heeft: eerst de kaart, dan hoe haar codes te lezen
-    zijn (de leeswijzer), dan welke klassen er in de zone liggen."""
+def test_the_reading_guide_travels_on_its_own_map(gent_ring):
+    """De volgorde waarin de lezer het nodig heeft, en allemaal op een blad: de kaart, hoe haar
+    codes te lezen zijn (de leeswijzer) en welke klassen er in de zone liggen."""
     geo = _geologie(_result(gent_ring))
 
-    titles = [p.title for p in geo.pages]
-    guide = titles.index("Leeswijzer - Bodemkaart van Vlaanderen")
-    legend = titles.index("Legenda voor de zone - Bodemkaart van Vlaanderen")
-    assert titles.index("Bodemkaart van Vlaanderen") < guide < legend
-    page = geo.pages[guide]
+    bodemkaart = next(p for p in geo.pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    page = bodemkaart.guide
     assert isinstance(page, rc.TextPage)
     assert "Z zand" in page.html and "drainage" in page.html
     assert '<a href="https://www.dov.vlaanderen.be/page/' in page.html, "de link hoort klikbaar te zijn"
+    assert bodemkaart.zone_legend is not None
 
 
 def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
@@ -215,7 +233,7 @@ def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
     geo = _geologie(_with_quartair(_result(gent_ring)),
                     zone_legend_images=_profile_images("22026", "22010", "22098"))
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert isinstance(legend, rc.LegendPage)
     assert [(e.code, e.sheet, e.image_path) for e in legend.entries] == [
         ("22026", "22", "legendas/quartair_22026_kop.png"),
@@ -229,7 +247,7 @@ def test_a_profile_type_whose_drawing_failed_keeps_its_line(gent_ring):
     code en kaartblad kloppen nog - alleen de tekening ontbreekt, en de bronnenlijst zegt waarom."""
     geo = _geologie(_with_quartair(_result(gent_ring)), zone_legend_images=_profile_images("22026"))
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Quartair"))
+    legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert [(e.code, e.image_path) for e in legend.entries] == [
         ("22026", "legendas/quartair_22026_kop.png"), ("22010", ""), ("22098", "")]
 
@@ -246,8 +264,6 @@ def test_the_quartair_block_is_two_pages_not_four(gent_ring):
     quartair = [title for title in titles if "1/50 000 (samengesteld)" in title
                 or title.startswith("Eenheden op kaartblad")]
     assert quartair == ["Quartairgeologische kaart 1/50 000 (samengesteld)",
-                        "Leeswijzer - Quartairgeologische kaart 1/50 000 (samengesteld)",
-                        "Legenda voor de zone - Quartairgeologische kaart 1/50 000 (samengesteld)",
                         "Eenheden op kaartblad 22"]
 
 
@@ -273,27 +289,31 @@ def test_a_profile_type_code_names_its_map_sheet():
 def test_an_empty_zone_legend_says_whether_the_zone_or_the_source_was_empty(gent_ring):
     """Een kaart die niets in de zone heeft, en een kaart die niet antwoordde, zien er allebei leeg
     uit. Ze mogen niet hetzelfde lezen: een platte dienst als "geen eenheden" melden is een
-    onwaarheid over de zone."""
+    onwaarheid over de zone. Beide antwoorden staan nu gebundeld achteraan, elk bij hun eigen
+    zin."""
     result = _result(gent_ring)
     result.map_facts.append(MapFact("tertiair", "Tertiairgeologische kaart 1/50 000", []))
 
-    geo = _geologie(result)
+    gathered = rc.build_report(result, rc.ReportMeta(project="P", author="A",
+                                                     company="C")).chapters[-1].pages[-1]
 
-    empty = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Tertiair"))
-    assert empty.rows == [] and empty.note == "Geen kaarteenheden binnen de zone."
-    silent = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - HCOV"))
-    assert silent.rows == [] and silent.note == "Bron niet beschikbaar."
+    zone_empty, source_silent = "Geen kaarteenheden binnen de zone.", "Bron niet beschikbaar."
+    assert zone_empty in gathered.html and source_silent in gathered.html
+    tertiair = gathered.html[gathered.html.index(zone_empty):]
+    assert "Tertiairgeologische kaart" in tertiair[:tertiair.index("</p>")]
 
 
 def test_a_map_without_a_fact_table_still_gets_its_reading_guide(gent_ring):
     """Het hoogtemodel somt niets op - er zijn geen kaarteenheden - maar de kleurschaal vraagt wel
-    uitleg. De leeswijzer staat dan direct achter de kaartpagina."""
+    uitleg. Die leeswijzer staat onder het kaartkader; een kaart zonder codes krijgt er geen."""
     report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
 
-    titles = [p.title for p in report.chapters[0].pages]
-    dtm = titles.index("Digitaal Hoogtemodel Vlaanderen II - DTM 1 m")
-    assert titles[dtm + 1] == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
-    assert "Leeswijzer - Ferrariskaart (1777)" not in [p.title for p in report.chapters[1].pages]
+    pages = report.chapters[0].pages
+    dtm = next(p for p in pages if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.guide.title == "Leeswijzer - Digitaal Hoogtemodel Vlaanderen II - DTM 1 m"
+    ferraris = next(p for p in report.chapters[1].pages
+                    if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+    assert ferraris.guide is None
 
 
 def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
@@ -310,7 +330,7 @@ def test_a_zone_legend_url_is_printed_in_its_short_form(gent_ring):
 
     geo = _geologie(result)
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - PFAS"))
+    legend = _zone_legend(geo, "PFAS")
     link = legend.rows[0][-1]
     assert link.startswith("https://www.vlaanderen.be/...") and len(link) <= 64, link
 
@@ -322,9 +342,10 @@ def test_a_map_gets_one_table_not_two(gent_ring):
     report = rc.build_report(_with_quartair(_result(gent_ring)),
                              rc.ReportMeta(project="P1", author="A", company="C"))
 
-    titles = [p.title for p in report.chapters[2].pages]
+    geo = report.chapters[2]
+    titles = [p.title for p in geo.pages]
     assert not any(title.endswith("eenheden in de zone") for title in titles), titles
-    assert "Legenda voor de zone - Bodemkaart van Vlaanderen" in titles
+    assert _zone_legend(geo, "Bodemkaart van Vlaanderen").rows
     # en de kern houdt de rijen zoals de dienst ze gaf
     rows = next(fact.rows for fact in _with_quartair(_result(gent_ring)).map_facts
                 if fact.map_id == "quartair")
@@ -340,7 +361,7 @@ def test_a_generic_zone_legend_translates_its_codes(gent_ring):
 
     geo = _geologie(result)
 
-    legend = next(p for p in geo.pages if p.title.startswith("Legenda voor de zone - Watertoets"))
+    legend = _zone_legend(geo, "Watertoets")
     assert legend.columns == ["Klasse"]
     assert legend.rows == [["C - Kleine kans op overstromingen [2]"]], "ontdubbeld en vertaald"
 
@@ -424,3 +445,772 @@ def test_without_a_choice_every_enabled_map_stays_in_the_report(gent_ring):
     assert maps == {e.id for e in catalogue.entries()}
     sources = next(p for p in report.chapters[7].pages if p.title.startswith("Kaartbronnen"))
     assert len(sources.rows) == len(catalogue.entries())
+
+
+# --- de legenda voor de zone staat onder haar kaart -------------------------------------------
+
+def test_the_zone_legend_stands_under_its_map_and_not_on_a_sheet_of_its_own(gent_ring):
+    """Een apart blad "Legenda voor de zone" draagt vaak een of twee regels en laat de rest van de
+    A4 wit. Die legenda hoort onder het kaartkader op het kaartblad zelf te staan, dus ze is geen
+    pagina van het hoofdstuk meer - ze reist mee met haar kaart."""
+    geo = _geologie(_result(gent_ring))
+
+    assert not [p for p in geo.pages if p.title.startswith("Legenda voor de zone")], \
+        "de zonelegenda hoort geen eigen blad meer te zijn"
+    bodemkaart = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    legend = bodemkaart.zone_legend
+    assert isinstance(legend, rc.TablePage)
+    assert legend.title == "Legenda voor de zone - Bodemkaart van Vlaanderen"
+    assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
+
+
+def test_the_quartair_zone_legend_takes_its_drawings_under_the_map_too(gent_ring):
+    """De zonelegenda van het Quartair draagt tekeningen - de kopstroken van de profieltypes. Ook
+    die gaan onder de kaart mee; alleen de eenhedentabel van het kaartblad blijft een eigen blad,
+    want dat is een tekening van een halve A4."""
+    geo = _geologie(_with_quartair(_result(gent_ring)),
+                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+
+    quartair_map = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "quartair")
+    legend = quartair_map.zone_legend
+    assert isinstance(legend, rc.LegendPage)
+    assert [(e.code, e.sheet) for e in legend.entries] == [("22026", "22"), ("22010", "22"),
+                                                           ("22098", "22")]
+    assert [p.title for p in geo.pages if p.title.startswith("Eenheden op kaartblad")] == [
+        "Eenheden op kaartblad 22"]
+
+
+def test_a_map_without_a_zone_legend_carries_none(gent_ring):
+    """Een kaart zonder feiten - een orthofoto, het hoogtemodel - heeft geen legenda voor de zone;
+    ze draagt er dan ook geen."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ortho = next(p for p in report.chapters[0].pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "ortho")
+    assert ortho.zone_legend is None
+
+
+# --- de kleurschaal van het hoogtemodel --------------------------------------------------------
+
+def test_the_dem_map_carries_a_colour_ramp_with_the_zone_values_under_it(gent_ring):
+    """De legenda van het DHMV is een kleurbalk over heel Vlaanderen; een heel blad daarvoor leest
+    niemand. Ze hoort als strookje onder de kaart, met de laagste, de gemiddelde en de hoogste
+    hoogte van de zone zelf erbij - die drie staan al in `StudyResult.relief`."""
+    result = _result(gent_ring)
+    result.relief = (6.84, 9.40, 8.12)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
+                             zone_legend_images={rc.ramp_image_key("dhmv_dtm"):
+                                                 "legendas/dhmv_dtm_schaal.png"})
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    ramp = dtm.ramp
+    assert ramp.image_path == "legendas/dhmv_dtm_schaal.png"
+    assert ramp.low == "-50 mTAW" and ramp.high == "300 mTAW", "de uiteinden van de dienst zelf"
+    assert "6.84" in ramp.summary and "8.12" in ramp.summary and "9.40" in ramp.summary
+    assert ramp.note == ""
+
+
+def test_a_colour_ramp_that_was_not_fetched_says_so_instead_of_drawing_colours(gent_ring):
+    """Zonder het strookje van de dienst worden er geen kleuren verzonnen: de regel blijft staan
+    met de drie hoogtes van de zone en zegt dat de schaal er niet is."""
+    result = _result(gent_ring)
+    result.relief = (6.84, 9.40, 8.12)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.ramp.image_path == ""
+    assert "niet opgehaald" in dtm.ramp.note
+    assert "6.84" in dtm.ramp.summary
+
+
+def test_a_zone_without_measured_relief_gets_a_ramp_that_says_that(gent_ring):
+    """Een dienst die plat lag en een vlakke zone laten allebei `relief` leeg. De regel onder de
+    kaart mag dan geen hoogtes suggereren die niemand gemeten heeft."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert "geen hoogtewaarden" in dtm.ramp.summary
+
+
+def test_only_the_maps_with_a_scale_for_a_legend_get_a_colour_ramp(gent_ring):
+    """Een kleurbalk hoort bij een kaart waarvan de legenda een doorlopende schaal is - het
+    hoogtemodel en de twee grondwaterstanden - en bij geen enkele andere."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    with_ramp = [p.map_id for ch in report.chapters for p in ch.pages
+                 if isinstance(p, rc.MapPage) and p.ramp is not None]
+    assert with_ramp == ["dhmv_dtm", "gxg_ghg", "gxg_glg"]
+
+
+# --- een kaart zonder beeld krijgt geen blad ---------------------------------------------------
+
+def test_a_map_without_coverage_gets_no_sheet_but_stays_in_the_sources(gent_ring):
+    """Een kaart zonder dekking krijgt geen blad maar staat wel in de bronnen.
+
+    Een wit blad met een regel eronder is een blad dat de lezer omslaat. Dat de kaart wel degelijk
+    geprobeerd is, hoort in het hoofdstuk Bronnen, met de reden erbij."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [Provenance("Kaartbeeld Popp-kaart (1842-1879)",
+                                    "https://geo.api.vlaanderen.be/HISTCART/wms",
+                                    "2026-09-17T08:00:00", True, "geen dekking op deze locatie")]
+    popp = next(p for p in rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+                .chapters[1].pages if isinstance(p, rc.MapPage) and p.map_id == "popp")
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={rc.map_page_key(popp)})
+
+    maps = [p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)]
+    assert "popp" not in maps and "ferraris" in maps
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Geraadpleegde"))
+    assert sources.rows[0][3] == "ok - geen dekking op deze locatie"
+    licences = next(p for p in report.chapters[7].pages if p.title.startswith("Kaartbronnen"))
+    assert any("Popp" in row[0] for row in licences.rows), "de kaart blijft in de bronnenlijst staan"
+
+
+def test_a_map_whose_image_failed_gets_no_sheet_but_stays_a_failed_source(gent_ring):
+    """Een kaart waarvan het beeld mislukte krijgt geen blad maar staat wel als mislukte bron."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [Provenance("Kaartbeeld Ferrariskaart (1777)",
+                                    "https://geo.api.vlaanderen.be/HISTCART/wms",
+                                    "2026-09-17T08:00:00", False,
+                                    "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond")]
+    ferraris = next(p for p in rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+                    .chapters[1].pages if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={rc.map_page_key(ferraris)})
+
+    maps = [p.map_id for ch in report.chapters for p in ch.pages if isinstance(p, rc.MapPage)]
+    assert "ferraris" not in maps
+    sources = next(p for p in report.chapters[7].pages if p.title.startswith("Geraadpleegde"))
+    assert sources.rows[0][3].startswith("fout: kaartbeeld niet opgehaald")
+
+
+def test_a_dropped_map_hands_its_zone_legend_back_to_a_sheet_of_its_own(gent_ring):
+    """De legenda voor de zone komt uit de WFS, niet uit het kaartbeeld: valt het beeld weg, dan
+    blijven die klassen waar. Ze staan dan weer op een eigen blad, want er is geen kaart meer om
+    ze onder te zetten."""
+    result = _result(gent_ring)
+    bodemkaart = next(p for p in _geologie(result).pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+
+    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                          unavailable={rc.map_page_key(bodemkaart)}).chapters[2]
+
+    assert not [p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart"]
+    legend = next(p for p in geo.pages if p.title == "Legenda voor de zone - Bodemkaart van Vlaanderen")
+    assert legend.rows == [["OB", "OB", "Bebouwde zones", "-", "-", "Antropogeen"]]
+
+
+def test_two_framings_of_one_map_are_dropped_apart(gent_ring):
+    """Een kaart draagt meerdere kaders - de GRB-basiskaart drie - en een mozaiek kan het smalle
+    kader wel dekken en het brede niet. De sleutel van een kaartpagina is dus de kaart plus haar
+    kader, niet de kaart alleen."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"))
+    grb_pages = [p for ch in report.chapters for p in ch.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "grb"]
+    assert len(grb_pages) > 1
+    keys = {rc.map_page_key(p) for p in grb_pages}
+    assert len(keys) == len(grb_pages), "elk kader heeft een eigen sleutel"
+
+    dropped = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"),
+                              unavailable={rc.map_page_key(grb_pages[0])})
+
+    left = [p for ch in dropped.chapters for p in ch.pages
+            if isinstance(p, rc.MapPage) and p.map_id == "grb"]
+    assert len(left) == len(grb_pages) - 1
+
+
+# --- waar de virtuele boring genomen is --------------------------------------------------------
+
+def test_the_virtual_borehole_chapter_says_where_the_borehole_was_taken(gent_ring):
+    """Een virtuele boring is een punt, en de lezer hoort te zien welk punt: X en Y in Lambert 72
+    en het maaiveld daar, per model - want twee modellen kunnen op een ander punt of op een ander
+    maaiveld uitkomen."""
+    result = _result(gent_ring)
+    result.virtual_boreholes["g3dv3_F"] = VirtualBorehole(x=104326.4, y=192506.1, model="g3dv3_F", layers=[
+        VbLayer("g3dv3_F_2", "Formatie van Gent", 8.38, 4.0, 4.38, "#FFFF00", "dekzand")])
+    result.virtual_boreholes["hcovv2_S"] = VirtualBorehole(x=104326.4, y=192506.1, model="hcovv2_S", layers=[
+        VbLayer("0100", "Quartair", 8.40, 2.0, 6.40, "#00FF00", "")])
+
+    vb = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[3]
+
+    place = next(p for p in vb.pages if isinstance(p, rc.TablePage) and p.title.startswith("Plaats"))
+    assert place.columns == ["Model", "X (Lambert 72)", "Y (Lambert 72)", "Maaiveld (mTAW)", "Lagen"]
+    assert place.rows == [["G3Dv3 - formaties", "104326.4", "192506.1", "8.38", "1"],
+                          ["HCOV v2 - subeenheden", "104326.4", "192506.1", "8.40", "1"]]
+
+
+def test_without_a_virtual_borehole_there_is_no_place_to_print(gent_ring):
+    """Geen boring, geen punt: het hoofdstuk zegt dan dat de boring niet beschikbaar is en drukt
+    geen tabel af met een plaats die niemand bevraagd heeft."""
+    vb = rc.build_report(_result(gent_ring),
+                         rc.ReportMeta(project="P", author="A", company="C")).chapters[3]
+
+    assert not [p for p in vb.pages if isinstance(p, rc.TablePage)]
+
+
+# --- de leeswijzer staat onder haar kaart -------------------------------------------------------
+
+def test_the_reading_guide_stands_under_its_map_and_not_on_a_sheet_of_its_own(gent_ring):
+    """Vier regels tekst op een verder leeg blad, elf keer in een rapport: dat is het wit waar de
+    gebruiker over viel. De leeswijzer hoort onder het kaartkader, boven de legenda voor de zone."""
+    geo = _geologie(_result(gent_ring))
+
+    assert not [p for p in geo.pages if p.title.startswith("Leeswijzer")], \
+        "de leeswijzer hoort geen eigen blad meer te zijn"
+    bodemkaart = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    assert isinstance(bodemkaart.guide, rc.TextPage)
+    assert bodemkaart.guide.title == "Leeswijzer - Bodemkaart van Vlaanderen"
+    assert "Z zand" in bodemkaart.guide.html
+
+
+def test_a_map_with_a_guide_but_no_zone_legend_carries_the_text_all_the_same(gent_ring):
+    """Het hoogtemodel, HCOV en de Quartairkaart 1/200 000 hebben geen tabel met klassen onder hun
+    kaart; hun leeswijzer hoort er toch te staan in plaats van op een blad ernaast."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    dtm = next(p for p in report.chapters[0].pages
+               if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm")
+    assert dtm.zone_legend is None
+    assert isinstance(dtm.guide, rc.TextPage) and "meter TAW" in dtm.guide.html
+    assert not [p for p in report.chapters[0].pages if p.title.startswith("Leeswijzer")]
+
+
+def test_a_map_without_a_reading_guide_carries_none(gent_ring):
+    """Een orthofoto heeft geen codes om uit te leggen en krijgt dus geen leeswijzer."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ferraris = next(p for p in report.chapters[1].pages
+                    if isinstance(p, rc.MapPage) and p.map_id == "ferraris")
+    assert ferraris.guide is None
+
+
+def test_a_dropped_map_hands_back_what_the_zone_says_and_nothing_else(gent_ring):
+    """Valt het kaartbeeld weg, dan blijven de klassen in de zone staan - die komen uit de WFS en
+    hangen niet aan het beeld. De leeswijzer verdwijnt mee: hij legt uit hoe je een kaart leest
+    die niet meer in het rapport staat."""
+    result = _result(gent_ring)
+    bodemkaart = next(p for p in _geologie(result).pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+
+    geo = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                          unavailable={rc.map_page_key(bodemkaart)}).chapters[2]
+
+    titles = [p.title for p in geo.pages]
+    assert "Legenda voor de zone - Bodemkaart van Vlaanderen" in titles
+    assert "Leeswijzer - Bodemkaart van Vlaanderen" not in titles
+
+
+def test_the_colour_ramp_marks_where_the_zone_lies_on_it(gent_ring):
+    """Een balk van -50 tot 300 mTAW zegt over een bouwzone van vier meter niets: alles is een
+    tint. De zone hoort er dus op gemarkeerd te staan, op de plaats waar haar laagste en hoogste
+    hoogte vallen, met het gemiddelde als terugval voor een span dat te smal is om te tekenen."""
+    result = _result(gent_ring)
+    result.relief = (12.52, 16.25, 14.74)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    # -50..300 is 350 m breed; 12,52 mTAW ligt dus op (12,52 + 50) / 350 van links.
+    assert ramp.band == (pytest.approx(62.52 / 350.0), pytest.approx(66.25 / 350.0))
+    assert ramp.band_label == "zone 12.52 - 16.25 mTAW"
+    assert ramp.mean_at == pytest.approx(64.74 / 350.0)
+    assert ramp.mean_label == "zone gemiddeld 14.74 mTAW"
+
+
+def test_a_zone_outside_the_service_range_is_marked_on_the_strip_not_beside_it(gent_ring):
+    """Een hoogte buiten het bereik van de dienst zou de markering van het papier af zetten; ze
+    wordt op het uiteinde van de balk gelegd."""
+    result = _result(gent_ring)
+    result.relief = (-80.0, 400.0, 20.0)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    assert ramp.band == (0.0, 1.0)
+
+
+def test_a_ramp_without_measured_relief_has_nothing_to_mark(gent_ring):
+    """Geen gemeten hoogtes, geen markering: een streepje op een balk zonder getal erachter zou
+    een meting suggereren die er niet is."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P1", author="A", company="C"))
+
+    ramp = next(p for p in report.chapters[0].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "dhmv_dtm").ramp
+    assert ramp.band is None and ramp.mean_at is None
+
+
+# --- geen uitgeschakelde kaart op een eigen blad, geen ontwikkelaarstaal -------------------------
+
+def _all_text(report):
+    """Elke tekst die een lezer in het rapport te zien krijgt, waar ze ook hangt."""
+    out = []
+    for chapter in report.chapters:
+        out.append(chapter.title)
+        pages = list(chapter.pages)
+        for page in chapter.pages:
+            if isinstance(page, rc.MapPage):
+                pages += [part for part in (page.guide, page.zone_legend) if part is not None]
+                if page.ramp is not None:
+                    out += [page.ramp.title, page.ramp.low, page.ramp.high, page.ramp.summary,
+                            page.ramp.note, page.ramp.band_label, page.ramp.mean_label]
+        for page in pages:
+            out.append(page.title)
+            out.append(getattr(page, "note", ""))
+            out.append(getattr(page, "html", ""))
+            out.append(getattr(page, "caption", ""))
+            out += list(getattr(page, "columns", []))
+            for row in getattr(page, "rows", []):
+                out += [str(cell) for cell in row]
+            for entry in getattr(page, "entries", []):
+                out += [entry.code, entry.sheet]
+    return [text for text in out if text]
+
+
+def test_a_disabled_map_gets_no_sheet_but_stands_in_the_sources(gent_ring):
+    """Een uitgeschakelde kaart krijgt geen eigen blad maar staat wel in de bronnen.
+
+    Een blad met een regel "Niet opgenomen" zegt tussen de historische kaarten niets wat de
+    bronnenlijst niet beter zegt - daar hoort het thuis, met de reden erbij."""
+    report = rc.build_report(_result(gent_ring), rc.ReportMeta(project="P", author="A", company="C"))
+
+    hist = report.chapters[1]
+    assert not [p for p in hist.pages if p.title.startswith("Historische topografische kaarten NGI")]
+    assert not [p for p in hist.pages if p.title.startswith("Bommenkaart")]
+    assert not any("Niet opgenomen" in getattr(p, "html", "") for p in hist.pages)
+
+    left_out = next(p for p in report.chapters[7].pages if p.title.startswith("Niet opgenomen"))
+    assert left_out.columns == ["Kaart", "Reden"]
+    titles = [row[0] for row in left_out.rows]
+    assert any("NGI" in title for title in titles) and any("ommenkaart" in title for title in titles)
+    assert all(row[1] for row in left_out.rows), "elke regel hoort haar reden te noemen"
+
+
+def test_no_report_text_addresses_the_developer(gent_ring):
+    """Geen enkele rapporttekst richt zich tot de ontwikkelaar.
+
+    "Vul wms_url in en zet enabled=True" is een opmerking voor wie de plugin schrijft; in het
+    rapport van een klant heeft ze niets te zoeken."""
+    report = rc.build_report(_with_quartair(_result(gent_ring)),
+                             rc.ReportMeta(project="P", author="A", company="C"),
+                             zone_legend_images=_profile_images("22026"))
+
+    forbidden = ("wms_url", "wms_layer", "enabled", "=True", "=False", "None", "catalogus",
+                 ".py", "TODO", "FIXME", "parameter", "True", "False")
+    for text in _all_text(report):
+        for word in forbidden:
+            assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
+
+
+def test_a_boolean_from_a_service_is_printed_in_dutch(gent_ring):
+    """"Risico-inrichting: True" in een Nederlandstalige tabel is Python, geen rapporttaal. De
+    dienst antwoordt met een booleaanse waarde; op papier staat er ja of nee."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("ovam", "OVAM - uitspraak bodemonderzoeken", [
+        {"kadaster_id": "44809I0837/00F010", "uitspraak": "Geen verder onderzoek nodig",
+         "risico_inrichting": True, "onder_voorbehoud": False}]))
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "ovam").zone_legend
+    assert "ja" in table.rows[0] and "nee" in table.rows[0]
+
+
+# --- de grondwaterstand onder haar eigen kaart --------------------------------------------------
+
+def _with_gxg(result, value=2.85):
+    """De GetFeatureInfo-rij zoals de dienst hem teruggeeft (live 2026-09-17)."""
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", [{
+        "GHG-waarde_m-mv": value, "Standaardafwijking_GHG_m": 1.37,
+        "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.96,
+        "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 4.74}]))
+    return result
+
+
+def test_the_groundwater_map_carries_its_value_and_its_colour_bar(gent_ring):
+    """De GHG-kaart droeg geen getal en geen legenda. Nu staat de gemodelleerde waarde in de tabel
+    onder de kaart en de kleurbalk van de dienst eronder, met haar klassegrenzen erbij. Gemodelleerd
+    en niet gemeten: de GxG-kaart is een rasterkaart, geen peilbuis."""
+    result = _with_gxg(_result(gent_ring))
+    result.relief = (12.52, 16.25, 14.74)
+
+    geo = _geologie(result, zone_legend_images={rc.ramp_image_key("gxg_ghg"):
+                                                "legendas/gxg_ghg_schaal.png"})
+
+    ghg = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg")
+    table = ghg.zone_legend
+    assert table.columns[0] == "GHG (m onder maaiveld)"
+    assert table.rows[0][0] == "2.85"
+    ramp = ghg.ramp
+    assert ramp.image_path == "legendas/gxg_ghg_schaal.png"
+    assert [label for _at, label in ramp.ticks] == ["0", "1", "2", "3", "4", "5", "10", "15", "20"]
+    assert ramp.ticks[0][0] == 0.0 and ramp.ticks[-1][0] == 1.0
+
+
+def test_the_groundwater_depth_is_also_given_as_a_level(gent_ring):
+    """Een diepte onder het maaiveld zegt een funderingsontwerper minder dan een peil. De regel
+    onder de balk rekent om met het gemeten maaiveld en noemt die aanname."""
+    result = _with_gxg(_result(gent_ring))
+    result.relief = (12.52, 16.25, 14.74)
+
+    geo = _geologie(result)
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "2.85 m onder maaiveld" in ramp.summary
+    assert "11.89 mTAW" in ramp.summary
+    assert "gemiddelde maaiveld" in ramp.summary, "de aanname hoort erbij te staan"
+
+
+def test_without_a_measured_ground_level_the_depth_is_not_converted(gent_ring):
+    """Zonder gemeten maaiveld wordt er niets omgerekend: een peil uit een verzonnen maaiveld is
+    een getal dat niemand kan narekenen."""
+    geo = _geologie(_with_gxg(_result(gent_ring)))
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "2.85 m onder maaiveld" in ramp.summary
+    assert "mTAW" not in ramp.summary
+
+
+def test_a_groundwater_point_the_service_knows_nothing_about_says_so(gent_ring):
+    """Buiten het model antwoordt de dienst met niets; de balk blijft, de regel zegt dat er geen
+    waarde is in plaats van een nul te suggereren."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", []))
+
+    geo = _geologie(result)
+
+    ramp = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").ramp
+    assert "geen waarde" in ramp.summary and "2.85" not in ramp.summary
+
+
+def test_a_measured_number_is_printed_to_two_decimals(gent_ring):
+    """De dienst antwoordt met een dubbele-precisiegetal: 2.8499999046325684 m. Zo'n rij in een
+    rapport is onleesbaar en suggereert een nauwkeurigheid die er niet is - twee decimalen is wat
+    een grondwaterstand waard is."""
+    result = _with_gxg(_result(gent_ring), value=2.8499999046325684)
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").zone_legend
+    assert table.rows[0][0] == "2.85"
+    assert table.rows[0][1] == "1.37"
+
+
+def test_a_continuous_map_prints_the_representative_point_not_nine_samples(gent_ring):
+    """Een kaart met een doorlopende waarde heeft geen "klassen in de zone": elk bevraagd punt
+    geeft zijn eigen getal, en negen bijna gelijke rijen kosten twee bladen en zeggen niets extra.
+    De tabel toont het representatieve punt - het punt waar de virtuele boring ook staat."""
+    result = _result(gent_ring)
+    rows = [{"GHG-waarde_m-mv": value, "Standaardafwijking_GHG_m": 1.37,
+             "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.96,
+             "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 4.74}
+            for value in (2.85, 2.88, 2.95, 2.94, 2.69, 2.65, 2.91, 3.0)]
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", rows))
+
+    geo = _geologie(result)
+
+    table = next(p for p in geo.pages
+                 if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg").zone_legend
+    assert len(table.rows) == 1
+    assert table.rows[0][0] == "2.85", "de eerste bevraging is het representatieve punt"
+    assert "representatieve punt" in table.title
+
+
+# --- waarom deze sonderingen een figuur kregen, en wat de boringen vermelden --------------------
+
+def test_the_chapter_says_why_an_electrical_sounding_was_chosen(gent_ring):
+    """Een lezer die een elektrische sondering van 300 m ziet afgebeeld en een mechanische van
+    40 m niet, hoort te weten waarom."""
+    from desktopstudie.core.model import Cpt
+
+    result = _result(gent_ring)
+    result.cpts.append(Cpt("e1", "E-1", 104000.0, 192000.0, 8.0, 20.0, "2020-01-01",
+                           "continu elektrisch", "E", None, None,
+                           "https://www.dov.vlaanderen.be/data/sondering/e1", 300.0))
+    result.figures["cpt_e1"] = "figuren/cpt_e1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    texts = " ".join(getattr(p, "html", "") + getattr(p, "note", "") + p.title for p in inv.pages)
+    assert "elektrische" in texts and "diagram" in texts
+
+
+def test_that_explanation_travels_with_the_table_and_never_gets_its_own_sheet(gent_ring):
+    """Vier regels uitleg alleen op een blad is precies de losse post die de verpakking moest
+    opruimen: de uitleg hoort bij de sonderingstabel, als noot boven de tabel waar hij over
+    gaat - en verwijst dus naar de tabel HIERONDER, niet naar een tabel twee bladen terug."""
+    from desktopstudie.core.model import Cpt
+
+    result = _result(gent_ring)
+    result.cpts.append(Cpt("e1", "E-1", 104000.0, 192000.0, 8.0, 20.0, "2020-01-01",
+                           "continu elektrisch", "E", None, None,
+                           "https://www.dov.vlaanderen.be/data/sondering/e1", 300.0))
+    result.figures["cpt_e1"] = "figuren/cpt_e1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    assert not [p for p in inv.pages if isinstance(p, rc.TextPage)]
+    table = next(p for p in inv.pages
+                 if isinstance(p, rc.TablePage) and p.title.startswith("Sonderingen"))
+    assert "elektrische" in table.note and "hieronder" in table.note
+
+
+def test_a_borehole_description_with_something_notable_says_so_under_its_figure(gent_ring):
+    """Een korte "Opmerkingen"-regel onder de boring: wat de beschrijving vermeldt en op welke
+    diepte, in de woorden van de beschrijving zelf."""
+    from desktopstudie.core.model import Borehole, LithologyLayer
+
+    result = _result(gent_ring)
+    result.boreholes.append(Borehole("b1", "kb22-B1", 104000.0, 192000.0, 8.0, 10.0, "1970-01-01",
+                                     "spoelboring", "geologie", None,
+                                     "https://www.dov.vlaanderen.be/data/boring/b1", 80.0,
+                                     lithology=[
+                                         LithologyLayer(0.0, 0.2, "Straatsteen"),
+                                         LithologyLayer(2.6, 4.2, "veenhoudende leem")]))
+    result.figures["boring_b1"] = "figuren/boring_b1.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    figure = next(p for p in inv.pages if isinstance(p, rc.FigurePage) and "kb22-B1" in p.title)
+    assert "Opmerkingen" in figure.caption
+    assert "straatsteen (0.00-0.20 m)" in figure.caption
+    assert "veenhoudende (2.60-4.20 m)" in figure.caption
+
+
+def test_a_plain_borehole_gets_no_remarks_line(gent_ring):
+    """Een gewone zandbeschrijving levert geen opmerking op; anders staat er onder elke boring een
+    regel die niets zegt."""
+    from desktopstudie.core.model import Borehole, LithologyLayer
+
+    result = _result(gent_ring)
+    result.boreholes.append(Borehole("b2", "kb22-B2", 104000.0, 192000.0, 8.0, 10.0, "1970-01-01",
+                                     "spoelboring", "geologie", None,
+                                     "https://www.dov.vlaanderen.be/data/boring/b2", 80.0,
+                                     lithology=[LithologyLayer(0.0, 2.0, "matig fijn zand")]))
+    result.figures["boring_b2"] = "figuren/boring_b2.png"
+
+    inv = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C")).chapters[4]
+
+    figure = next(p for p in inv.pages if isinstance(p, rc.FigurePage) and "kb22-B2" in p.title)
+    assert "Opmerkingen" not in figure.caption
+
+
+# --- de isopachen van het Quartair --------------------------------------------------------------
+
+def _with_isopachs(result, rows):
+    result.map_facts.append(MapFact("quartair_dikte", "Dikte van het Quartair (isopachen)", rows))
+    return result
+
+
+def _with_quartair_model(result, top=14.62, base=10.84):
+    from desktopstudie.core.model import VbLayer, VirtualBorehole
+
+    result.virtual_boreholes["g3dv3_P"] = VirtualBorehole(
+        x=104326.8, y=192506.7, model="g3dv3_P",
+        layers=[VbLayer("Q", "Quartair", top, base, top - base, "#FFFF00", "zand")])
+    return result
+
+
+def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
+    """Wat een lezer van een diktekaart wil weten is de dikte hier. De contouren liggen kilometers
+    ver, dus staat de modelwaarde van G3Dv3 op het representatieve punt erbij - als modelwaarde
+    benoemd, niet als meting."""
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+
+    geo = _geologie(result)
+
+    page = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte")
+    assert "3.78 m" in page.zone_legend.note
+    assert "G3Dv3" in page.zone_legend.note and "model" in page.zone_legend.note.lower()
+
+
+def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
+    """Ligt er wel een contour binnen het kaartbeeld, dan hoort die regel er niet te staan."""
+    rows = [{"dikte": 10, "afstand_m": 120}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+
+    geo = _geologie(result)
+
+    note = next(p for p in geo.pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte").zone_legend.note
+    assert "dichtstbijzijnde" not in note
+    assert "3.78 m" in note
+
+
+def test_a_value_from_a_ring_vertex_is_not_called_the_representative_point(gent_ring):
+    """De GetFeatureInfo-punten zijn het representatieve punt plus hoekpunten van de rand. Geeft
+    punt 0 geen antwoord, dan is de eerste rij een randpunt tot honderden meters verderop - en die
+    rij stond onder de kop "Waarde op het representatieve punt", met de omrekening naar mTAW aan
+    het verkeerde punt opgehangen. Elke rij draagt nu haar puntnummer; alleen punt 0 mag zo heten."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("gxg_ghg", "Gemiddeld hoogste grondwaterstand (GHG)", [
+        {"GHG-waarde_m-mv": 3.4, "Standaardafwijking_GHG_m": 1.1,
+         "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 1.0,
+         "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 5.0,
+         catalogue.POINT_FIELD: 3}]))
+    result.relief = (12.52, 16.25, 14.74)
+
+    ghg = next(p for p in _geologie(result).pages
+               if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg")
+
+    assert "representatieve punt" not in ghg.zone_legend.title
+    assert "representatieve punt" not in ghg.ramp.summary
+    assert "punt 3" in ghg.zone_legend.title and "rand" in ghg.zone_legend.title
+    assert "punt 3" in ghg.ramp.summary
+
+
+def test_an_empty_answer_says_what_it_means_and_promises_no_table(gent_ring):
+    """Twee fouten op één blad. De leeswijzer beloofde een tabel die er niet stond ("De tabel geeft
+    de klasse van de bevraagde punten"), en de reden eronder was de algemene "Geen kaarteenheden
+    binnen de zone" - terwijl leeg bij de watertoets juist het antwoord IS: niet in
+    overstromingsgevoelig gebied."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("watertoets_pluviaal",
+                                    "Watertoets - overstromingsgevoelige gebieden pluviaal", []))
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    page = next(p for p in report.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "watertoets_pluviaal")
+
+    gathered = report.chapters[-1].pages[-1].html
+    assert "overstromingsgevoelig" in gathered
+    assert "Watertoets - overstromingsgevoelige gebieden pluviaal" in gathered
+    assert page.zone_legend is None, "het lege blok staat niet meer onder de kaart"
+    assert "De tabel" not in page.guide.html
+    assert "vier klassen" in page.guide.html, "de uitleg zelf blijft staan"
+
+
+def test_the_studys_own_products_are_not_listed_as_consulted_sources(gent_ring):
+    """"Figuren" en "studie.json" zijn wat deze studie MAAKT, niet wat ze raadpleegde. In de
+    tabel "Geraadpleegde bronnen" lezen ze als een dienst die bevraagd werd."""
+    result = _result(gent_ring)
+    from desktopstudie.core.model import Provenance
+
+    result.provenance = [
+        Provenance("DOV WFS", "https://dov/wfs", "2026-09-18T10:00:00", True),
+        Provenance("Figuren", "", "2026-09-18T10:00:00", True),
+        Provenance("studie.json", "data/studie.json", "2026-09-18T10:00:00", True)]
+
+    sources = rc.build_report(result, rc.ReportMeta(project="P", author="A",
+                                                    company="C")).chapters[7]
+    consulted = next(p for p in sources.pages if p.title == "Geraadpleegde bronnen")
+
+    assert [row[0] for row in consulted.rows] == ["DOV WFS"]
+
+
+def test_a_dropped_map_leaves_its_answer_but_not_its_reading_guide(gent_ring):
+    """Valt het kaartblad weg, dan blijft het antwoord voor de zone staan - dat is wat de lezer
+    kwam halen - maar de leeswijzer niet: die legt een kaart uit die niet meer in het rapport
+    staat, en vier regels uitleg bij een verdwenen kaart kostten een blad van 1,4 % inkt."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("grondverschuiving_gekarteerd",
+                                    "Gekarteerde grondverschuivingen", []))
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable={("grondverschuiving_gekarteerd", 10000, 3.0,
+                                           False, False)})
+
+    titles = [page.title for page in report.chapters[2].pages]
+
+    assert not any("Leeswijzer - Gekarteerde" in title for title in titles)
+    gathered = report.chapters[-1].pages[-1].html
+    assert "geen grondverschuiving gekarteerd" in gathered
+    assert "Gekarteerde grondverschuivingen" in gathered
+
+
+def test_the_answers_of_dropped_maps_stand_together(gent_ring):
+    """Een kaartblad deelt zijn blad met niets, dus een losse legenda tussen twee kaarten in krijgt
+    een blad voor zichzelf - twee ervan kostten twee bladen van onder de procent inkt. Wat van de
+    weggevallen kaarten overblijft is een rij antwoorden zonder kaart: die horen bij elkaar,
+    achteraan het hoofdstuk, waar ze samen op een blad passen."""
+    result = _result(gent_ring)
+    for map_id, title in (("watertoets_fluviaal", "Watertoets - fluviaal"),
+                          ("grondverschuiving_gekarteerd", "Gekarteerde grondverschuivingen")):
+        result.map_facts.append(MapFact(map_id, title, []))
+    dropped = {("watertoets_fluviaal", 10000, 3.0, False, False),
+               ("grondverschuiving_gekarteerd", 10000, 3.0, False, False)}
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable=dropped)
+
+    assert all(isinstance(page, rc.MapPage) for page in report.chapters[2].pages), (
+        "in het hoofdstuk zelf blijft geen los legendablok achter")
+    gathered = report.chapters[-1].pages[-1].html
+    assert "Watertoets - overstromingsgevoelige gebieden fluviaal" in gathered
+    assert "Gekarteerde grondverschuivingen" in gathered
+
+
+def test_the_isopach_sheet_names_the_thickness_in_view_and_prints_no_distance_table(gent_ring):
+    """"die legende eronder is waardeloos, kan beter de isopachen zelf labellen". De dienst tekent
+    de dikte al op de lijnen, dus een tabel met afstanden tot contouren zegt niets meer. Onder de
+    kaart blijft een regel: welke diktes er in beeld liggen, en de modelwaarde ernaast - die
+    verschilt van de kaart en dat verschil is informatie, geen fout om weg te poetsen."""
+    rows = [{"Dikte_Quartair_m": 5.0, catalogue.DISTANCE_FIELD: 67},
+            {"Dikte_Quartair_m": 10.0, catalogue.DISTANCE_FIELD: 71},
+            {"Dikte_Quartair_m": 2.5, catalogue.DISTANCE_FIELD: 146}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
+
+    page = next(p for p in _geologie(result).pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte")
+
+    assert not getattr(page.zone_legend, "rows", None), "geen afstandstabel meer"
+    note = page.zone_legend.note
+    assert "2.5 tot 10.0 m" in note, "welke diktes liggen er in beeld"
+    assert "3.78 m" in note and "G3Dv3" in note, "de modelwaarde blijft staan"
+    assert "dichtstbijzijnde" not in note.lower()
+
+
+def test_the_isopach_map_is_the_50k_sheet_the_viewer_draws(gent_ring):
+    """De kaart die DOV zelf tekent is `quartair:qisopachen_quartair_50k`: dichte, gelabelde
+    contouren op perceelschaal. De oude `dov-pub:Quartair_Isopachen` is een grove reeks voor heel
+    Vlaanderen waarvan de dichtstbijzijnde lijn 5,6 km van de zone lag."""
+    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
+
+    assert entry.wms_layer == "qisopachen_quartair_50k"
+    assert entry.wfs_typename == "quartair:qisopachen_quartair_50k"
+    assert entry.fact_fields[0] == "Dikte_Quartair_m"
+    assert entry.scale == 25000, "met echte lijnen ter plaatse hoort de zone leesbaar te zijn"
+
+
+def test_every_nothing_here_answer_ends_up_on_one_page_at_the_back(gent_ring):
+    """"die pagina is lelijk, kan je de excepties niet helemaal achteraan steken (1 gebundelde
+    pagina met geen gegevens voor: dit en dat)". Elke kaart houdt haar eigen kaartblad; wat
+    verdwijnt is het lege legendablok eronder. De antwoorden staan gebundeld op het laatste blad
+    van het rapport, gegroepeerd per antwoord, en de kaart met echte eenheden blijft ongemoeid."""
+    result = _result(gent_ring)
+    result.map_facts.append(MapFact("bodemkaart", "Bodemkaart van Vlaanderen",
+                                    [{"Bodemtype": "Ldc"}]))
+    for map_id, title in (("erosie", "Potentiele bodemerosiekaart per perceel (2014)"),
+                          ("ovam", "OVAM - uitspraak bodemonderzoeken"),
+                          ("watertoets_fluviaal", "Watertoets - fluviaal")):
+        result.map_facts.append(MapFact(map_id, title, []))
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+
+    geologie = report.chapters[2]
+    empty = [p for p in geologie.pages
+             if isinstance(p, rc.MapPage) and p.map_id in ("erosie", "ovam", "watertoets_fluviaal")]
+    assert len(empty) == 3, "elke kaart houdt haar eigen kaartblad"
+    assert all(page.zone_legend is None for page in empty), "zonder leeg legendablok eronder"
+    bodemkaart = next(p for p in geologie.pages
+                      if isinstance(p, rc.MapPage) and p.map_id == "bodemkaart")
+    assert bodemkaart.zone_legend is not None, "een kaart met eenheden houdt haar legenda"
+
+    gathered = report.chapters[-1].pages[-1]
+    assert "Geen gegevens" in gathered.title
+    assert "Potentiele bodemerosiekaart" in gathered.html and "OVAM" in gathered.html
+    assert gathered.html.count("Geen kaarteenheden binnen de zone") == 1, "één keer, gegroepeerd"
+    assert "overstromingsgevoelig" in gathered.html, "en het kaart-eigen antwoord ernaast"

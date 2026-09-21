@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Callable, List, Optional, Sequence, Tuple
 
+from . import lithology
 from .catalogue import WATERTOETS_LABELS
 from .model import Signalering, StudyResult, VirtualBorehole
 from .services.virtuele_boring import layers_named
@@ -133,6 +134,30 @@ def check_groundwater(result: StudyResult) -> List[Signalering]:
             "Aandachtspunt voor het grondonderzoek: ondiepe grondwaterstand; bemaling en "
             "waterspanningen meenemen.")]
     return []
+
+
+SHALLOW_GHG_M = 2.0
+
+
+def check_modelled_groundwater(result: StudyResult) -> List[Signalering]:
+    """The modelled mean highest groundwater level, when it sits shallow enough to plan around.
+
+    Same threshold as the measured filter above, because it is the same question - can you dig
+    here without meeting water - and the same attention sentence. The difference is the source,
+    and the rule says so: this is a regional model, not a standpipe on the plot.
+    """
+    rows = _facts(result, "gxg_ghg")
+    depth = next((row.get("GHG-waarde_m-mv") for row in rows
+                  if row.get("GHG-waarde_m-mv") is not None), None)
+    if depth is None or float(depth) >= SHALLOW_GHG_M:
+        return []
+    return [Signalering(
+        "ondiepe_ghg",
+        f"Modelwaarde GHG: {float(depth):.2f} m onder maaiveld (gemiddeld hoogste "
+        f"grondwaterstand).",
+        "DOV GxG-kaart (modelwaarde, geen peilbuismeting)",
+        "Aandachtspunt voor het grondonderzoek: ondiepe grondwaterstand; bemaling en "
+        "waterspanningen meenemen, en de modelwaarde ter plaatse laten meten.")]
 
 
 def check_flood(result: StudyResult) -> List[Signalering]:
@@ -291,10 +316,39 @@ def check_sources(result: StudyResult) -> List[Signalering]:
         for p in result.provenance if not p.ok]
 
 
+def check_borehole_remarks(result: StudyResult) -> List[Signalering]:
+    """What the borehole descriptions name that is not the ordinary matrix, per borehole.
+
+    Reporting, never interpretation: the word the description used, the depth it was first named
+    at and the sentence itself, quoted. What sandstone concretions or a peat layer MEAN for a
+    foundation is a conclusion, and this plugin does not draw conclusions - the fixed attention
+    sentence sends it to the ground investigation, like every other rule here.
+
+    One signal per borehole, not per word: five words from one description are one observation
+    about one borehole, and a table with a row per word is a table nobody reads.
+    """
+    out: List[Signalering] = []
+    for borehole in result.boreholes:
+        terms = lithology.notable_terms(borehole.lithology)
+        if not terms:
+            continue
+        named = lithology.summarise(terms)
+        quote = terms[0].quote
+        out.append(Signalering(
+            "boring_opmerking",
+            f"De beschrijving van boring {borehole.number} vermeldt {named}; "
+            f"op {terms[0].depth} staat er: \"{quote}\".",
+            f"DOV boring {borehole.number}",
+            "Aandachtspunt voor het grondonderzoek: laat deze waarneming ter plaatse nakijken."))
+    return out
+
+
 RULES: List[Rule] = [
     check_anthropogenic, check_soft_layers, check_shallow_tertiary, check_soil_map, check_groundwater,
+    check_modelled_groundwater,
     check_flood, check_erosion, check_shrink_swell, check_ovam, check_landslide_susceptibility,
     check_mapped_landslides, check_pfas, check_investigations, check_relief, check_sources,
+    check_borehole_remarks,
 ]
 
 

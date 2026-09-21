@@ -362,14 +362,24 @@ def test_a_layer_missing_from_the_geopackage_is_reported_not_guessed(qgs_app, ge
 
 def test_the_standalone_project_can_be_written_and_read_back(qgs_app, gent_zone, tmp_path, offline_wms):
     """Het bestand is het product, niet het object in het geheugen: wat erin staat moet in een
-    verse QGIS weer opengaan, met de groepen en de lagen erin."""
+    verse QGIS weer opengaan, met de groepen en de lagen erin.
+
+    De twee helften worden apart nagekeken. Een .qgz is een zip, dus tussen schrijven en lezen
+    staat de vraag of er een geldige zip op schijf ligt: viel deze test ooit om met "Unable to
+    unzip file", dan zegt die tussenstap of de schrijver een stuk bestand achterliet of dat de
+    lezer over een goed bestand struikelde - zonder haar is het alleen een raadsel."""
+    import zipfile
+
     from qgis.core import QgsProject
 
     from desktopstudie.qgis import layers
 
     gpkg = _study_gpkg(gent_zone, tmp_path)
     path = tmp_path / "studie.qgz"
-    assert layers.standalone_project(gpkg, {})[0].write(str(path))
+    written = layers.standalone_project(gpkg, {})[0]
+    assert written.write(str(path))
+    assert path.is_file() and path.stat().st_size > 0, "de schrijver liet niets achter"
+    assert zipfile.is_zipfile(path), f"geen geldige zip op schijf ({path.stat().st_size} bytes)"
 
     reread = QgsProject()
     assert reread.read(str(path)), reread.error()
@@ -528,3 +538,204 @@ def test_a_peilput_keeps_its_number_on_a_report_map(qgs_app):
     assert peilput.labeling().settings().fieldName == "nummer"
     assert not peilput.labeling().settings().isExpression
     assert sondering.labeling().settings().isExpression
+
+
+# --- de virtuele boringen als laag --------------------------------------------------------------
+
+def _virtual_result(gent_zone):
+    """Een studie met een virtuele boring per model op het representatieve punt en twee
+    doorprikpunten langs de doorsnedelijn."""
+    from desktopstudie.core.model import (
+        Section,
+        StudyResult,
+        VbLayer,
+        VirtualBorehole,
+    )
+
+    def borehole(x, y, model, tops):
+        return VirtualBorehole(x=x, y=y, model=model, layers=[
+            VbLayer(f"{model}_{i}", f"Eenheid {i}", top, top - 1.0, 1.0, "#FFFF00", "zand")
+            for i, top in enumerate(tops)])
+
+    result = StudyResult(zone=gent_zone, created_at="2026-09-17T10:00:00")
+    result.virtual_boreholes = {
+        "g3dv3_F": borehole(104326.0, 192506.0, "g3dv3_F", [8.38, 7.38]),
+        "hcovv2_S": borehole(104326.0, 192506.0, "hcovv2_S", [8.40]),
+    }
+    result.section = Section(line=((104000.0, 192000.0), (104600.0, 193000.0)),
+                             boreholes=[borehole(104100.0, 192200.0, "g3dv3_F", [9.10]),
+                                        borehole(104500.0, 192800.0, "g3dv3_F", [7.20])],
+                             projected=[], zone_from_m=0.0, zone_to_m=100.0)
+    return result
+
+
+def test_every_virtual_borehole_the_study_took_lands_in_one_layer(qgs_app, gent_zone):
+    """Een virtuele boring is een punt, en de lezer hoort te kunnen zien waar. Elke boring die de
+    studie nam staat in de laag: die op het representatieve punt, per model, en de doorprikpunten
+    langs de doorsnedelijn - met het model, de coordinaten, het maaiveld en het aantal lagen."""
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+
+    assert layer.name() == "Virtuele boringen"
+    assert layer.featureCount() == 4
+    rows = sorted((f["model"], round(f["x"], 1), round(f["y"], 1), round(f["maaiveld_mtaw"], 2),
+                   f["aantal_lagen"]) for f in layer.getFeatures())
+    assert rows == [("g3dv3_F", 104100.0, 192200.0, 9.10, 1),
+                    ("g3dv3_F", 104326.0, 192506.0, 8.38, 2),
+                    ("g3dv3_F", 104500.0, 192800.0, 7.20, 1),
+                    ("hcovv2_S", 104326.0, 192506.0, 8.40, 1)]
+    first = next(layer.getFeatures())
+    assert first.geometry().asPoint().x() == pytest.approx(first["x"], abs=0.01)
+
+
+def test_the_virtual_boreholes_are_drawn_apart_from_the_real_ones(qgs_app, gent_zone):
+    """Een gemodelleerde boring mag op de kaart niet voor een echte sondering of boring worden
+    aangezien: een eigen vorm, een eigen kleur, en een label zoals de andere proeflagen."""
+    from qgis.core import Qgis
+
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+
+    symbol = layer.renderer().symbol()
+    marker, colour = symbol.symbolLayer(0).properties()["name"], symbol.color().name()
+    others = {layers.POINT_STYLE[kind] for kind in layers.POINT_STYLE}
+    assert (colour, marker) not in others, "dezelfde vorm en kleur als een echte proef"
+    assert symbol.sizeUnit() == Qgis.RenderUnit.Millimeters
+    settings = layer.labeling().settings()
+    assert settings.fieldName == "model" and layer.labelsEnabled()
+    assert settings.format().sizeUnit() == Qgis.RenderUnit.Points
+
+
+def test_a_study_without_a_virtual_borehole_still_gets_a_valid_layer(qgs_app, gent_zone):
+    """Geen boring is geen ontbrekende laag: het GeoPackage en het projectbestand dragen altijd
+    dezelfde laagnamen, anders meldt `standalone_project` er een als zoek."""
+    from desktopstudie.core.model import StudyResult
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(StudyResult(zone=gent_zone, created_at="t"))
+
+    assert layer.isValid() and layer.featureCount() == 0
+
+
+def test_the_virtual_boreholes_keep_their_style_out_of_the_geopackage(qgs_app, gent_zone, tmp_path):
+    """De laag uit het GeoPackage - dat is wat studie.qgz opent - krijgt dezelfde huisstijl als de
+    laag waarmee de studie tekende; de naam is het enige dat het bestand overleeft."""
+    from qgis.core import QgsVectorLayer
+
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+    gpkg = tmp_path / "studie.gpkg"
+    layers.write_geopackage([layer], gpkg)
+
+    reopened = QgsVectorLayer(f"{gpkg}|layername={layers.VB_NAME}", layers.VB_NAME, "ogr")
+    assert reopened.isValid() and reopened.featureCount() == 4
+    styled = layers.style_by_name(reopened)
+    assert styled.renderer().symbol().color().name() == layer.renderer().symbol().color().name()
+    assert styled.labeling().settings().fieldName == "model"
+
+
+def test_the_virtual_boreholes_are_one_of_the_geopackage_groups(qgs_app):
+    """De laag hoort bij de proeflagen in het GeoPackage, zodat `standalone_project` haar
+    terugvindt en studie.qgz haar toont."""
+    from desktopstudie.qgis import layers
+
+    names = [name for _title, group in layers.GPKG_GROUPS for name in group]
+    assert layers.VB_NAME in names
+
+
+def test_the_virtual_boreholes_lose_their_labels_on_a_report_map(qgs_app, gent_zone):
+    """Elf doorprikpunten met dezelfde modelnaam ernaast zijn een grijze vlek over de
+    doorsnedelijn. Op papier tekent de laag dus alleen haar ruitjes; in QGIS, waar de lezer kan
+    inzoomen en klikken, blijft het model als label staan."""
+    from desktopstudie.qgis import layers
+
+    layer = layers.virtual_boreholes_layer(_virtual_result(gent_zone))
+    assert layer.labelsEnabled()
+
+    overlay = layers.style_virtual_boreholes_layer(layer.clone(), labels=False)
+
+    assert not overlay.labelsEnabled()
+    assert overlay.renderer().symbol().color().name() == layer.renderer().symbol().color().name()
+
+
+def test_the_same_virtual_borehole_is_one_point_not_two(qgs_app, gent_zone):
+    """Het doorprikpunt op het representatieve punt IS de virtuele boring van hoofdstuk 4: in de
+    GeoPackage stonden er twee identieke rijen voor g3dv3_F op dezelfde coordinaat. Eenzelfde
+    model op eenzelfde plek is een punt."""
+    from desktopstudie.qgis import layers
+
+    result = _virtual_result(gent_zone)
+    result.section.boreholes.insert(
+        0, next(b for b in result.virtual_boreholes.values() if b.model == "g3dv3_F"))
+
+    layer = layers.virtual_boreholes_layer(result)
+
+    keys = [(f["model"], round(f["x"], 2), round(f["y"], 2)) for f in layer.getFeatures()]
+    assert len(keys) == len(set(keys)), f"dubbele punten: {keys}"
+    assert ("g3dv3_F", 104326.0, 192506.0) in keys
+
+
+def _halo_pixels(layer) -> int:
+    """Hoeveel zuiver witte pixels tekent deze laag op een zwarte achtergrond?
+
+    Gemeten aan het BEELD, niet aan de instellingen. De instellingen teruglezen van een laag is
+    geen betrouwbare vraag: `QgsVectorLayerSimpleLabeling.settings()` geeft een object terug dat de
+    aanroep niet overleeft - op 3.34 stort het proces neer zodra je er `format()` op doet, op 4.x
+    antwoordt het met de standaardwaarden en meldt dus "geen halo" terwijl de kaart er wel een
+    tekent (live nagekeken in beide containers, 2026-09-21). Wat de lezer op papier krijgt is het
+    beeld, en dat is ook het enige dat hier iets bewijst.
+    """
+    from qgis.core import Qgis, QgsMapRendererParallelJob, QgsMapSettings, QgsRectangle
+    from qgis.PyQt.QtCore import QSize
+    from qgis.PyQt.QtGui import QColor
+
+    settings = QgsMapSettings()
+    settings.setLayers([layer])
+    settings.setExtent(QgsRectangle(0.0, 0.0, 200.0, 200.0))
+    settings.setOutputSize(QSize(400, 400))
+    settings.setBackgroundColor(QColor("#000000"))  # zwart: een witte halo valt op, de letters niet
+    settings.setFlag(Qgis.MapSettingsFlag.DrawLabeling, True)
+    job = QgsMapRendererParallelJob(settings)
+    job.start()
+    job.waitForFinished()
+    image = job.renderedImage()
+    return sum(1 for y in range(image.height()) for x in range(image.width())
+               if QColor(image.pixel(x, y)).name() == "#ffffff")
+
+
+def _one_labelled_point(name: str, field: str, value: str):
+    from qgis.core import QgsFeature, QgsGeometry, QgsPointXY, QgsVectorLayer
+
+    layer = QgsVectorLayer(
+        f"Point?crs=EPSG:31370&field={field}:string&field=met_figuur:integer", name, "memory")
+    feature = QgsFeature(layer.fields())
+    feature.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(100.0, 100.0)))
+    feature[field] = value
+    feature["met_figuur"] = 1
+    layer.dataProvider().addFeatures([feature])
+    layer.updateExtents()
+    return layer
+
+
+def test_a_point_label_is_drawn_with_a_white_halo(qgs_app):
+    """Op de overzichtskaart lopen de sondeer- en boornummers in het midden door elkaar tot een
+    onleesbare veeg, dwars over daken en water. Een witte halo om de letters maakt ze leesbaar,
+    welke ondergrond er ook onder ligt.
+
+    De settings vallen weg zodra de opmaakfunctie terugkeert en er wordt pas veel later getekend,
+    dus de proef doet dat ook: opmaken, opruimen, en dan pas tekenen."""
+    import gc
+
+    from desktopstudie.qgis import layers
+
+    sounding = _one_labelled_point("Sonderingen", "nummer", "88")
+    layers.style_points_layer(sounding, "sondering")
+    virtual = _one_labelled_point("Virtuele boringen", "model", "g3dv3_F")
+    layers.style_virtual_boreholes_layer(virtual)
+    gc.collect()
+
+    for layer in (sounding, virtual):
+        assert _halo_pixels(layer) > 0, f"{layer.name()} tekent zonder halo"

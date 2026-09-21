@@ -30,7 +30,7 @@ def _client():
         ("typeNames=bodemkaart", "wfs_bodemtypes_intersects.json"),
         ("typeNames=quartair%3Aquartair_samengesteld", "wfs_quartair_samengesteld_intersects.json"),
         ("typeNames=quartair%3Aquartair_200k", "wfs_quartair_200k_intersects.json"),
-        ("typeNames=dov-pub%3AQuartair_Isopachen", "wfs_quartair_isopachen_intersects.json"),
+        ("typeNames=quartair%3Aqisopachen_quartair_50k", "wfs_quartair_isopachen_dwithin.json"),
         ("typeNames=neo_paleo", "wfs_tertiair_50k_intersects.json"),
         ("typeNames=hcov", "wfs_hcov_0100_vk_intersects.json"),
         ("typeNames=gw_bescherming", "wfs_gwkwb_kwbschaal_intersects.json"),
@@ -50,6 +50,8 @@ def _client():
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
         ("gebieden_fluviaal", "watertoets_fluviaal_hit.json"),
         ("gebieden_pluviaal", "watertoets_pluviaal_empty.json"),
+        ("ghg_mmv_main", "gxg_ghg_hit.json"),
+        ("glg_mmv_main", "gxg_glg_hit.json"),
     ])
 
 
@@ -360,3 +362,115 @@ def test_a_dead_getfeatureinfo_service_is_not_reported_as_an_empty_zone(gent_rin
     failed = [p for p in result.provenance if not p.ok and "pluviaal" in p.source]
     assert failed, [p.source for p in result.provenance if not p.ok]
     assert any(s.code == "bron_niet_beschikbaar" for s in result.signaleringen)
+
+
+def test_compact_layout_is_off_by_default():
+    """De compacte opmaak is een keuze, geen standaard: wie niets kiest krijgt de voorspelbare
+    opmaak van altijd."""
+    from desktopstudie.core.study import Settings
+
+    assert Settings().compact is False
+    assert Settings(compact=True).compact is True
+
+
+def test_every_map_is_asked_in_the_format_its_service_speaks(gent_ring, tmp_path):
+    """De kaart draagt haar antwoordformaat; de orchestrator hoort het door te geven. Vraagt hij
+    de DOV-dienst om geo+json, dan komt er een ServiceExceptionReport terug en valt de kaart uit
+    met "geen van de punten antwoordde" - een kaart zonder getal, precies wat we wilden oplossen.
+    """
+    from desktopstudie.core import catalogue
+
+    client = _client()
+    study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), client,
+              tmp_path)
+
+    formats = {}
+    for url in client.calls:
+        if "GetFeatureInfo" not in url:
+            continue
+        query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+        formats.setdefault(query["query_layers"][0], set()).add(query["info_format"][0])
+    assert formats, client.calls[:3]
+    for entry in catalogue.entries():
+        if entry.fact_mode == "gfi":
+            assert formats.get(entry.wms_layer) == {entry.gfi_format}, entry.id
+
+
+def _sounding(number, distance, method, cone):
+    from desktopstudie.core.model import Cpt
+
+    return Cpt(permkey=number, number=number, x=0.0, y=0.0, z_mtaw=8.0, depth_m=20.0,
+               date="2020-01-01", method=method, cone=cone, contractor=None, project=None,
+               url=f"https://www.dov.vlaanderen.be/data/sondering/{number}",
+               distance_m=distance)
+
+
+def test_an_electrical_sounding_gets_a_figure_before_a_nearer_mechanical_one():
+    """Een elektrische sondering krijgt een figuur voor een dichterbije mechanische.
+
+    Een continu elektrische sondering meet de conusweerstand over de hele diepte; een discontinu
+    mechanische springt met stappen. Voor een qc-diagram is de elektrische dus meer waard dan een
+    paar honderd meter kortere afstand."""
+    from desktopstudie.core.study import for_figures
+
+    soundings = [_sounding("M1", 10.0, "discontinu mechanisch", "M4"),
+                 _sounding("M2", 40.0, "discontinu mechanisch", "M4"),
+                 _sounding("E1", 300.0, "continu elektrisch", "E"),
+                 _sounding("E2", 120.0, "continu elektrisch", "E")]
+
+    chosen = for_figures(soundings, 3)
+
+    assert [c.number for c in chosen] == ["E2", "E1", "M1"]
+
+
+def test_without_electrical_soundings_the_nearest_mechanical_ones_are_left():
+    """Zonder elektrische sonderingen blijven de dichtste mechanische over."""
+    from desktopstudie.core.study import for_figures
+
+    soundings = [_sounding("M3", 90.0, "discontinu mechanisch", "M4"),
+                 _sounding("M1", 10.0, "discontinu mechanisch", "M4"),
+                 _sounding("M2", 40.0, "discontinu mechanisch", "M4")]
+
+    assert [c.number for c in for_figures(soundings, 2)] == ["M1", "M2"]
+
+
+def test_the_overview_table_keeps_every_sounding_in_distance_order(gent_ring, tmp_path):
+    """Alleen de figuurkeuze verandert: de tabel blijft elke sondering binnen de straal tonen, op
+    afstand gesorteerd."""
+    client = _client()
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
+                       client, tmp_path)
+
+    distances = [c.distance_m for c in result.cpts]
+    assert distances == sorted(distances)
+
+
+def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
+    """Een object zonder geometrie werd stil overgeslagen - en de fixture van de isopachen had op
+    beide objecten `"geometry": null`, dus liep die hele weg in geen enkele test. Wat wegvalt
+    wordt geteld en gemeld; wat wel een lijn heeft komt dichtstbij eerst terug."""
+    from desktopstudie.core import catalogue, study
+
+    entry = next(e for e in catalogue.CATALOGUE if e.id == "quartair_dikte")
+
+    class _Wfs:
+        def within_distance(self, *args, **kwargs):
+            return [{"properties": {"Dikte_Quartair_m": 25}, "geometry": None},
+                    {"properties": {"Dikte_Quartair_m": 20}, "geometry":
+                        {"type": "LineString", "coordinates": [[105426.0, 192506.0]]}},
+                    {"properties": {"Dikte_Quartair_m": 15}, "geometry":
+                        {"type": "LineString", "coordinates": [[104526.0, 192506.0]]}}]
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.zone = StudyZone(ring=gent_ring, name="z")
+    runner.wfs = _Wfs()
+    runner.s = study.Settings()
+    lines = []
+    runner.log = Log("test", sink=lines.append)
+
+    rows = runner._nearest_rows(entry)
+
+    assert [row["Dikte_Quartair_m"] for row in rows] == [15, 20], "dichtstbij eerst"
+    assert rows[0][catalogue.DISTANCE_FIELD] == 100
+    assert any("zonder geometrie" in line and "WARNING" in line for line in lines)

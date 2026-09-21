@@ -56,7 +56,7 @@ keer ververst, zoom naar de zone, succesmelding met "Open PDF", mislukte product
 naam als waarschuwing, een omgevallen kern als kritieke melding, en `finished(result|None)` zodat
 de dialoog Start weer vrijgeeft. Wat de dialoog onthoudt staat onder `desktopstudie/` in
 `QgsSettings` (`settings.PluginSettings`): `bedrijf`, `auteur`, `logo`, `straal`, `uitvoermap`,
-`cache`, `legendas`. Headless (`scripts/run_headless.py`) roept `run_core` en `finish` zelf aan -
+`cache`, `legendas` (standaard UIT), `compact` (standaard uit). Headless (`scripts/run_headless.py`) roept `run_core` en `finish` zelf aan -
 zonder `prepared` doet `finish` eerst `prepare` op de eigen thread - met `study_groups=False` (het
 geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 
@@ -119,21 +119,90 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   nominale snede; is er geen enkele witte rij, dan wint het blad. `hcov` en `quartair` hebben
   `legend=False`: hun GetLegendGraphic is een vierkantje van 20x20 zonder klassenaam; `dhmv_dtm`
   ook, want zijn legenda is een kleurbalk van 27x18 mm met twee getallen erop.
-- **Een kaart met een code krijgt drie pagina's, geen één.** De feitentabel zegt WAT er in de zone
-  ligt, de `Leeswijzer` (`MapEntry.reading_guide`, drie tot vijf zinnen) hoe die code te lezen valt,
-  en `Legenda voor de zone` welke klassen er werkelijk voorkomen - ontdubbeld, met de kolommen die
-  bij die kaart horen (`report_content.ZONE_LEGEND_COLUMNS`). Een lege legenda zegt of de ZONE leeg
-  was of de BRON; dat onderscheid mag nooit vervagen.
+- **Een kaart met een code krijgt EEN blad: de kaart, met haar leeswijzer en haar legenda
+  eronder.** De `Leeswijzer` (`MapEntry.reading_guide`, drie tot vijf zinnen) zegt hoe die code te
+  lezen valt en `Legenda voor de zone` welke klassen er werkelijk voorkomen - ontdubbeld, met de
+  kolommen die bij die kaart horen (`report_content.ZONE_LEGEND_COLUMNS`). Allebei reizen ze mee
+  OP de kaartpagina (`MapPage.guide`, `MapPage.zone_legend`), in die volgorde: vier regels tekst
+  of twee legendaregels kostten elk een A4 vol wit. Een lege legenda zegt of de ZONE leeg was of
+  de BRON; dat onderscheid mag nooit vervagen.
+- **Het kaartkader krimpt voor wat eronder staat - in de hoogte, nooit in de breedte.**
+  `layout.map_height` geeft de kaart alles wat overblijft: onder het kader stond al vier centimeter
+  wit, dus een korte legenda kost niets, en verder dan `MAP_MIN_H` (120 mm, ongeveer een halve
+  bladhoogte) krimpt het kader nooit - wat dan nog niet past loopt door op het volgende blad.
+  `layout.crop_extent` snijdt de uitsnede mee, met dezelfde BREEDTE: de breedte bepaalt de schaal
+  in het infovak en de sleutel waaronder `plan_map_images` het beeld ophaalde (die rekent altijd op
+  volle hoogte). Wie de breedte aanraakt, verandert de gedrukte schaal en laat het blad zoeken naar
+  een beeld dat niemand opgehaald heeft. Het infovak onderaan en de schaalbalk hangen aan de VOET
+  van het kader (`INFO_BOTTOM_LIFT`, `SCALE_BAR_LIFT`), niet aan een vaste y - de schaalbalk hoort
+  tegen zijn kaart, niet onder de tekst.
+  Een legenda die niet meer past loopt door op het volgende blad; past de EERSTE brok (de
+  leeswijzer) er niet eens onder een kaart op de ondergrens, dan houdt het kader zijn volle hoogte
+  en begint het hele blok op het blad erachter (`UnderMap.minimum`). Een halve alinea onder de
+  kaart en de andere helft overpagina leest slechter dan een blok dat op een eigen blad begint.
+- **De kleurschaal van het hoogtemodel is rapportinhoud, geen legendablad.** De GetLegendGraphic
+  van `dhmv_dtm` is een kleurbalk van 16 x 48 px met de titel erboven en "300 - -50" ernaast (live
+  2026-09-17, 102 x 68 px). `layout.ramp_rect` zoekt de balk als de langste reeks rijen die met een
+  effen kleurloop tegen de linkerrand beginnen, `ramp_strip` knipt die eruit en draait ze een
+  kwartslag rechtsom (laag links, hoog rechts), en de kaartpagina tekent ze onder het kader met de
+  twee uiteinden uit `catalogue.DHMV_RAMP_MTAW` en de drie hoogtes uit `StudyResult.relief`. Vindt
+  `ramp_rect` geen balk, dan komt er GEEN strook: een kleurschaal die niet bij de kaart erboven
+  hoort is erger dan geen kleurschaal, en de regel eronder zegt waarom.
+  **En de zone staat er zelf op gemarkeerd**, anders zegt een balk van -50 tot 300 mTAW over een
+  bouwzone van vier meter niets: alles is een tint. De kern rekent de plaatsen uit als breuk van
+  de strook (`ColourRamp.band`, `mean_at`; geklemd op 0..1, want een markering naast het papier
+  wijst nergens naar), de schil kiest - een beugel tussen laagste en hoogste zodra die op papier
+  `RAMP_SPAN_MIN_MM` uit elkaar liggen, anders EEN streepje op het gemiddelde met een aanwijslijn,
+  want twee streepjes van een halve millimeter uit elkaar zijn een dik streepje. Zonder gemeten
+  reliëf, of zonder strook, wordt er niets gemarkeerd.
+  **Niet elke balk is lineair.** De GxG-balk is een reeks klassen van ONGELIJKE breedte die op
+  gelijke hoogte getekend worden (grenzen 0-1-2-3-4-5-10-15-20 m, live gelezen 2026-09-17 uit de
+  GetLegendGraphic zelf: negen labels op gelijke afstand). Daarom draagt `ColourRamp.ticks` die
+  grenzen en wordt er op zo'n balk NOOIT een waarde geïnterpoleerd - het getal staat in de tabel
+  erboven. `MapEntry.ramp_low_at_top` zegt aan welke kant de kleinste waarde staat, zodat beide
+  balken op papier van klein links naar groot rechts lopen; `ramp_rect` zoekt de balk niet in
+  kolom nul maar bij de eerste kleur van elke rij, want de GxG-legenda laat een witte pixel tegen
+  de rand.
+- **Een kaart zonder kaartbeeld krijgt geen blad.** `prepare` weet het al - de beelden worden
+  opgehaald vóór de rapportboom voor het drukwerk gebouwd wordt - en geeft die kennis door als
+  `Prepared.unavailable` (`report_content.map_page_key`s, dus per KADER) aan `build_report`, dat
+  die bladen weglaat. Het hoofdstuk Bronnen zegt per kaart wat er gebeurde ("geen dekking op deze
+  locatie" of de mislukking); dat is waar een lezer dat zoekt, niet op een blad met een leeg kader.
+  De legenda voor de zone komt uit de WFS en niet uit het beeld, dus die overleeft het wegvallen -
+  dan weer op een blad van zichzelf.
+- **Een blad vult zich.** `LayoutBuilder._start` zet een tabel, een figuur of een tekst op het blad
+  dat al open staat zolang het past - niet tot een aantal, want een blad met een tabel van vier
+  regels erop is een blad vol wit. Eén hoofdstukkop per blad: een stuk uit het volgende hoofdstuk
+  begint een nieuw blad, tenzij `compact`, en dan staat de nieuwe kop er klein bij
+  (`PACKED_CHAPTER_H`) - een tabel van hoofdstuk 4 onder "3. Geologie en bodem" wordt gelezen als
+  hoofdstuk 3. Een kaartblad doet niet mee en vult zijn blad (`_seal`), een staand stuk belandt
+  nooit op een liggend blad, en de voettekst wordt PER BLAD geschreven (`_footer_every_sheet`, aan
+  het einde van `build`) in plaats van per rapportpagina - twee voetteksten op een blad zijn twee
+  paginanummers op een vel papier.
+- **Een dun thema wordt over de basiskaart getekend.** `MapEntry.backdrop` markeert de kaarten die
+  maar enkele procenten van hun uitsnede tekenen (gemeten op Gent, 2026-09-17: gekarteerde
+  grondverschuivingen, erosie, watertoets fluviaal en de dikte van het Quartair 100 % doorzichtig,
+  watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het Tertiair,
+  HCOV en de kwetsbaarheidskaart). `prepare_map_images` haalt daarvoor `catalogue.BASE_MAP_ID` op
+  bij dezelfde extent en hetzelfde pixelformaat en schildert het thema erover met de opaciteit uit
+  de catalogus, zodat de pagina één beeld tekent en niets achteraf hoeft te passen. De dekkingsproef
+  (`_is_empty`) wordt op het THEMA gedaan, vóór er iets onder komt te staan - anders beantwoordt de
+  basiskaart de vraag of de dienst hier iets tekent. `TRANSPARENT=TRUE` ging altijd al mee en wordt
+  gehonoreerd (live 2026-09-17: mét de parameter vier kanalen met een echt alfa, zonder drie
+  kanalen met wit); het lege blad kwam dus niet van een ondoorzichtig thema maar van niets eronder.
+  Een ondergrond die mislukt kost het thema zijn achtergrond, nooit zijn blad, en krijgt een eigen
+  bronregel (`pipeline._record_backdrops`).
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
   staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
   de kop eraf (`layout.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
   snijdt diezelfde rij van boven van de eenhedentabel (`crop_sheet_units`, anders leest die tabel
   als die van het ene profieltype waarmee ze binnenkwam) en levert `profieltype:<code>` en
-  `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**:
-  een `LegendPage` die per profieltype de regel "Profieltype <code> - kaartblad <nn>" met de strook
-  eronder zet (ware grootte, hoogstens een vijfde van de band, vervolgblad zodra het niet meer
-  past), en de eenhedentabel van het kaartblad. Geen URL op papier - 145 tekens downloadlink zeggen
+  `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**: de
+  kaartpagina, met onder het kader per profieltype de regel "Profieltype <code> - kaartblad <nn>"
+  en de strook eronder (ware grootte, hoogstens een vijfde van de band, vervolgblad zodra het niet
+  meer past), en de eenhedentabel van het kaartblad - die laatste is een tekening van een halve A4
+  en houdt daarom haar eigen blad. Geen URL op papier - 145 tekens downloadlink zeggen
   een lezer niets - maar `LegendEntry` houdt code en kaartblad als data, dus de feiten blijven
   machineleesbaar. Een tekening die niet binnenkwam laat de regel staan met "tekening niet
   opgehaald".
@@ -169,8 +238,9 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   met een lege tegel. Het kaartbeeld is er toch al, dus het antwoord valt er gratis uit te lezen:
   `layout._is_empty` in `prepare_map_images` kijkt of alle pixels gelijk of volledig doorzichtig
   zijn. De aparte dekkingsproef (een GetMap van 64 px) bestaat niet meer. Is de tegel leeg, dan
-  krijgt het blad een regel, vervalt de legenda, en blijft de bron `ok` met de reden "geen dekking
-  op deze locatie" (de bronnentabel drukt die reden af achter "ok"). Twee grenzen. Alleen kaarten
+  VERVALT het blad (zie de regel over een kaart zonder kaartbeeld hierboven) en blijft de bron `ok`
+  met de reden "geen dekking op deze locatie" (de bronnentabel drukt die reden af achter "ok").
+  Twee grenzen. Alleen kaarten
   **zonder feiten**, want een doorzichtige tegel van de watertoets betekent "geen
   overstromingsgevoelig gebied", niet "geen dekking" (live gemeten 2026-09-16). En per **kader**,
   niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de andere bladen van
@@ -196,6 +266,12 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   wordt naar boven afgerond op de 1-2-5-ladder (`layout.SCALE_STEPS`) en de extent volgt opnieuw
   uit die schaal. Alleen naar boven: naar beneden zou net wegsnijden waarvoor de kaart openrekte.
   De catalogusschaal en `extent_factor` blijven onaangeroerd - dat zijn keuzes, geen tussenstap.
+- **`QgsLayoutTable.totalSize()` liegt over de hoogte; `rowsVisible` niet.** `totalSize()` geeft
+  nooit minder dan het frame dat de tabel kreeg terug (gemeten op 3.40.15: twee rijen in een
+  bladhoog frame melden een bladhoogte), dus een tabel valt er niet mee op te meten.
+  `rowsVisible(context, hoogte, 0, True, False)` antwoordt wel eerlijk hoeveel rijen er in een
+  hoogte passen; `LayoutBuilder._table_height` halveert het interval tot de kortste hoogte die alle
+  rijen houdt. De rendercontext komt uit `QgsLayoutUtils.createRenderContextForLayout(layout, None)`.
 - **Vóór een export de data-gedefinieerde eigenschappen evalueren** (`export.refresh_data_defined`),
   anders is de legendaschakelaar nog niet geëvalueerd. Elke exportfunctie in `export.py` doet het
   zelf, zodat geen enkele oproeper het kan vergeten. NIET `layout.refresh()`: die herberekent elk
@@ -228,7 +304,19 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   versnelt: de PDF-export bleek 312 s van de 607 s, de toenmalige aparte dekkingsproef 0,0 s -
   reden om die eruit te halen in plaats van te versnellen.
 - **Prestaties: wat domineert en waarom** (Gent, 115 bladen, warme cache, gemeten 2026-09-16; de
-  laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken).
+  laptop wisselt tot 4x in snelheid, dus alleen runs kort na elkaar vergelijken). Sinds de
+  compactere opmaak telt diezelfde studie 62 bladen: de legendabladen staan uit (13 kaarten,
+  15 bladen), de zonelegenda's en de leeswijzers staan onder hun kaart, een kaart zonder
+  kaartbeeld krijgt geen blad, de uitgeschakelde kaarten staan in de bronnen in plaats van op een
+  blad, en een blad vult zich. Inktdekking gemeten over alle bladen (`uitvoer/ink.py`, grijswaarde
+  onder 245): v0.1.0 gemiddeld 13,7 % met 67 bladen onder 5 %; nu gemiddeld 27,4 % met er twaalf
+  (gemeten 2026-09-20 op dezelfde zone).
+  Die twaalf zijn geen toeval en geen restje verpakking, maar vier soorten blad. Het titelblad.
+  Het laatste stuk van een hoofdstuk waar een KAARTblad op volgt - een kaartblad deelt met niets,
+  dus daar valt niets meer onder te schuiven (p7 kerngegevens, p14 de handmatige controle,
+  p34 de laatste HCOV-tabel). De figuurbladen zelf: een qc-diagram of een boorkolom is lijnwerk
+  van 3 a 4 % inkt, hoe vol het blad ook staat. En de staart van het bronnenhoofdstuk. Wie hier
+  verder wil, moet dus aan de regel "een kaartblad deelt niet" komen, niet aan de verpakking.
   - **De PDF-export geef je nooit in één oproep het hele rapport.** Binnen één
     `QgsLayoutExporter`-oproep kost elk blad ~7 µs x (items in de layout) x (bladen die al
     geëxporteerd zijn): kwadratisch, los van wat er op het blad staat. Synthetisch (115 bladen van
@@ -358,6 +446,15 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   rapport de ontbrekende kaart noemt in plaats van stil een blad zonder ondergrond af te drukken.
   `record_source` vervangt een bestaande regel met dezelfde bron, zodat een tweede `finish` op
   hetzelfde resultaat geen tegenstrijdige regels oplevert.
+- **De virtuele boringen zijn een laag, en een aparte.** `layers.virtual_boreholes_layer` zet elke
+  boring die de studie nam als punt neer: die op het representatieve punt (een per model, dus
+  meerdere punten op één coördinaat) en de doorprikpunten langs de doorsnedelijn, met model, x, y,
+  maaiveld en aantal lagen. Paars ruitje (`VB_STYLE`), duidelijk anders dan de sondering (blauwe
+  cirkel), de boring (rood vierkant) en de peilput (blauwe driehoek): een gemodelleerde kolom mag op
+  geen enkele kaart voor een echte proef doorgaan. De laag hoort bij de proeflagen (`GPKG_GROUPS`,
+  `INVESTIGATION_GROUP`), staat dus in het GeoPackage én in `studie.qgz`, en `style_by_name` kent
+  haar. Ook bij een studie zonder boring blijft ze bestaan en leeg - een laagnaam die er soms niet
+  is, meldt `standalone_project` als zoek.
 - **Het geopende project is niet het product.** De studiegroepen gaan in het project dat de
   gebruiker openheeft; het `.qgz` naast de PDF is een *vers* `QgsProject` uit het GeoPackage
   (`layers.standalone_project`), zodat het bestand weken later op een andere machine nog opengaat.
@@ -386,6 +483,84 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   antwoord leeg of onbruikbaar is; nooit stil een leeg resultaat teruggeven.
 - **TDD op de kern**: eerst een falende test in de woorden van de regel, dan de implementatie, dan
   refactor. Figuren en PDF-pagina's worden als PNG bekeken vóór "klaar".
+- **De woordenlijst zegt wat GEWOON is; al de rest vlagt.** `core/lithology.ORDINARY` is een
+  allowlist (de matrix zand/klei/leem/silt, de modificatoren, de kleuren, de boormethode, de
+  eenheden en het Frans van de oude records); elk woord dat er niet op staat is per definitie een
+  rariteit en komt als opmerking onder de boring en als signalering in hoofdstuk 7. **Die richting
+  mag nooit omgedraaid worden**: een onvolledige lijst geeft ruis, een lijst van "interessante"
+  woorden geeft een gemiste vondst, en alleen de eerste fout is ongevaarlijk. Gecureerd op 3630
+  lagen uit 512 boringen rond twaalf punten over heel Vlaanderen (`scripts/lithology_vocabulary.py`
+  telt opnieuw); widen de allowlist uit die frequentietabel, versmal nooit de vlagregel. Vier
+  dingen die de data besliste en geen conventie: de helft van de oude beschrijvingen is Frans; een
+  gecodeerde laag draagt codes en wordt overgeslagen (de codelijst is bekende schuld); een bank is
+  een rariteit en een bijmenging niet (schelpen worden 400+ keer als bijmenging genoemd, nooit als
+  "schelpenbank" - de bank draagt een eigen woord); en "geen kalk" meldt geen kalk. Citeren, nooit
+  concluderen: wat een term BETEKENT voor de grond staat er niet bij.
+  Twee dingen die de vlagregel NIET aanraken maar wel bepalen wat er op papier komt. Een kort
+  brokstuk met een punt is een afkorting, geen waarneming: "Num. planulatus" gaf "num" in het
+  rapport van een klant, en `ABBREVIATION_MAX` gooit zo'n stomp weg (kort EN midden in de zin, of
+  aan het einde van de beschrijving; de materialen uit `ALWAYS_NOTABLE` blijven altijd staan).
+  En `FOSSILS` onderdrukt de soortnamen volledig, net als `ORDINARY`: een soortnaam zegt in welke
+  formatie je staat, niet dat je iets zult raken. Dat is een vakinhoudelijke keuze van de
+  gebruiker ("nummulites planulatus shouldn't be flagged at all"), geen gemakzucht - en ze
+  verbreedt de GEWONE kant van de regel, de veilige richting; de vlagregel zelf blijft staan.
+  Zet ze dus niet "behulpzaam" terug: het is gevraagd, niet vergeten. De materialen uit
+  `ALWAYS_NOTABLE` blijven wel vlaggen - zandsteen, veen en puin zijn dingen die een machine
+  tegenkomt, een Nummulites is een datumstempel. Een schelpenBANK is niet geraakt: die wordt
+  gevangen door het woord dat haar aanduidt (`bank`, `banc`), nooit door de soort erin.
+- **Een lijnenlaag wordt niet met overlap bevraagd.** `MapEntry.fact_within_m` zet de feitenvraag
+  van INTERSECTS om naar DWITHIN met een straal, en de rijen komen dichtstbij eerst terug met de
+  afstand erbij (`catalogue.DISTANCE_FIELD`, door de kern berekend - het staat in geen enkel
+  antwoord). De isopachen van het Quartair zijn zo'n laag: een INTERSECTS met een zone van 50 m
+  raakt nooit een contourlijn, hoe dicht die ook ligt.
+- **Neem de laag die DOV zelf tekent, niet de eerste met de juiste naam.** De diktekaart wees naar
+  `dov-pub:Quartair_Isopachen`: 780 lijnen voor heel Vlaanderen, met de dichtstbijzijnde op 5,6 km
+  van de Gentse zone. De verkenner van DOV tekent `quartair:qisopachen_quartair_50k` - de
+  kartering op 1:50 000 - en die geeft er vier binnen 300 m (live 2026-09-20: 67 m / 5 m,
+  71 m / 10 m, 146 m / 2,5 m, 270 m / 2,5 m). Het verschil tussen een leeg blad en een bruikbaar
+  blad zat dus in de dataset, niet in de opmaak: **vergelijk bij een kaart die niets toont eerst
+  met wat de verkenner van de bron zelf tekent.** Velden verschillen mee (`Dikte_Quartair_m`,
+  geometrie `geom`), en `quartair:Qisopachen_Tertair_50k` is een andere kaart.
+- **Kijk of de dienst haar eigen labels al tekent voordat je ze zelf gaat tekenen.** De stijl van
+  `qisopachen_quartair_50k` zet de dikte op elke contour, dus een GetMap levert een gelabelde kaart
+  en het blad heeft geen legenda nodig. Dat is meteen de reden dat de afstandstabel eronder weg
+  mocht: een kolom afstanden tot lijnen die de lezer ziet liggen, is meubilair.
+- **Is de belettering van de dienst onleesbaar, vraag dan je eigen met een SLD in de GetMap.**
+  De laag adverteert één stijl en geen variant met halo, en haar eigen letters zijn dun, klein en
+  grijs boven de GRB-ondergrond. `MapEntry.sld_body` reist mee als `SLD_BODY`: de dienst tekent de
+  geometrie, wij bepalen alleen de letters (vet, zwart, witte halo, `followLine`). Twee dingen die
+  stilletjes fout gaan:
+  - **De NamedLayer draagt de KALE laagnaam.** Met het workspace-voorvoegsel matcht GeoServer
+    niets, valt terug op zijn eigen stijl en meldt niets - live 2026-09-21 byte voor byte hetzelfde
+    beeld als zonder SLD. Wie hier iets verandert: ophalen en naar het plaatje KIJKEN.
+  - **De URL moet kort blijven.** De gateway voor de GeoServer van DOV antwoordt 502 Bad Gateway
+    op een lange GetMap: mét inspringing 3120 tekens en 0 van de 5 pogingen gelukt, zonder
+    witruimte 1905 tekens en 5 van de 5 (live gemeten). `_compact_xml` haalt de witruimte eruit,
+    zodat de stijl leesbaar in de broncode staat en compact over de lijn gaat.
+- **Lees labelinstellingen NOOIT terug van een laag om iets te controleren.**
+  `QgsVectorLayerSimpleLabeling.settings()` geeft een object terug dat de aanroep niet overleeft.
+  Op 3.34 stort het proces neer (`Fatal Python error: Segmentation fault`) zodra je er `format()`
+  op doet; op 4.x krijg je stilletjes de standaardwaarden terug, dus het meldt "geen halo" terwijl
+  de kaart er wel een tekent. Beide gemeten in de containers op 2026-09-21, en beide sloegen pas
+  toe in CI: lokaal op 3.40 liep dezelfde code gewoon door. Wat je wil weten is wat er GETEKEND
+  wordt, dus render en tel de pixels (`tests/qgis/test_layers.py::_halo_pixels`). Dit is dezelfde
+  huisregel als voor de figuren en de PDF: kijk naar het beeld, niet naar de instelling.
+- **Elk puntlabel op een rapportkaart krijgt een witte halo** (`layers._label_format`). Zonder halo
+  liepen de sondeer- en boornummers in het midden van de overzichtskaart in elkaar over tot een
+  veeg, dwars over daken en water. Labels die dan nog botsen worden weggelaten in plaats van
+  overheen getekend (`compat.drop_colliding_labels`; `placementSettings()` kwam er in 3.32 en is de
+  enige spelling die 4.x kent, ouder valt terug op het standaardgedrag van de engine).
+- **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
+  (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
+  `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
+  23 elektrisch, live 2026-09-17), maar `conus` is een toestelcode met een open woordenschat.
+- **Geen rapporttekst die zich tot de ontwikkelaar richt.** Een uitgeschakelde catalogusentry
+  krijgt geen blad; haar `note` wordt afgedrukt in de tabel "Niet opgenomen kaarten" van het
+  hoofdstuk Bronnen en is dus tekst voor de LEZER - waarom de kaart er niet is en waar ze wel te
+  vinden is. "Vul wms_url in en zet enabled=True" stond zo in het rapport van een klant; wat een
+  onderhouder moet weten hoort in de schuldlijst hieronder.
+  `tests/core/test_report_content.test_no_report_text_addresses_the_developer` loopt elke
+  rapporttekst af en bewaakt het.
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
@@ -438,9 +613,10 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - Volledige studie zonder GUI (kern + schil + PDF), met de QGIS-Python:
   `"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\run_headless.py --x 104326
   --y 192506 --buffer 50 --out uitvoer\gent --paginas` (of `--adres "..."`). Verder
-  `--straal/--project/--projectnummer/--auteur/--bedrijf/--logo/--cache/--geen-legendas`
-  (dat laatste slaat alleen de legendabladen over; de quartairtekeningen worden wel opgehaald,
-  want die zijn rapportinhoud);
+  `--straal/--project/--projectnummer/--auteur/--bedrijf/--logo/--cache/--legendas/--compact`
+  (`--legendas` maakt de legendabladen wel - ze staan uit; de quartairtekeningen en de kleurschaal
+  van het hoogtemodel worden hoe dan ook opgehaald, want die zijn rapportinhoud. `--geen-legendas`
+  uit v0.1 bestaat nog als verouderd alias dat niets doet);
   `--paginas` schrijft elk blad ook als PNG. Het script zet `QT_QPA_PLATFORM=offscreen` zelf en
   roept `compat.ensure_font_dir()` aan **vóór** `QgsApplication([], True)` (GUI-geschikt, want
   lettertypes en SVG lopen door de QApplication). Afsluitcodes: 0 = volledig, 2 = geen bruikbare

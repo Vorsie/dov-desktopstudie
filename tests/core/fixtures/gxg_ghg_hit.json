@@ -1,0 +1,20 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "id": "",
+      "geometry": null,
+      "properties": {
+        "GHG-waarde_m-mv": 2.8499999046325684,
+        "Standaardafwijking_GHG_m": 1.3700000047683716,
+        "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.9599999785423279,
+        "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 4.739999771118164
+      }
+    }
+  ],
+  "totalFeatures": "unknown",
+  "numberReturned": 1,
+  "timeStamp": "2026-09-17T18:47:50.402Z",
+  "crs": null
+}
