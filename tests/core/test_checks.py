@@ -492,3 +492,21 @@ def test_a_deep_modelled_groundwater_level_says_nothing(gent_ring):
                                     [{"GHG-waarde_m-mv": 4.0}]))
 
     assert not [s for s in checks.run_all(result) if s.code == "ondiepe_ghg"]
+
+
+def test_an_unavailable_source_names_the_chapter_it_left_short(gent_ring):
+    """"Hoofdstuk onvolledig; bron in samenvattende tabel?" - de regel stond er wel, maar zei niet
+    WELK hoofdstuk iets mist. De lezer moest dat zelf uit het bronnenhoofdstuk achterin halen."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [
+        Provenance("Legenda profieltype 12026", "https://dov/12026", "2026-09-21T10:00:00", False,
+                   "tekening van het profieltype niet opgehaald of niet leesbaar"),
+        Provenance("Kaartbeeld Bodemkaart van Vlaanderen", "https://dov/wms",
+                   "2026-09-21T10:00:00", False, "kaartbeeld niet opgehaald")]
+
+    signals = [s for s in checks.run_all(result) if s.code == "bron_niet_beschikbaar"]
+
+    assert len(signals) == 2
+    assert all("Geologie en bodem" in s.advice for s in signals), [s.advice for s in signals]
