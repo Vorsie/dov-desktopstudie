@@ -35,6 +35,7 @@ from qgis.PyQt.QtGui import QColor
 from ..core import catalogue
 from ..core.catalogue import MapEntry
 from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
+from .compat import drop_colliding_labels
 
 CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
@@ -209,19 +210,6 @@ def _label_format() -> QgsTextFormat:
     return text_format
 
 
-def _drop_colliding_labels(settings: QgsPalLayerSettings) -> None:
-    """Leave a label out rather than draw it over one already placed.
-
-    The spelling moved in 3.32 (`placementSettings().setOverlapHandling`); on anything older the
-    engine's default already drops what does not fit, so an older QGIS simply keeps that and
-    nothing here pretends otherwise.
-    """
-    handling = getattr(Qgis, "LabelOverlapHandling", None)
-    placement = getattr(settings, "placementSettings", None)
-    if handling is not None and placement is not None:
-        placement().setOverlapHandling(handling.PreventOverlap)
-
-
 def style_points_layer(layer: QgsVectorLayer, kind: str,
                        label_only_figured: bool = False) -> QgsVectorLayer:
     """Marker, colour, size and the number label of one investigation kind.
@@ -244,7 +232,7 @@ def style_points_layer(layer: QgsVectorLayer, kind: str,
     settings.fieldName = FIGURED_LABEL if figured_only else LABEL_FIELD
     settings.isExpression = figured_only
     settings.setFormat(_label_format())
-    _drop_colliding_labels(settings)
+    drop_colliding_labels(settings)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
     layer.setLabelsEnabled(True)
     index = layer.fields().indexOf("diepte_m")
@@ -272,7 +260,7 @@ def style_virtual_boreholes_layer(layer: QgsVectorLayer, labels: bool = True) ->
     settings = QgsPalLayerSettings()
     settings.fieldName = VB_LABEL_FIELD
     settings.setFormat(_label_format())
-    _drop_colliding_labels(settings)
+    drop_colliding_labels(settings)
     layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
     layer.setLabelsEnabled(labels)
     return layer
