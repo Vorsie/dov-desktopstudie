@@ -99,6 +99,16 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `QgsLayoutTable.setContentFont` en `setHeaderFont` zijn in 3.34 al `SIP_DEPRECATED` en verdwijnen
   in 4.x; `setTextFormat`/`setContentTextFormat`/`setHeaderTextFormat` blijven. Een `QgsTextFormat`
   draagt zijn eigen grootte: de puntgrootte op de `QFont` kiest alleen het lettertype.
+- **Een `QgsTextFormat` zonder `QFont` kiest zijn eigen lettertype.** Zet het altijd via
+  `compat.house_font`: die legt de huisreeks (Arial, Liberation Sans, DejaVu Sans) op de `QFont`
+  en gebruikt `setFamilies` waar dat bestaat, zodat elke machine de eerste neemt die ze heeft. Een
+  format dat het overslaat, erft wat de renderer toevallig oplevert, en dat is onder `offscreen`
+  niet hetzelfde als in de layout: `layers._label_format` deed dat en tekende de boornaam
+  `kb12d37w-B19` op de overzichtskaart met vreemde tekens in plaats van `w-`, terwijl diezelfde
+  boring twee bladen verder in de tabel wel klopte. De layouttekst ging altijd al door de huisreeks,
+  de kaartlabels niet, en die twee staan op hetzelfde blad naast elkaar. Dit is niet hetzelfde als
+  de ontbrekende `QT_QPA_FONTDIR` hieronder: die maakt van elke letter een blokje, dit vervangt er
+  een paar - je ziet het pas als je een naam teken voor teken tegen de tabel legt.
 - **`QgsPrintLayout.initializeDefaults()` legt pagina 0 LIGGEND neer.** Het rapport is van kaft tot
   kaft staand A4, dus pagina 0 moet expliciet op `Orientation.Portrait` worden gezet. Gebeurt dat
   niet, dan valt op het titelblad alles onder 210 mm (inhoudsopgave, disclaimer) van het papier -
