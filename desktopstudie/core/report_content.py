@@ -109,6 +109,10 @@ class MapPage:
     guide: Optional[TextPage] = None
     zone_legend: Optional[Page] = None
     ramp: Optional[ColourRamp] = None
+    # The service's own GetLegendGraphic, relative to the output directory, for a map that is a
+    # field of classes. Empty means the shell did not get it, and then no colours are drawn at
+    # all: a key painted from guessed colours would not match the map above it.
+    class_key: str = ""
 
 
 @dataclass
@@ -481,11 +485,17 @@ DEM_MAP_ID = "dhmv_dtm"
 DEM_RAMP_TITLE = "Hoogte maaiveld (m TAW)"
 DEM_RAMP_MISSING = "Kleurschaal niet opgehaald; zie de leeswijzer hierna."
 RAMP_KEY = "kleurschaal"
+CLASS_KEY = "klassensleutel"
 
 
 def ramp_image_key(map_id: str) -> str:
     """How `zone_legend_images` names the colour strip the shell cut for one map."""
     return f"{RAMP_KEY}:{map_id}"
+
+
+def class_key_image_key(map_id: str) -> str:
+    """How `zone_legend_images` names the class key the shell fetched for one map."""
+    return f"{CLASS_KEY}:{map_id}"
 
 
 def _ramp_at(value: float, low: float, high: float) -> float:
@@ -640,6 +650,8 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
                        note=entry.note)
         if entry.ramp:
             page.ramp = _ramp_for(entry, result, zone_legend_images)
+        if entry.class_key:
+            page.class_key = zone_legend_images.get(class_key_image_key(entry.id), "")
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
         # A LegendPage carries `entries`, a TablePage `rows`; either way an empty one means the
