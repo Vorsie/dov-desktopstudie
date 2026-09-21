@@ -37,7 +37,9 @@ from qgis.core import QgsApplication, QgsProject  # noqa: E402
 
 from desktopstudie.core import geometry  # noqa: E402
 from desktopstudie.core.logging_util import Log  # noqa: E402
-from desktopstudie.core.model import ReportMeta, Settings, StudyZone  # noqa: E402
+from desktopstudie.core.model import StudyZone  # noqa: E402
+from desktopstudie.core.report_content import ReportMeta  # noqa: E402
+from desktopstudie.core.study import Settings  # noqa: E402
 from desktopstudie.qgis import compat, pipeline  # noqa: E402
 
 # De omhullende van Vlaanderen in Lambert 72, ruim genomen. Binnen deze doos ligt ook Nederland,
