@@ -1244,3 +1244,22 @@ def test_without_contours_the_answer_stands_on_the_gathered_page_either_way(gent
     gathered = report.chapters[-1].pages[-1].html
 
     assert "Dikte van het Quartair" in gathered and "dekt deze locatie niet" in gathered
+
+
+def test_the_shrink_swell_map_carries_the_key_to_its_own_colours(gent_ring):
+    """Een blad vol donkergroen, lichtgroen en een streepje oranje, zonder een sleutel erbij: de
+    lezer kon niet weten welke kleur welke klasse is. De dienst tekent die sleutel zelf
+    (GetLegendGraphic), en die hoort onder de kaart, net als de kleurbalk van het hoogtemodel.
+    Zonder opgehaalde sleutel worden er geen kleuren verzonnen."""
+    result = _result(gent_ring)
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
+                             zone_legend_images={rc.class_key_image_key("krimp_zwel"):
+                                                 "legendas/krimp_zwel.png"})
+    page = next(p for p in report.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "krimp_zwel")
+    assert page.class_key == "legendas/krimp_zwel.png"
+
+    without = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+    bare = next(p for p in without.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "krimp_zwel")
+    assert bare.class_key == ""
