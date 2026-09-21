@@ -1906,7 +1906,19 @@ class LayoutBuilder:
         # and it used to be dropped without a trace.
         note_h = self._text_height(page.note, CONTENT_W) if page.note else 0.0
 
+        # What the sheet has to have room for before this legend may start on it: the title, the
+        # note and the header WITH its first row. Without that check the table begins wherever it
+        # lands and splits after the header, and a lone "Gevoeligheidsklasse" with no row under it
+        # is a table pretending something follows - exactly what an empty table may no longer do.
+        needed = UNDER_MAP_TITLE_H + note_h + self._table_height(table, 1, metrics.content_h)
+
         def draw(sheet: int, top: float) -> None:
+            if CONTENT_TOP + metrics.content_h - top + FIT_TOLERANCE_MM < needed:
+                # Not the table alone: the title and the note go with it, or the reader is left
+                # with a heading on one sheet and its table on the next.
+                sheet = self.new_page()
+                self.header(chapter, f"{page.title} (vervolg)", sheet, metrics)
+                top = CONTENT_TOP
             self._block_title(page.title, sheet, top)
             body = top + UNDER_MAP_TITLE_H
             if page.note:
@@ -1918,7 +1930,7 @@ class LayoutBuilder:
                 self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
             self._seal(last, metrics)
 
-        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw)
+        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw, needed)
 
     def _legend_entries_block(self, chapter: Chapter, page: LegendPage) -> UnderMap:
         height = UNDER_MAP_TITLE_H + self._legend_entries_height(page)
