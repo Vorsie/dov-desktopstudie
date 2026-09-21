@@ -543,6 +543,26 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     assert any(f"kaartblad {sheet}" in source for source in failed), sorted(failed)
 
 
+def test_a_profile_type_without_a_drawing_link_is_named_in_the_sources(qgs_app, core_result,
+                                                                      tmp_path, monkeypatch):
+    """Zonder link wordt er niets opgehaald, en dan stond er ook niets in hoofdstuk Bronnen -
+    terwijl de legendaregel de lezer er juist naartoe stuurde. De regel hoort er te staan, als
+    feit over de bron: DOV publiceert geen tekening voor dit profieltype."""
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+                        lambda result, out_dir, client, log=None, should_cancel=None:
+                        ({}, {"13064"}))
+
+    pipeline._fetch_zone_legends(core_result, {}, tmp_path, None, _log(), None)
+
+    named = [p for p in core_result.provenance if "13064" in p.source]
+    assert named, [p.source for p in core_result.provenance]
+    assert named[0].ok, "geen storing, maar een feit over de bron"
+    assert named[0].message == pipeline.NO_DRAWING_PUBLISHED
+
+
 def test_a_map_the_service_does_not_deliver_is_in_the_sources_without_project_groups(
         project, core_result, offline_shell, tmp_path, monkeypatch, no_pdf):
     """Een kaart die de dienst niet levert, staat in de bronnenlijst ook als er geen
