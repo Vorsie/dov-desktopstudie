@@ -337,11 +337,17 @@ class MapEntry:
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
-    # Paint this map OVER the base map instead of on white paper. True for a theme that covers a
-    # few percent of the sheet at most - the landslides, the flood classes, PFAS - because on its
-    # own such a sheet is a white rectangle with a red circle on it and nothing to place it by.
-    # False for a map that fills the extent itself (bodemkaart, Tertiair): a backdrop under that
-    # one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    # Paint this map OVER the base map instead of on white paper. True where the reader will SEE
+    # that base map. Two ways that happens. A theme that covers a few percent of the sheet at most
+    # - the landslides, the flood classes, PFAS - because on its own such a sheet is a white
+    # rectangle with a red circle on it and nothing to place it by. Or a theme that fills the whole
+    # sheet but is drawn translucent enough to read through: krimp_zwel is six classes in big
+    # blocks, and without streets under it there is nothing to hang them on.
+    # False for a map that fills the extent and is drawn solid (bodemkaart, Tertiair): a backdrop
+    # under that one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    # `opacity` only reaches the PRINTED sheet through this flag - `layout._over_backdrop` is what
+    # applies it - so on a map without a backdrop the page gets the service's own PNG untouched
+    # and an opacity in the catalogue does nothing there but dim the layer in studie.qgz.
     backdrop: bool = False
     # This map's legend is a continuous colour bar, not a list of classes: it belongs under the map
     # as a strip (`report_content.ColourRamp`), where a sheet of its own would be a sheet holding a
@@ -576,7 +582,7 @@ CATALOGUE: List[MapEntry] = [
          (KRIMP_ZWEL_FIELD,), gfi="application/json", legend=False,
          labels={KRIMP_ZWEL_FIELD: KRIMP_ZWEL_CLASSES},
          field_labels={KRIMP_ZWEL_FIELD: "Gevoeligheidsklasse"},
-         guide=GUIDE_KRIMP_ZWEL, class_key=True, scale=25000),
+         guide=GUIDE_KRIMP_ZWEL, class_key=True, backdrop=True, opacity=0.6, scale=35000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
