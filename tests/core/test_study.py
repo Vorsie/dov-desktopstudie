@@ -35,7 +35,6 @@ def _client():
         ("typeNames=hcov", "wfs_hcov_0100_vk_intersects.json"),
         ("typeNames=gw_bescherming", "wfs_gwkwb_kwbschaal_intersects.json"),
         ("typeNames=ovam", "wfs_ovam_uitspraak_intersects.json"),
-        ("typeNames=plastische_gronden", "wfs_indexplastisch_intersects.json"),
         ("typeNames=erosie", "wfs_erosie_2014_intersects.json"),
         ("typeNames=grondverschuivingen%3Agrndversch_gevoeligh", "wfs_grndversch_gevoeligh_intersects.json"),
         ("typeNames=grondverschuivingen%3Agrndversch_gekarteerd", "wfs_grndversch_gekarteerd_intersects.json"),
@@ -50,6 +49,7 @@ def _client():
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
         ("gebieden_fluviaal", "watertoets_fluviaal_hit.json"),
         ("gebieden_pluviaal", "watertoets_pluviaal_empty.json"),
+        ("query_layers=krimp_zwel", "gfi_krimp_zwel_hit.json"),
         ("ghg_mmv_main", "gxg_ghg_hit.json"),
         ("glg_mmv_main", "gxg_glg_hit.json"),
     ])
