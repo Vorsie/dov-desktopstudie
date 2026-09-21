@@ -363,9 +363,6 @@ def test_layer_mode_takes_the_first_selected_polygon_in_its_own_crs(qgs_app, tmp
     try:
         assert dialog.layer_combo.findData(layer_id) >= 0, "de lijst volgt het project"
         dialog.layer_combo.setCurrentIndex(dialog.layer_combo.findData(layer_id))
-        with pytest.raises(ValueError, match="Selecteer eerst een object"):
-            dialog.build_request()
-
         fid = next(layer.getFeatures()).id()
         layer.selectByIds([fid])
         request = dialog.build_request()
@@ -399,9 +396,6 @@ def test_a_section_line_from_a_selected_line_layer(qgs_app, tmp_path):
         assert dialog.section_layer_combo.findData(layer.id()) >= 0
         assert dialog.layer_combo.findData(layer.id()) < 0, "een lijnlaag is geen zone"
         dialog.section_layer_combo.setCurrentIndex(dialog.section_layer_combo.findData(layer.id()))
-        with pytest.raises(ValueError, match="Selecteer eerst een object"):
-            dialog.build_request()
-
         layer.selectByIds([next(layer.getFeatures()).id()])
         line = dialog.build_request().zone.section_line
 
@@ -418,3 +412,140 @@ def test_the_legend_pages_start_unticked_and_the_compact_layout_too(qgs_app, tmp
 
     assert dialog.legends_check.isChecked() is False
     assert dialog.compact_check.isChecked() is False
+
+
+def _polygon_layer(name, count):
+    """Een kladlaag zoals de gebruiker er zelf een maakt, met `count` vlakken erin."""
+    from qgis.core import QgsFeature, QgsGeometry, QgsPointXY, QgsVectorLayer
+
+    layer = QgsVectorLayer("Polygon?crs=EPSG:31370", name, "memory")
+    features = []
+    for n in range(count):
+        x, y = 104000.0 + n * 500.0, 192000.0
+        feature = QgsFeature()
+        feature.setGeometry(QgsGeometry.fromPolygonXY([[QgsPointXY(x, y), QgsPointXY(x + 200.0, y),
+                                                        QgsPointXY(x + 200.0, y + 200.0),
+                                                        QgsPointXY(x, y + 200.0)]]))
+        features.append(feature)
+    assert layer.dataProvider().addFeatures(features)
+    return layer
+
+
+def _in_layer_mode(tmp_path, layer):
+    from qgis.core import QgsProject
+
+    dialog = _dialog(tmp_path)
+    _fill_xy(dialog, tmp_path)
+    dialog.mode_layer.setChecked(True)
+    QgsProject.instance().addMapLayer(layer, False)
+    dialog.layer_combo.setCurrentIndex(dialog.layer_combo.findData(layer.id()))
+    return dialog
+
+
+def test_one_polygon_in_the_layer_is_the_polygon(qgs_app, tmp_path):
+    """"een vlak in de laag, dan is dat het vlak". Een kladlaag tekenen en de plugin erop wijzen is
+    de gewone werkwijze; daar nog een aparte selectiestap voor eisen is pietluttig. En het gebeurt
+    niet stilzwijgend: de meldingsbalk zegt achteraf welk vlak gebruikt is."""
+    from qgis.core import QgsProject
+
+    layer = _polygon_layer("contour", 1)
+    dialog = _in_layer_mode(tmp_path, layer)
+    try:
+        assert not layer.selectedFeatureCount()
+
+        dialog.start()
+
+        assert dialog.runner.started, "zonder selectie hoort dit gewoon te lopen"
+        texts = [text for _level, text, _item in dialog.iface.pushed]
+        assert any("Geen selectie; het enige vlak in de laag contour is gebruikt." in text
+                   for text in texts), texts
+    finally:
+        QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_several_polygons_and_none_selected_says_how_many_and_what_to_do(qgs_app, tmp_path):
+    """Pas als er meerdere vlakken zijn en er geen gekozen is, weigert de dialoog - en dan zegt ze
+    hoeveel het er zijn en wat de gebruiker moet doen, niet alleen dat het misging."""
+    from qgis.core import QgsProject
+
+    layer = _polygon_layer("contour", 7)
+    dialog = _in_layer_mode(tmp_path, layer)
+    try:
+        dialog.start()
+
+        assert not dialog.runner.started
+        texts = [text for _level, text, _item in dialog.iface.pushed]
+        assert any("De laag contour heeft 7 vlakken. Selecteer er een met het selectiegereedschap "
+                   "en start opnieuw." in text for text in texts), texts
+    finally:
+        QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_the_state_of_the_chosen_layer_stands_next_to_the_combo(qgs_app, tmp_path):
+    """De weigering hoort niet pas na Start te komen: de modus is gekozen en de laag staat in de
+    lijst, dus de dialoog weet het al. De stand staat naast de lijst en volgt de kaart - de
+    dialoog is niet modaal, dus hij kan buiten de dialoog om selecteren - en Start blijft bruikbaar.
+    """
+    from qgis.core import QgsProject
+
+    layer = _polygon_layer("contour", 7)
+    dialog = _in_layer_mode(tmp_path, layer)
+    try:
+        assert "7 vlakken" in dialog.layer_hint.text()
+        assert "geen selectie" in dialog.layer_hint.text().lower()
+        assert dialog.start_button.isEnabled(), "Start blijft bruikbaar"
+
+        layer.selectByIds([next(layer.getFeatures()).id()])
+
+        assert "1 geselecteerd" in dialog.layer_hint.text(), dialog.layer_hint.text()
+    finally:
+        QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_a_hint_from_another_mode_does_not_linger(qgs_app, tmp_path):
+    """"een zone heeft minstens drie hoekpunten nodig (1 gegeven)" bleef naast de Tekenen-knop
+    staan terwijl de gebruiker al in de laagmodus zat. Een hint hoort bij zijn eigen modus."""
+    from desktopstudie.qgis.dialog import NOTHING_DRAWN, SECTION_AUTO, SECTION_DRAW
+
+    dialog = _dialog(tmp_path)
+    dialog.mode_ring.setChecked(True)
+    dialog.ring_label.setText("een zone heeft minstens drie hoekpunten nodig (1 gegeven)")
+
+    dialog.mode_layer.setChecked(True)
+
+    assert dialog.ring_label.text() == NOTHING_DRAWN
+
+    dialog.section_combo.setCurrentIndex(SECTION_DRAW)
+    dialog.section_label.setText("een doorsnedelijn heeft twee punten nodig (1 gegeven)")
+    dialog.section_combo.setCurrentIndex(SECTION_AUTO)
+
+    assert dialog.section_label.text() == ""
+
+
+def test_one_line_in_the_layer_is_the_section_line(qgs_app, tmp_path):
+    """Dezelfde regel voor de doorsnedelijn uit een laag: een lijn in de laag is die lijn, en
+    meerdere zonder selectie zegt er hoeveel het zijn."""
+    from qgis.core import QgsFeature, QgsGeometry, QgsPointXY, QgsProject, QgsVectorLayer
+
+    from desktopstudie.qgis.dialog import SECTION_LAYER
+
+    layer = QgsVectorLayer("LineString?crs=EPSG:31370", "assen", "memory")
+    feature = QgsFeature()
+    feature.setGeometry(QgsGeometry.fromPolylineXY(
+        [QgsPointXY(104226.0, 192406.0), QgsPointXY(104426.0, 192606.0)]))
+    assert layer.dataProvider().addFeatures([feature])
+    dialog = _dialog(tmp_path)
+    _fill_xy(dialog, tmp_path)
+    dialog.section_combo.setCurrentIndex(SECTION_LAYER)
+    QgsProject.instance().addMapLayer(layer, False)
+    try:
+        dialog.section_layer_combo.setCurrentIndex(dialog.section_layer_combo.findData(layer.id()))
+
+        dialog.start()
+
+        assert dialog.runner.started
+        texts = [text for _level, text, _item in dialog.iface.pushed]
+        assert any("Geen selectie; de enige lijn in de laag assen is gebruikt." in text
+                   for text in texts), texts
+    finally:
+        QgsProject.instance().removeMapLayer(layer.id())
