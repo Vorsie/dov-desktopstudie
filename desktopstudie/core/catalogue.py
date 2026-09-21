@@ -251,6 +251,9 @@ GUIDE_EROSIE = (
 # 0 (niet-ingedeeld), 1 (zeer laag), 2 (laag), 3 (matig), 4 (hoog) en 5 (zeer hoog)
 # (live gelezen 2026-09-21).
 KRIMP_ZWEL_FIELD = "Categorie_gevoeligheid"
+# Het rooster van de kaart is 100 m; tien meter per beeldpunt is grof genoeg om een
+# antwoord te krijgen en fijn genoeg om binnen de zone te blijven.
+KRIMP_ZWEL_M_PER_PIXEL = 10.0
 KRIMP_ZWEL_CLASSES = {"0": "niet-ingedeeld", "1": "zeer laag", "2": "laag", "3": "matig",
                       "4": "hoog", "5": "zeer hoog"}
 GUIDE_KRIMP_ZWEL = (
@@ -325,6 +328,14 @@ class MapEntry:
     # one (live, both services and both formats, 2026-09-17). Asked in the wrong format a map
     # fails with "geen van de punten antwoordde" and arrives without a number.
     gfi_format: str = "application/geo+json"
+    # How COARSE this coverage wants its point query, in metres per pixel. A raster on a 100 m grid
+    # answers a GetFeatureInfo posed at one metre per pixel with an empty FeatureCollection - no
+    # error, just nothing - and the report then says the map is silent over a map that plainly
+    # draws a class (krimp_zwel: nothing at 1 and 2 m/px, class 2, 4 and 1 from 3 m/px upwards on
+    # three points, live 2026-09-21). 0 keeps the fine grid, which is what a fine coverage needs:
+    # asked at nine metres per pixel the GLG point moves from 3,54 to 3,52 m because neighbouring
+    # cells average in. So only the coarse ones say so.
+    gfi_m_per_pixel: float = 0.0
     # How far around the zone a WFS fact query looks. None means "whatever overlaps the zone",
     # which is right for a map of areas. A map of LINES needs a radius instead: the isopachs of
     # the Quaternary are contour lines, and an overlap test against a zone of fifty metres never
@@ -403,7 +414,7 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
          empty_meaning: str = "", sld_body: str = "", gfi: str = "",
-         class_key: bool = False) -> MapEntry:
+         class_key: bool = False, gfi_m_per_pixel: float = 0.0) -> MapEntry:
     """One DOV map. `wfs` asks a separate feature type for the facts; `gfi` (an INFO_FORMAT) asks
     the drawn map itself. A map whose value IS the colour has to use `gfi`: a neighbouring feature
     type can be an index of something else entirely and then answers nothing where the map is
@@ -416,7 +427,8 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
                     gfi_format=gfi or MapEntry.gfi_format, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
-                    empty_meaning=empty_meaning, sld_body=sld_body, class_key=class_key)
+                    empty_meaning=empty_meaning, sld_body=sld_body, class_key=class_key,
+                    gfi_m_per_pixel=gfi_m_per_pixel)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -582,7 +594,8 @@ CATALOGUE: List[MapEntry] = [
          (KRIMP_ZWEL_FIELD,), gfi="application/json", legend=False,
          labels={KRIMP_ZWEL_FIELD: KRIMP_ZWEL_CLASSES},
          field_labels={KRIMP_ZWEL_FIELD: "Gevoeligheidsklasse"},
-         guide=GUIDE_KRIMP_ZWEL, class_key=True, backdrop=True, opacity=0.6, scale=35000),
+         guide=GUIDE_KRIMP_ZWEL, class_key=True, backdrop=True, opacity=0.6,
+         gfi_m_per_pixel=KRIMP_ZWEL_M_PER_PIXEL, scale=35000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
