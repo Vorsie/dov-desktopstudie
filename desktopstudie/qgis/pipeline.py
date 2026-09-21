@@ -54,6 +54,7 @@ from ..core.report_content import (
     Report,
     ReportMeta,
     build_report,
+    class_key_image_key,
     map_page_key,
     profile_image_key,
     quartair_sheet,
@@ -382,11 +383,38 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
 
 
 RAMP_SOURCE = "Kleurschaal"
+CLASS_KEY_SOURCE = "Klassensleutel"
 
 
 def _ramp_entries(result: StudyResult):
     """The catalogue entries whose legend is a colour bar, as far as this study chose them."""
     return [entry for entry in catalogue.entries(only=result.map_ids) if entry.ramp]
+
+
+def _class_key_entries(result: StudyResult):
+    """The catalogue entries whose legend is a short list of classes, as far as this study chose
+    them."""
+    return [entry for entry in catalogue.entries(only=result.map_ids) if entry.class_key]
+
+
+def _fetch_class_keys(result: StudyResult, entries, out_dir: Path, client: HttpClient,
+                      log: Log) -> Dict[str, str]:
+    """The class keys, keyed as `report_content` looks them up.
+
+    Fetched whatever the legend switch says, for the same reason as the colour strips above: a map
+    that is a field of classes says nothing at all without the key to its colours, and the key on a
+    sheet the report does not print is no key. Taken as the service draws it - swatch and class
+    name in one image - so it cannot disagree with the map above it.
+    """
+    keys: Dict[str, str] = {}
+    for entry in entries:
+        image = layout_mod.fetch_legend(entry, out_dir, client, log.child("legendas"))
+        record_source(result, f"{CLASS_KEY_SOURCE} {entry.title}",
+                      layout_mod.wms_legend_url(entry, entry.legend_options), image is not None,
+                      "" if image is not None else "klassensleutel niet opgehaald")
+        if image is not None:
+            keys[class_key_image_key(entry.id)] = Path(image).relative_to(out_dir).as_posix()
+    return keys
 
 
 def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient,
@@ -618,6 +646,12 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
+
+    key_entries = _class_key_entries(result)
+    if key_entries:
+        _stop_if_cancelled(should_cancel)
+        client = client or make_client(out_dir, log, cache_mode)
+        zone_legend_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
 
     _stop_if_cancelled(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
