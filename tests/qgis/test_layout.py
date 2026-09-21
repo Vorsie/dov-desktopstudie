@@ -607,9 +607,11 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     # binnenkwam; die kop staat al op de legendapagina.
     assert images[sheet_image_key("22")].read_bytes() != blob
     assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
-    # Dezelfde korte adem als een gewone legenda: een dienst die plat ligt mag het rapport geen
-    # drie volle minuten kosten.
-    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
+    # Ruimer dan een GetLegendGraphic-stempel, want dit is een bestand uit een documentportaal:
+    # 168 kB haalt vijftien seconden op een trage dag niet. Wel begrensd - een dienst die plat
+    # ligt mag het rapport geen drie volle minuten kosten.
+    assert asked[0][1:] == (layout.DRAWING_TIMEOUT_S, layout.LEGEND_RETRIES)
+    assert layout.DRAWING_TIMEOUT_S > layout.LEGEND_TIMEOUT_S
     assert any("WARNING" in line for line in lines), lines
 
 

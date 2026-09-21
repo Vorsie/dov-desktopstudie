@@ -56,7 +56,7 @@ def _fake_result(zone):
 def _fake_prepared():
     from desktopstudie.qgis.pipeline import Prepared
 
-    return Prepared({}, {}, {}, set(), [], set(), [("Kaartbeelden", 0.1)])
+    return Prepared({}, {}, set(), {}, set(), [], set(), [("Kaartbeelden", 0.1)])
 
 
 def test_the_worker_runs_core_and_prepare_and_hands_the_outcome_to_the_main_thread(qgs_app, tmp_path,
