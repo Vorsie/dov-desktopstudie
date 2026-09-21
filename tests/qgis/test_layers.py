@@ -309,7 +309,9 @@ def test_the_standalone_project_carries_the_study_layers_in_their_groups(qgs_app
     project, _dropped = layers.standalone_project(gpkg, {"ligging": "1 Ligging en topografie"})
 
     names = [group.name() for group in project.layerTreeRoot().findGroups()]
-    assert names == ["1 Ligging en topografie", "Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
+    # De eigen lagen van de studie staan BOVEN de kaarten: onderaan in de boom tekent eerst, dus
+    # eronder verdwijnen de zone en het grondonderzoek achter elke kaart die je aanzet.
+    assert names == ["Onderzoekszone en doorsnede", "Grondonderzoek DOV", "1 Ligging en topografie"]
     assert project.crs().authid() == "EPSG:31370"
     found = {layer.name(): layer for layer in project.mapLayers().values()}
     for name, count in (("Onderzoekszone", 1), ("Doorsnedelijn", 1), ("Sonderingen", 1),
@@ -739,3 +741,28 @@ def test_a_point_label_is_drawn_with_a_white_halo(qgs_app):
 
     for layer in (sounding, virtual):
         assert _halo_pixels(layer) > 0, f"{layer.name()} tekent zonder halo"
+
+
+def test_the_zone_and_the_investigations_stand_on_top_above_the_maps(qgs_app, gent_zone, tmp_path,
+                                                                    offline_wms):
+    """"onderzoekszone en snede should be on top as should grondonderzoek DOV". Onderaan in de
+    lagenboom tekent eerst, dus een groep die onder de WMS-kaarten belandt verdwijnt erachter: de
+    zonecirkel, de doorsnedelijn en alle sonderingen zaten verstopt zodra hij een kaart aanzette.
+    """
+    from qgis.core import QgsProject
+
+    from desktopstudie.qgis import layers
+
+    gpkg = _study_gpkg(gent_zone, tmp_path)
+    project, _dropped = layers.standalone_project(gpkg, {"ligging": "Ligging",
+                                                         "geologie": "Geologie"})
+    path = tmp_path / "studie.qgz"
+    assert project.write(str(path))
+
+    reread = QgsProject()
+    assert reread.read(str(path)), reread.error()
+    names = [group.name() for group in reread.layerTreeRoot().children()
+             if hasattr(group, "name")]
+
+    assert names[:2] == [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP], names
+    assert "Ligging" in names and names.index("Ligging") > 1, names
