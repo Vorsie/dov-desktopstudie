@@ -2514,3 +2514,55 @@ def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
     # inspringing erin gaf 3120 tekens en vijf van de vijf pogingen mislukten, dezelfde SLD zonder
     # witruimte 1905 tekens en vijf van de vijf lukten (live 2026-09-21). Ruim eronder blijven.
     assert len(with_sld) < 2500, f"GetMap van {len(with_sld)} tekens; de gateway antwoordt 502"
+
+
+def _ink_below(lay, item, page_index: int) -> int:
+    """Hoeveel donkere pixels staan er ONDER de onderrand van dit kader?
+
+    Gemeten aan het gerenderde blad. Een infovak dat zijn tekst niet kan houden laat de laatste
+    regel op en door zijn eigen rand lopen, en dat is precies wat de gebruiker op papier zag.
+    """
+    import numpy as np
+    from qgis.core import QgsLayoutExporter
+    from qgis.PyQt.QtCore import QSize
+
+    image = QgsLayoutExporter(lay).renderPageToImage(page_index, QSize(), 300)
+    page = lay.pageCollection().page(page_index)
+    px_per_mm = image.width() / page.pageSize().width()
+    raw = image.convertToFormat(image.format())
+    buffer = raw.constBits()
+    buffer.setsize(raw.height() * raw.bytesPerLine())
+    arr = np.frombuffer(bytes(buffer), dtype=np.uint8).reshape(
+        raw.height(), raw.bytesPerLine() // 4, 4)[:, :raw.width(), :3].mean(axis=2)
+
+    origin = lay.pageCollection().page(page_index).pos()
+    left = int((item.pos().x()) * px_per_mm)
+    right = int((item.pos().x() + item.rect().width()) * px_per_mm)
+    bottom = int((item.pos().y() - origin.y() + item.rect().height()) * px_per_mm)
+    below = arr[bottom + 2:bottom + int(4 * px_per_mm), left + 2:right - 2]
+    return int((below < 128).sum())
+
+
+def test_an_info_box_holds_its_own_text(make_layout, tmp_path):
+    """De laatste regel van het rechtsonder infovak ("opgehaald 2026-09-21") stond op en door de
+    onderrand, en de regel erboven raakte hem al: het vak wordt op een vaste hoogte getekend
+    terwijl de inhoud vier regels is zodra de licentieregel afbreekt. Het vak krijgt de hoogte
+    die zijn tekst nodig heeft - zelfde breedte, zelfde hoek, alleen de hoogte volgt - en de
+    lettergrootte blijft, want het gaat net om leesbaarheid op papier."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout as layout_mod
+
+    # De drie gevallen die er toe doen: een korte bronvermelding (GRB), de lange DOV-licentie die
+    # afbreekt, en een lange kaarttitel die in het bovenste vak afbreekt.
+    lay = make_layout(pages=[
+        MapPage("grb", "Overzicht", scale=5000),
+        MapPage("bodemkaart", "Bodemkaart van Vlaanderen", scale=10000),
+        MapPage("watertoets_pluviaal",
+                "Watertoets - overstromingsgevoelige gebieden pluviaal", scale=10000)])
+    boxes = [item for item in lay.items()
+             if isinstance(item, layout_mod.QgsLayoutItemLabel) and item.frameEnabled()]
+    assert boxes, "de kaartbladen dragen infovakken"
+
+    for box in boxes:
+        assert _ink_below(lay, box, box.page()) == 0, (
+            f"tekst onder de rand van het vak: {box.text()!r}")
