@@ -47,8 +47,12 @@ en drie willekeurige studies per ronde zoeken de fouten die Gent nooit laat zien
   en wordt nu ook per regel verbreed: kleuren en hun samenstellingen, afgeleiden op -houdend,
   -achtig en -rijk, en oxidatie, verwering en gley gelden als gewoon. Fossiel- en soortnamen
   (`nummulites planulatus`) zijn geen geotechnische zeldzaamheid en worden niet meer gemeld. Franse
-  vulwoorden die het corpus bleef tonen (`sable flandrien`, `végétale`, `semblable`) zijn weg. Eén
-  gebruikersregel ging van 28 termen naar 7, `1508-B2023-01007-B3` van 11 naar 4.
+  vulwoorden die het corpus bleef tonen (`sable flandrien`, `végétale`, `semblable`) zijn weg. Twee
+  stammen aan elkaar zijn samen zo gewoon als apart (`zandleem`), een zandlensje is een lensje, en
+  een afgekorte formatienaam (`ieper.`) is net als een soortnaam een datumstempel - `ieperiaan`,
+  `aalter` en `asse` stonden al aan de gewone kant. Eén gebruikersregel ging van 28 termen naar 7,
+  `1508-B2023-01007-B3` van 11 naar 4, en `kb28d96e-B87` uit een willekeurige run van 12 naar 5 -
+  wat overblijft zijn turfballen, silexstukken, veen en twee typfouten van de bron zelf.
 
 ### Opgelost
 - **De kaartlabels vroegen geen lettertype aan.** `layers._label_format` zette wel een grootte, een
