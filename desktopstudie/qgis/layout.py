@@ -193,8 +193,9 @@ RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
 RAMP_LINE_H = 4.5
 # The class key of a map that is a field of classes, as the service draws it: swatch and class
 # name in one image, so it cannot disagree with the map. A box, not a size: the image keeps its
-# own aspect inside it (Zoom), and a key of six classes lands at about 24 x 40 mm.
-CLASS_KEY_W, CLASS_KEY_H = 60.0, 40.0
+# own aspect inside it (Zoom), and a key of six classes lands at about 33 x 55 mm - the class
+# names then print at about the size of the table under them, which is what makes them readable.
+CLASS_KEY_W, CLASS_KEY_H = 60.0, 55.0
 CLASS_KEY_TITLE = "Klassen van de kaart"
 RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
 # Marking the zone on the strip. Over a scale of 350 metres a building plot is a millimetre wide,
