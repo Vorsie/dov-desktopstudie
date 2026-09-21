@@ -345,10 +345,17 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     the layout resolves both the same way. Every drawing is a source of its own: one that did not
     come back is named in the sources chapter rather than quietly missing from the legend.
     """
-    images = layout_mod.prepare_zone_legend_images(result, out_dir, client, log.child("legendas"),
-                                                   should_cancel)
+    images, unpublished = layout_mod.prepare_zone_legend_images(
+        result, out_dir, client, log.child("legendas"), should_cancel)
     for url, code in targets.items():
         found = profile_image_key(code) in images
+        # Twee verschillende dingen. Publiceert DOV hier niets, dan is dat een feit over de bron
+        # en geldt de regel als "ok": er valt niets op te halen, en "niet opgehaald" zou de lezer
+        # aanzetten het nog eens te proberen.
+        if code in unpublished:
+            record_source(result, f"Legenda profieltype {code}", url, True,
+                          NO_DRAWING_PUBLISHED)
+            continue
         record_source(result, f"Legenda profieltype {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
     # The units table of a map sheet is a page of its own, cut from the same drawing but by a
@@ -358,7 +365,8 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
         found = sheet_image_key(sheet) in images
         record_source(result, f"Eenhedentabel kaartblad {sheet}", sheet_url, found,
                       "" if found else "eenhedentabel van het kaartblad niet opgehaald of niet leesbaar")
-    return {key: path.relative_to(out_dir).as_posix() for key, path in images.items()}
+    return ({key: path.relative_to(out_dir).as_posix() for key, path in images.items()},
+            unpublished)
 
 
 def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
@@ -401,6 +409,7 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
     return strips
 
 
+NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
@@ -528,6 +537,7 @@ class Prepared:
     thread as data."""
     legend_images: Dict[str, Path]  # map id -> legend PNG
     zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
+    unpublished: Set[str]  # profile types the portal says it publishes no drawing for
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
     requests: List[layout_mod.MapRequest]  # what was asked for, in page order
@@ -593,12 +603,14 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
 
     zone_legend_images: Dict[str, str] = {}
+    unpublished: Set[str] = set()
     targets = layout_mod.zone_legend_targets(result)
     if targets:
         _stop_if_cancelled(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
+        zone_legend_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
+                                                              log, should_cancel)
 
     ramp_entries = _ramp_entries(result)
     if ramp_entries:
@@ -620,8 +632,8 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     if unavailable and log:
         log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
     clock.close()
-    return Prepared(legend_images, zone_legend_images, map_images, no_coverage, requests,
-                    unavailable, clock.timings)
+    return Prepared(legend_images, zone_legend_images, unpublished, map_images, no_coverage,
+                    requests, unavailable, clock.timings)
 
 
 # The PDF phase on the progress bar: from `PDF_START` to `PDF_END` the export reports per run.
@@ -734,7 +746,8 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                                   should_cancel=should_cancel, no_coverage=prepared.no_coverage,
                                   map_images=map_images,
                                   overlay_boxes=layout_mod.overlay_boxes(result),
-                                  name=layout_mod.layout_name(owner), compact=compact)
+                                  name=layout_mod.layout_name(owner), compact=compact,
+                                  unpublished=prepared.unpublished)
     _install_layout(project, lay, log)
     sheets = lay.pageCollection().pageCount()
     log.info(f"Layout: {sheets} bladen")
