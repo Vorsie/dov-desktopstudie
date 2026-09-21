@@ -193,3 +193,36 @@ def test_a_material_denied_by_its_own_suffix_is_not_a_report_of_it():
     assert lithology.notable_terms([_layer(0.0, 1.0, "fijn zand, glauconietarm")]) == []
     assert [t.word for t in lithology.notable_terms(
         [_layer(0.0, 1.0, "fijn zand met glauconietkorrels")])] == ["glauconietkorrels"]
+
+
+def test_gravel_as_an_admixture_is_ordinary():
+    """"geel fijn zand met een weinig grind" - grind als bijmenging is gewone grond. Een grindLAAG
+    of grindbank blijft wel een rariteit: die draagt haar eigen woord."""
+    assert lithology.notable_terms(
+        [_layer(0.0, 1.0, "geel fijn zand met een weinig grind")]) == []
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "zand met een grindlaag")])] == ["grindlaag"]
+
+
+def test_colours_adjectives_and_plant_debris_are_ordinary():
+    """"kleuren niet vermelden, plantenresten ook niet roestkleurig ook niet, mooi schelpje? niet
+    vermelden, schelpfragment, niet vermelden, paar?" - een beschrijving van gewone grond hoort
+    geen enkele opmerking op te leveren."""
+    assert lithology.notable_terms([_layer(0.0, 1.0,
+        "donkerbruine en lichtbruine klei, fijnzandhoudend, met plantenresten, wortels, "
+        "plastisch, weinig kalkhoudend")]) == []
+    assert lithology.notable_terms([_layer(0.0, 1.0,
+        "roestkleurige kleivlekken, een mooi schelpje, een schelpfragment, een paar "
+        "verkleurende brosse plantenresten")]) == []
+
+
+def test_what_a_geotechnician_still_has_to_see_keeps_flagging():
+    """Wat hij wel wil zien blijft komen: silexkeien, veen in elke vorm, baksteen, steenbrokken."""
+    for text, expected in (
+            ("grijze klei met silexkeien", "silexkeien"),
+            ("zand met veenbrokjes", "veenbrokjes"),
+            ("aanvulling met baksteen", "baksteen"),
+            ("zand met steenbrokken", "steenbrokken"),
+            ("klei, veenhoudend", "veenhoudend")):
+        words = [t.word for t in lithology.notable_terms([_layer(0.0, 1.0, text)])]
+        assert expected in words, f"{text!r} gaf {words}"
