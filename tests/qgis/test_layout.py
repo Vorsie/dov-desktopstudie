@@ -2491,3 +2491,22 @@ def test_a_tall_column_joins_a_short_table_the_way_it_joins_a_long_one(make_layo
     assert long_count == 2, "titelblad plus een blad met tabel en kolom"
     assert short_count == 2, f"de korte tabel liet de kolom vallen ({short_count} bladen)"
     assert short_pages == long_pages == {1}
+
+
+def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
+    """De isopachenkaart vraagt haar eigen belettering aan met een SLD; die hoort in de GetMap
+    terecht te komen, en alleen bij die kaart."""
+    import urllib.parse
+
+    from qgis.core import QgsRectangle
+
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout
+
+    box = QgsRectangle(100000.0, 190000.0, 104500.0, 195000.0)
+
+    with_sld = layout.wms_map_url(catalogue.by_id("quartair_dikte"), box, 1063, 1181)
+    without = layout.wms_map_url(catalogue.by_id("bodemkaart"), box, 1063, 1181)
+
+    assert "SLD_BODY=" in with_sld and "Halo" in urllib.parse.unquote(with_sld)
+    assert "SLD_BODY" not in without
