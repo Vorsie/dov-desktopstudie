@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Callable, List, Optional, Sequence, Tuple
 
-from . import lithology
+from . import catalogue, lithology
 from .catalogue import WATERTOETS_LABELS
 from .model import Signalering, StudyResult, VirtualBorehole
 from .services.virtuele_boring import layers_named
@@ -309,11 +309,40 @@ def check_relief(result: StudyResult) -> List[Signalering]:
     return []
 
 
+# Welk hoofdstuk een kaart draagt, in de woorden waarmee het rapport dat hoofdstuk noemt. De
+# nummers en titels staan in `report_content`; hier alleen de titel, want de lezer zoekt op naam.
+CHAPTER_TITLES = {"ligging": "1 Ligging en topografie", "historisch": "2 Historische kaarten",
+                  "geologie": "3 Geologie en bodem"}
+# Bronregels die bij een kaart horen dragen haar titel achter een vast voorvoegsel. De tekeningen
+# van de profieltypes horen bij de quartairkaart, en die staat in hoofdstuk 3.
+DRAWING_PREFIXES = ("Legenda profieltype", "Eenhedentabel kaartblad")
+
+
+def _chapter_of(source: str) -> str:
+    """Het hoofdstuk dat deze bron draagt, of "" als het er geen enkel is.
+
+    De lezer vroeg zich af WELK hoofdstuk iets mist: "Hoofdstuk onvolledig" zonder naam laat hem
+    het bronnenhoofdstuk achterin uitpluizen om dat zelf uit te zoeken.
+    """
+    if source.startswith(DRAWING_PREFIXES):
+        return CHAPTER_TITLES["geologie"]
+    for entry in catalogue.entries(enabled_only=False):
+        if entry.title and entry.title in source:
+            return CHAPTER_TITLES.get(entry.chapter, "")
+    return ""
+
+
 def check_sources(result: StudyResult) -> List[Signalering]:
-    return [Signalering(
-        "bron_niet_beschikbaar", f"Bron niet beschikbaar: {p.message}", p.source,
-        "Hoofdstuk onvolledig; bron later opnieuw raadplegen.", severity="aandacht")
-        for p in result.provenance if not p.ok]
+    out = []
+    for p in result.provenance:
+        if p.ok:
+            continue
+        chapter = _chapter_of(p.source)
+        where = f"Hoofdstuk {chapter} is onvolledig" if chapter else "Het rapport is onvolledig"
+        out.append(Signalering(
+            "bron_niet_beschikbaar", f"Bron niet beschikbaar: {p.message}", p.source,
+            f"{where}; bron later opnieuw raadplegen.", severity="aandacht"))
+    return out
 
 
 def check_borehole_remarks(result: StudyResult) -> List[Signalering]:
