@@ -1159,8 +1159,8 @@ def test_a_zone_legend_never_prints_a_header_with_nothing_under_it(project, gent
     page.zone_legend = TablePage("Legenda voor de zone - Krimp-zwelgevoelige gronden",
                                  ["Gevoeligheidsklasse"], [["laag [2]"]])
     # Een leeswijzer die de ruimte onder de kaart opeet: zo ontstond het op het echte blad.
-    page.guide = TextPage("Leeswijzer", "<p>%s</p>" % " ".join(
-        ["Deze kaart toont waar plastische gronden voorkomen."] * 30))
+    sentences = " ".join(["Deze kaart toont waar plastische gronden voorkomen."] * 30)
+    page.guide = TextPage("Leeswijzer", f"<p>{sentences}</p>")
     # En de klassensleutel eronder, want zo staat het blad er in het echt bij.
     _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
     page.class_key = "legendas/krimp_zwel.png"
