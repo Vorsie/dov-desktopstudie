@@ -675,9 +675,11 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # layers and all, and leaves any other study in the project alone.
     owner = meta.project
     study = layers.add_group(project, study_group_name(owner), [])
-    layers_by_map = _map_layers_into_groups(project, result, log, study, should_cancel) if study_groups else {}
+    # The study's own layers first: the chapter groups of maps then append below them, and the
+    # bottom of a layer tree draws first. Added after the maps they sit behind every one of them.
     layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"], parent=study)
     layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"], parent=study)
+    layers_by_map = _map_layers_into_groups(project, result, log, study, should_cancel) if study_groups else {}
     report_overlays = _report_overlays(project, overlays, owner)
     map_images = _snapshot_layers(project, prepared.requests, prepared.map_images, owner)
 
