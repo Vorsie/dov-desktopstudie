@@ -261,3 +261,9 @@ def test_the_words_the_other_two_runs_flagged_are_ordinary_too():
     words = [t.word for t in lithology.notable_terms(
         [_layer(0.0, 1.0, "steenpuin op groene klei met zandsteen")])]
     assert "steenpuin" in words and "zandsteen" in words
+
+
+def test_one_sand_layer_is_as_ordinary_as_several():
+    """"zandlaagje" bleef staan terwijl "zandlaagjes" allang gewone grond was: het enkelvoud hoort
+    bij dezelfde regel, net als lensje bij lenzen."""
+    assert lithology.notable_terms([_layer(1.5, 1.6, "klei met een zandlaagje")]) == []
