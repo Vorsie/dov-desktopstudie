@@ -351,6 +351,12 @@ class MapEntry:
     # maximum at the top, the groundwater depths their minimum; on paper both have to run small to
     # large from left to right, so one of the two is turned the other way (`layout.ramp_strip`).
     ramp_low_at_top: bool = False
+    # This map's legend is a SHORT list of classes and the map is a field of those classes: the
+    # service's own GetLegendGraphic is then the only thing that says which colour is which class,
+    # and it belongs under the map (`report_content.MapPage.class_key`). Not a legend page: those
+    # are switched off, and a map whose colours mean nothing without a key is not helped by a key
+    # on a sheet the report does not print.
+    class_key: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
@@ -390,7 +396,8 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
-         empty_meaning: str = "", sld_body: str = "", gfi: str = "") -> MapEntry:
+         empty_meaning: str = "", sld_body: str = "", gfi: str = "",
+         class_key: bool = False) -> MapEntry:
     """One DOV map. `wfs` asks a separate feature type for the facts; `gfi` (an INFO_FORMAT) asks
     the drawn map itself. A map whose value IS the colour has to use `gfi`: a neighbouring feature
     type can be an index of something else entirely and then answers nothing where the map is
@@ -403,7 +410,7 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
                     gfi_format=gfi or MapEntry.gfi_format, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
-                    empty_meaning=empty_meaning, sld_body=sld_body)
+                    empty_meaning=empty_meaning, sld_body=sld_body, class_key=class_key)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -566,10 +573,10 @@ CATALOGUE: List[MapEntry] = [
     # antwoordt hier in `application/json`; op `application/geo+json` geeft ze een
     # ServiceExceptionReport (live 2026-09-21).
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
-         (KRIMP_ZWEL_FIELD,), gfi="application/json",
+         (KRIMP_ZWEL_FIELD,), gfi="application/json", legend=False,
          labels={KRIMP_ZWEL_FIELD: KRIMP_ZWEL_CLASSES},
          field_labels={KRIMP_ZWEL_FIELD: "Gevoeligheidsklasse"},
-         guide=GUIDE_KRIMP_ZWEL, scale=25000),
+         guide=GUIDE_KRIMP_ZWEL, class_key=True, scale=25000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",
