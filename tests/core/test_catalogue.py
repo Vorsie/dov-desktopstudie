@@ -404,3 +404,25 @@ def test_the_isopach_guide_describes_the_map_the_reader_now_gets():
     assert "stappen van vijf meter" not in guide
     assert "op de lijn" in guide, "de dikte staat op de contour zelf"
     assert "G3Dv3" in guide, "en de modelwaarde blijft uitgelegd"
+
+
+def test_the_isopachs_ask_for_their_own_lettering():
+    """De dienst tekent de dikte wel op de lijn, maar dun, klein en grijs: boven een drukke
+    GRB-ondergrond is dat onleesbaar. De laag adverteert maar een stijl en geen variant met halo,
+    dus vraagt de kaart haar eigen belettering aan met een SLD in de GetMap - dezelfde lijnen, een
+    vette letter met een WITTE halo eromheen, langs de lijn in plaats van erdoorheen.
+
+    De naam in de NamedLayer is de kale laagnaam: met het workspace-voorvoegsel erbij vindt
+    GeoServer de laag niet en valt hij stilzwijgend terug op zijn eigen stijl (live 2026-09-21:
+    byte voor byte hetzelfde beeld als zonder SLD)."""
+    from desktopstudie.core import catalogue
+
+    sld = catalogue.by_id("quartair_dikte").sld_body
+
+    assert sld, "de isopachen vragen hun eigen belettering"
+    assert "<Name>qisopachen_quartair_50k</Name>" in sld, "kale laagnaam, geen workspace ervoor"
+    assert "<Halo>" in sld and "#FFFFFF" in sld, "witte halo rond de letters"
+    assert "followLine" in sld, "het getal volgt de lijn"
+    assert "Dikte_Quartair_m" in sld
+    assert all(entry.sld_body == "" for entry in catalogue.CATALOGUE
+               if entry.id != "quartair_dikte"), "alleen deze kaart heeft het nodig"
