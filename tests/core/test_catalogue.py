@@ -303,6 +303,11 @@ def test_a_sparse_theme_asks_for_a_base_map_under_it_and_a_full_cover_map_does_n
     cirkeltje: de lezer ziet niet waar iets ligt. Die kaarten vragen de basiskaart eronder; een
     kaart die de hele uitsnede vult (bodemkaart, tertiair) zou ze alleen maar verbergen.
 
+    Een kaart die de uitsnede wel vult maar DOORZICHTIG genoeg getekend wordt hoort er ook bij:
+    krimp-zwel is een veld van zes klassen in grote blokken, en zonder straten eronder is het een
+    blad kleur waar niets aan af te lezen valt. De regel is niet "dun thema", maar "de lezer ziet
+    de ondergrond": doordat ze dun is, of doordat het thema eroverheen doorzichtig is.
+
     Gemeten op de Gent-uitsnede (2026-09-17, doorzichtig deel van de GetMap): gekarteerde
     grondverschuivingen 100 %, erosie 100 %, watertoets fluviaal 100 %, dikte van het Quartair
     100 %, watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het
@@ -313,7 +318,7 @@ def test_a_sparse_theme_asks_for_a_base_map_under_it_and_a_full_cover_map_does_n
     over = {e.id for e in catalogue.entries() if e.backdrop}
     assert over == {"quartair_dikte", "watertoets_pluviaal", "watertoets_fluviaal", "erosie",
                     "ovam", "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd",
-                    "pfas_no_regret"}
+                    "pfas_no_regret", "krimp_zwel"}
     for map_id in ("grb", "ortho", "ferraris", "dhmv_dtm", "bodemkaart", "tertiair", "hcov"):
         assert not catalogue.by_id(map_id).backdrop, map_id
 
@@ -451,3 +456,23 @@ def test_the_shrink_swell_map_asks_for_its_own_class_not_an_index_of_units():
     labels = entry.value_labels["Categorie_gevoeligheid"]
     assert labels["4"] == "hoog" and labels["0"] == "niet-ingedeeld"
     assert "zeer hoog" in entry.reading_guide and "niet-ingedeeld" in entry.reading_guide
+
+
+def test_the_shrink_swell_map_is_drawn_to_be_read():
+    """"beetje uitzoomen voor krimp zwel? en wat meer doorzichtig?" - drie dingen tegelijk, en
+    alle drie op het beeld beoordeeld (Wervik, 57611,6/165524,9, 2026-09-21).
+
+    De ondergrond: zonder die kaart was het blad zes vlakken kleur zonder een straat om ze aan op
+    te hangen. Doorzichtigheid: `opacity` werd tot nu toe alleen toegepast waar er een ondergrond
+    onder ligt (`layout._over_backdrop`), dus op het blad deed de 0.7 van deze kaart niets; met
+    ondergrond telt ze wel, en op 0.6 lezen straten, gebouwen en de Leie door terwijl klasse 2 en
+    klasse 3 nog uit elkaar te houden zijn (op 0.5 lopen die twee in elkaar). Schaal: op 1:35 000
+    staat het patroon in beeld - het rode blok ten noorden, de groene vallei - terwijl de plek
+    zelf nog herkenbaar is; op 1:50 000 wordt de zone een stip.
+    """
+    from desktopstudie.core import catalogue
+
+    entry = catalogue.by_id("krimp_zwel")
+    assert entry.backdrop, "zonder ondergrond hangen de klassen aan niets"
+    assert entry.opacity == 0.6
+    assert entry.scale == 35000
