@@ -119,6 +119,55 @@ GUIDE_QUARTAIR_200K = (
     "Deze kaart is een overzicht op 1/200 000; voor de zone zelf is de kaart 1/50 000 hierboven "
     "nauwkeuriger. "
     "Volledige legende: https://www.dov.vlaanderen.be/page/quartairgeologische-kaart-1200000")
+# The isopach layer advertises one style and no halo variant, and its own lettering is thin, small
+# and grey - unreadable over the GRB backdrop the map is drawn on. GeoServer takes an inline SLD on
+# the GetMap, so the service still draws the geometry and we ask only for different lettering:
+# bold, black, a white halo, following the line instead of lying across it, repeated every 260 px
+# so one contour is numbered several times across the frame but never twice in the same place.
+#
+# The NamedLayer carries the BARE layer name. With the workspace in front of it GeoServer matches
+# nothing, applies its own style and says nothing about it - live on 2026-09-21 that returned an
+# image byte for byte identical to the one without an SLD, which is the sort of silence that
+# passes for success. Whoever edits this: change it, fetch it, and LOOK at the picture.
+ISOPACH_SLD = """<?xml version="1.0" encoding="UTF-8"?>
+<StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"
+    xmlns:ogc="http://www.opengis.net/ogc">
+  <NamedLayer>
+    <Name>qisopachen_quartair_50k</Name>
+    <UserStyle>
+      <FeatureTypeStyle>
+        <Rule>
+          <LineSymbolizer>
+            <Stroke>
+              <CssParameter name="stroke">#000000</CssParameter>
+              <CssParameter name="stroke-width">0.9</CssParameter>
+            </Stroke>
+          </LineSymbolizer>
+          <TextSymbolizer>
+            <Label><ogc:PropertyName>Dikte_Quartair_m</ogc:PropertyName></Label>
+            <Font>
+              <CssParameter name="font-family">Arial</CssParameter>
+              <CssParameter name="font-size">15</CssParameter>
+              <CssParameter name="font-weight">bold</CssParameter>
+            </Font>
+            <LabelPlacement>
+              <LinePlacement><PerpendicularOffset>0</PerpendicularOffset></LinePlacement>
+            </LabelPlacement>
+            <Halo>
+              <Radius>2</Radius>
+              <Fill><CssParameter name="fill">#FFFFFF</CssParameter></Fill>
+            </Halo>
+            <Fill><CssParameter name="fill">#000000</CssParameter></Fill>
+            <VendorOption name="followLine">true</VendorOption>
+            <VendorOption name="repeat">260</VendorOption>
+            <VendorOption name="maxDisplacement">60</VendorOption>
+            <VendorOption name="group">no</VendorOption>
+          </TextSymbolizer>
+        </Rule>
+      </FeatureTypeStyle>
+    </UserStyle>
+  </NamedLayer>
+</StyledLayerDescriptor>"""
 GUIDE_QUARTAIR_DIKTE = (
     "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden. "
     "De dikte staat op de lijn zelf, in meter; tussen twee lijnen ligt de dikte ertussenin. "
@@ -291,6 +340,9 @@ class MapEntry:
     # a zone that holds no units, but for a hazard map emptiness IS the answer, and printing the
     # generic "Geen kaarteenheden binnen de zone" throws that answer away.
     empty_meaning: str = ""
+    # Our own lettering for this map, as an inline SLD on the GetMap. Empty for every map whose
+    # own style is readable; see `ISOPACH_SLD` for the one that is not.
+    sld_body: str = ""
     # default map scale (1:scale) on the PDF page; the shell zooms out further only when the
     # zone does not fit
     scale: int = 5000
@@ -319,14 +371,14 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
-         empty_meaning: str = "") -> MapEntry:
+         empty_meaning: str = "", sld_body: str = "") -> MapEntry:
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
                     legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
-                    empty_meaning=empty_meaning)
+                    empty_meaning=empty_meaning, sld_body=sld_body)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -431,7 +483,8 @@ CATALOGUE: List[MapEntry] = [
          ("Dikte_Quartair_m", DISTANCE_FIELD), wfs="quartair:qisopachen_quartair_50k", legend=False,
          field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
                        DISTANCE_FIELD: "Afstand tot de zone (m)"},
-         guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0),
+         guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
+         sld_body=ISOPACH_SLD),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
