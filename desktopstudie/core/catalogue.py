@@ -3,6 +3,7 @@ All URLs and layer names were verified live on 2026-09-15 (see design spec); the
 to their workspace services on 2026-09-16, verified live against the global service the same day."""
 from __future__ import annotations
 
+import re
 import types
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
@@ -129,7 +130,20 @@ GUIDE_QUARTAIR_200K = (
 # nothing, applies its own style and says nothing about it - live on 2026-09-21 that returned an
 # image byte for byte identical to the one without an SLD, which is the sort of silence that
 # passes for success. Whoever edits this: change it, fetch it, and LOOK at the picture.
-ISOPACH_SLD = """<?xml version="1.0" encoding="UTF-8"?>
+def _compact_xml(xml: str) -> str:
+    """The same XML with the indentation taken out, for a style that has to fit in a URL.
+
+    An SLD travels as a GetMap parameter, and the gateway in front of DOV's GeoServer answers 502
+    Bad Gateway to a long one: with its indentation the isopach request ran to 3120 characters and
+    failed five times out of five; without it 1905 characters and succeeded five out of five
+    (live 2026-09-21). Every space between tags costs three characters once URL-encoded, so the
+    whitespace is where the fat is - and the style stays readable in the source, which is where a
+    person edits it.
+    """
+    return re.sub(r"\s+", " ", re.sub(r">\s+<", "><", xml)).strip()
+
+
+ISOPACH_SLD = _compact_xml("""<?xml version="1.0" encoding="UTF-8"?>
 <StyledLayerDescriptor version="1.0.0" xmlns="http://www.opengis.net/sld"
     xmlns:ogc="http://www.opengis.net/ogc">
   <NamedLayer>
@@ -167,7 +181,7 @@ ISOPACH_SLD = """<?xml version="1.0" encoding="UTF-8"?>
       </FeatureTypeStyle>
     </UserStyle>
   </NamedLayer>
-</StyledLayerDescriptor>"""
+</StyledLayerDescriptor>""")
 GUIDE_QUARTAIR_DIKTE = (
     "Deze kaart toont isopachen: lijnen die punten met dezelfde dikte van het Quartair verbinden. "
     "De dikte staat op de lijn zelf, in meter; tussen twee lijnen ligt de dikte ertussenin. "
