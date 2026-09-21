@@ -537,11 +537,19 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
     op een lange GetMap: mét inspringing 3120 tekens en 0 van de 5 pogingen gelukt, zonder
     witruimte 1905 tekens en 5 van de 5 (live gemeten). `_compact_xml` haalt de witruimte eruit,
     zodat de stijl leesbaar in de broncode staat en compact over de lijn gaat.
+- **Lees labelinstellingen NOOIT terug van een laag om iets te controleren.**
+  `QgsVectorLayerSimpleLabeling.settings()` geeft een object terug dat de aanroep niet overleeft.
+  Op 3.34 stort het proces neer (`Fatal Python error: Segmentation fault`) zodra je er `format()`
+  op doet; op 4.x krijg je stilletjes de standaardwaarden terug, dus het meldt "geen halo" terwijl
+  de kaart er wel een tekent. Beide gemeten in de containers op 2026-09-21, en beide sloegen pas
+  toe in CI: lokaal op 3.40 liep dezelfde code gewoon door. Wat je wil weten is wat er GETEKEND
+  wordt, dus render en tel de pixels (`tests/qgis/test_layers.py::_halo_pixels`). Dit is dezelfde
+  huisregel als voor de figuren en de PDF: kijk naar het beeld, niet naar de instelling.
 - **Elk puntlabel op een rapportkaart krijgt een witte halo** (`layers._label_format`). Zonder halo
   liepen de sondeer- en boornummers in het midden van de overzichtskaart in elkaar over tot een
   veeg, dwars over daken en water. Labels die dan nog botsen worden weggelaten in plaats van
-  overheen getekend (`_drop_colliding_labels`; de spelling verhuisde in 3.32, ouder valt terug op
-  het standaardgedrag van de engine).
+  overheen getekend (`compat.drop_colliding_labels`; `placementSettings()` kwam er in 3.32 en is de
+  enige spelling die 4.x kent, ouder valt terug op het standaardgedrag van de engine).
 - **Een elektrische sondering gaat voor een dichterbije mechanische** bij de figuurkeuze
   (`study.for_figures`). Het woord staat in `sondeermethode` ("continu elektrisch"), niet in
   `conus`: beide stonden ingevuld op alle 133 Gentse sonderingen en waren het eens (110 mechanisch,
