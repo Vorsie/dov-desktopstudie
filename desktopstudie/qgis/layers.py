@@ -213,31 +213,48 @@ def _label_format() -> QgsTextFormat:
     return fmt
 
 
-def style_points_layer(layer: QgsVectorLayer, kind: str,
-                       label_only_figured: bool = False) -> QgsVectorLayer:
-    """Marker, colour, size and the number label of one investigation kind.
+def _marker(style: Tuple[str, str]) -> QgsMarkerSymbol:
+    """The point symbol of one layer, from its (colour, marker name) pair.
 
     The units are pinned on purpose: without them a symbol follows whatever the host project
     happens to use, and the same study prints differently on another machine.
+    """
+    colour, marker = style
+    symbol = QgsMarkerSymbol.createSimple(
+        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
+         "outline_width": "0.3"})
+    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    return symbol
+
+
+def _label_points(layer: QgsVectorLayer, field: str, expression: bool = False,
+                  enabled: bool = True) -> None:
+    """Label every point of `layer` from `field`, in the house lettering with its white halo.
+
+    `expression` says `field` is one (the report maps label only the points that got a figure);
+    `enabled` off keeps the labelling configured but unprinted, which is what a report map wants
+    for a dozen doorprik points that all carry the same model name.
+    """
+    settings = QgsPalLayerSettings()
+    settings.fieldName = field
+    settings.isExpression = expression
+    settings.setFormat(_label_format())
+    drop_colliding_labels(settings)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(enabled)
+
+
+def style_points_layer(layer: QgsVectorLayer, kind: str,
+                       label_only_figured: bool = False) -> QgsVectorLayer:
+    """Marker, colour, size and the number label of one investigation kind.
 
     `label_only_figured` labels only the points that have a figure in the report (see
     FIGURED_LABEL); that is the version the report maps draw. It applies to FIGURED_KINDS only -
     for a kind that never gets a figure it would mean no labels at all.
     """
-    colour, marker = POINT_STYLE[kind]
-    symbol = QgsMarkerSymbol.createSimple(
-        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
-         "outline_width": "0.3"})
-    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
-    layer.renderer().setSymbol(symbol)
-    settings = QgsPalLayerSettings()
+    layer.renderer().setSymbol(_marker(POINT_STYLE[kind]))
     figured_only = label_only_figured and kind in FIGURED_KINDS
-    settings.fieldName = FIGURED_LABEL if figured_only else LABEL_FIELD
-    settings.isExpression = figured_only
-    settings.setFormat(_label_format())
-    drop_colliding_labels(settings)
-    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(True)
+    _label_points(layer, FIGURED_LABEL if figured_only else LABEL_FIELD, expression=figured_only)
     index = layer.fields().indexOf("diepte_m")
     if index >= 0:  # a peilput carries its filter base here; the alias says so in the table
         layer.setFieldAlias(index, DEPTH_ALIAS)
@@ -254,18 +271,8 @@ def style_virtual_boreholes_layer(layer: QgsVectorLayer, labels: bool = True) ->
     line all carry the same model name, and a dozen copies of "g3dv3_F" over that line is a grey
     smudge. In QGIS the label stays - there the reader can zoom and click.
     """
-    colour, marker = VB_STYLE
-    symbol = QgsMarkerSymbol.createSimple(
-        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
-         "outline_width": "0.3"})
-    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
-    layer.renderer().setSymbol(symbol)
-    settings = QgsPalLayerSettings()
-    settings.fieldName = VB_LABEL_FIELD
-    settings.setFormat(_label_format())
-    drop_colliding_labels(settings)
-    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(labels)
+    layer.renderer().setSymbol(_marker(VB_STYLE))
+    _label_points(layer, VB_LABEL_FIELD, enabled=labels)
     return layer
 
 
