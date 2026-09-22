@@ -7,7 +7,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from . import catalogue, lithology
 from .catalogue import WATERTOETS_LABELS
-from .model import Signalering, StudyResult, VirtualBorehole, plain_reason
+from .model import Signalering, StudyResult, VirtualBorehole, facts_of, plain_reason
 from .services.virtuele_boring import layers_named
 
 SOFT_WORDS = re.compile(r"\b(klei|veen|leem)\b")
@@ -39,10 +39,14 @@ def _vb(result: StudyResult, *models: str) -> Optional[VirtualBorehole]:
 
 
 def _facts(result: StudyResult, map_id: str):
-    for mf in result.map_facts:
-        if mf.map_id == map_id:
-            return mf.rows
-    return []
+    """The rows of one map, with "the source never answered" flattened to "no rows".
+
+    Every rule here fires on what WAS found, so the two cases are the same answer: no row, no
+    signal. The report keeps them apart (`model.facts_of` returns None for the second), because
+    "geen kaarteenheden" about a map that is down would tell the reader there is no flood risk.
+    A failed source becomes a signal of its own in `check_sources`.
+    """
+    return facts_of(result, map_id) or []
 
 
 def check_anthropogenic(result: StudyResult) -> List[Signalering]:
