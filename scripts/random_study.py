@@ -35,12 +35,14 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from qgis.core import QgsApplication, QgsProject  # noqa: E402
 
-from desktopstudie.core import catalogue, geometry  # noqa: E402
+from desktopstudie.core import catalogue, geometry, lithology  # noqa: E402
 from desktopstudie.core.logging_util import Log  # noqa: E402
 from desktopstudie.core.model import StudyZone  # noqa: E402
 from desktopstudie.core.report_content import ReportMeta  # noqa: E402
+from desktopstudie.core.services.http import CACHE_MODES, DATA_DIR  # noqa: E402
 from desktopstudie.core.study import Settings  # noqa: E402
 from desktopstudie.qgis import compat, pipeline  # noqa: E402
+from desktopstudie.qgis.layout import MAP_IMAGE_DIR  # noqa: E402
 
 # De omhullende van Vlaanderen in Lambert 72, ruim genomen. Binnen deze doos ligt ook Nederland,
 # Wallonie en de Noordzee, dus elk punt wordt bij de gemeentegrenzen nagevraagd voor het telt.
@@ -49,8 +51,9 @@ BOUNDARY_WFS = "https://geo.api.vlaanderen.be/VRBG/wfs"
 BOUNDARY_LAYER, BOUNDARY_GEOM, BOUNDARY_NAME = "VRBG:Refgem", "SHAPE", "NAAM"
 MAX_TRIES = 200
 BLANK_SHEET = 0.02  # een blad onder twee procent inkt is in de praktijk leeg
-NOISE_WORDS = ("bruin", "geel", "grijs", "zwart", "groen", "rood", "kleurig", "plantenresten",
-               "mooi", "paar", "wortels", "schelpje", "schelpfragment")
+# Hoeveel gevlagde termen er onder een boring mogen staan voor de regel onleesbaar wordt. Geen
+# eigen lijst van "ruiswoorden" ernaast: `lithology.ORDINARY` zegt wat GEWOON is, en een tweede
+# lijst van wat NIET gewoon is draait precies de richting om die daar verboden is.
 MAX_REMARK_TERMS = 6
 
 
@@ -124,13 +127,8 @@ def _page_titles(report, sheets: int) -> Dict[int, str]:
 
 
 def _map_image(out: Path, map_id: str) -> Optional[Path]:
-    hits = sorted((out / "data" / "kaarten").glob(f"{map_id}_*.png"))
+    hits = sorted((out / DATA_DIR / MAP_IMAGE_DIR).glob(f"{map_id}_*.png"))
     return hits[0] if hits else None
-
-
-def _page_number(png: Path) -> int:
-    digits = "".join(ch for ch in png.stem if ch.isdigit())
-    return int(digits) if digits else 1
 
 
 def inspect(run: int, where: str, out: Path, outcome, _log: Log) -> Findings:
@@ -143,8 +141,9 @@ def inspect(run: int, where: str, out: Path, outcome, _log: Log) -> Findings:
         found.ours.append(f"run {run} {where}: product mislukt - {failure}")
 
     titles = _page_titles(outcome.report, outcome.sheets)
-    for png in sorted(out.glob("paginas/pagina*.png")):
-        number = _page_number(png)
+    # De bladen zoals de pijplijn ze aflevert: al op paginanummer gesorteerd, dus de plaats in de
+    # lijst IS het bladnummer en de mapnaam hoeft hier niet nog eens gespeld te worden.
+    for number, png in enumerate(outcome.page_pngs, start=1):
         share = _ink(png)
         if share < BLANK_SHEET:
             title = titles.get(number)
@@ -163,19 +162,14 @@ def inspect(run: int, where: str, out: Path, outcome, _log: Log) -> Findings:
         if image is not None and not _uniform(image):
             found.ours.append(f"run {run} {where}: kaart {fact.map_id} tekent wel iets maar "
                               f"levert geen enkele feitenrij")
-    for signal in outcome.result.signaleringen:
-        if signal.code != "boring_opmerking":
-            continue
-        # Alleen de TERMEN, niet de geciteerde zin erachter: daar hoort een kleur gewoon in thuis.
-        listed = signal.fact.split("vermeldt", 1)[-1].split("; op ", 1)[0]
-        terms = listed.split(";")
+    # Geteld op de termen die de woordenlijst zelf vlagt, niet op de Nederlandse zin die de
+    # signalering eromheen schrijft: wie die zin herschrijft, legt anders stilzwijgend deze regel
+    # plat en het script meldt "in orde".
+    for borehole in outcome.result.boreholes:
+        terms = lithology.notable_terms(borehole.lithology)
         if len(terms) > MAX_REMARK_TERMS:
             found.ours.append(f"run {run} {where}: opmerkingsregel met {len(terms)} termen - "
-                              f"{signal.source}")
-        noisy = [word for word in NOISE_WORDS if word in listed.lower()]
-        if noisy:
-            found.ours.append(f"run {run} {where}: ruiswoord in de opmerkingen {noisy} - "
-                              f"{signal.source}")
+                              f"boring {borehole.number}")
     return found
 
 
@@ -212,7 +206,7 @@ def main(argv=None) -> int:
     ap.add_argument("--out", default="uitvoer/willekeurig", help="map voor de runs")
     ap.add_argument("--buffer", type=float, default=50.0, help="straal van de zone in meter")
     ap.add_argument("--straal", type=float, default=500.0, help="zoekstraal in meter")
-    ap.add_argument("--cache", default="use", choices=("use", "refresh", "off"))
+    ap.add_argument("--cache", default=CACHE_MODES[0], choices=CACHE_MODES)
     args = ap.parse_args(argv)
 
     seed = args.seed if args.seed is not None else random.randrange(1_000_000)
@@ -222,7 +216,9 @@ def main(argv=None) -> int:
     compat.ensure_font_dir()
     app = QgsApplication([], True)
     app.initQgis()
-    log = Log("willekeurig", sink=lambda _line: None, scope="qgis")
+    # Naar stderr, zodat het verslag op stdout schoon blijft: een gereedschap dat een run van
+    # minuten doet en elke logregel weggooit, laat een hapering niet meer terugzoeken.
+    log = Log("willekeurig", sink=lambda line: print(line, file=sys.stderr), scope="qgis")
     try:
         all_found = [one_run(run, rng, args, log) for run in range(1, args.aantal + 1)]
     finally:
