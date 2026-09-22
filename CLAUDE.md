@@ -646,6 +646,11 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   Vanuit PowerShell: `& "C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`.
   In de gewone venv wordt `tests/qgis` in zijn geheel overgeslagen (`pytest.importorskip("qgis.core")`
   in de conftest), dus `.venv\Scripts\python -m pytest tests -q` blijft groen zonder QGIS.
+  **CI lokaal nadoen: `sh scripts/ci_containers.sh`** (of met één image erachter). Dat draait de
+  schil-tests in `qgis/qgis:release-3_34` en `qgis/qgis:latest` zoals `ci-qgis.yml` ze draait -
+  drie dingen gaan alleen daar stuk, zie de regel daarover hierboven - en het duurt ongeveer een
+  minuut per image tegen acht minuten voor de lokale QGIS. `tests/scripts/test_ci_containers.py`
+  wordt rood zodra het script en de workflow uiteenlopen.
 - **Offscreen rendert zonder lettertypes: zet `QT_QPA_FONTDIR`.** Het `offscreen`-platform gebruikt
   Qt's eigen lettertypedatabank en die zoekt in `<QGIS>/apps/Qt5/lib/fonts`, een map die niet
   bestaat (`QFontDatabase: Cannot find font directory`). Elke letter komt dan als zwart blokje uit
