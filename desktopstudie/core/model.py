@@ -77,6 +77,26 @@ class Provenance:
     message: str = ""
 
 
+def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
+                  message: str = "") -> None:
+    """Record (or replace) what was consulted, so `check_sources` can report on it.
+
+    Replacing rather than appending is what keeps a second pass over the same result honest: the
+    plugin can re-run a study after a service comes back up, and two contradicting lines about the
+    same source in the sources chapter would be worse than none. The replaced row keeps its place,
+    so the table stays in the order the study consulted things.
+
+    It lives here, beside `Provenance`, because it is nothing but that rule: the orchestrator
+    stamps its own sources with it and the shell stamps the ones only it can reach.
+    """
+    entry = Provenance(source, url, now_iso(), ok, message)
+    for index, existing in enumerate(result.provenance):
+        if existing.source == source:
+            result.provenance[index] = entry
+            return
+    result.provenance.append(entry)
+
+
 # Waarom een Python-foutmelding nooit in het rapport mag: `study.guarded` bewaart de tekst van de
 # uitzondering, met klassenaam en al, zodat het log en studie.json weten wat er precies misging.
 # Diezelfde tekst kwam ongefilterd op papier terecht ("[Errno 11001] getaddrinfo failed"), en wie
