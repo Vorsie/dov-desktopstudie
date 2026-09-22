@@ -550,11 +550,32 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   woorden geeft een gemiste vondst, en alleen de eerste fout is ongevaarlijk. Gecureerd op 3630
   lagen uit 512 boringen rond twaalf punten over heel Vlaanderen (`scripts/lithology_vocabulary.py`
   telt opnieuw); widen de allowlist uit die frequentietabel, versmal nooit de vlagregel. Vier
-  dingen die de data besliste en geen conventie: de helft van de oude beschrijvingen is Frans; een
+  dingen die de data besliste en geen conventie: een kwart van de beschrijvingen is Frans; een
   gecodeerde laag draagt codes en wordt overgeslagen (de codelijst is bekende schuld); een bank is
   een rariteit en een bijmenging niet (schelpen worden 400+ keer als bijmenging genoemd, nooit als
   "schelpenbank" - de bank draagt een eigen woord); en "geen kalk" meldt geen kalk. Citeren, nooit
   concluderen: wat een term BETEKENT voor de grond staat er niet bij.
+- **Het Frans wordt geklasseerd, niet vertaald.** 874 van diezelfde 3630 lagen staan in het Frans
+  ("sable" 590, "gris" 342, "avec" 277, "argile" 230), en daar vlagden 615 van de 893 woorden -
+  de Nederlandse kant was over meerdere rondes bijgesteld, de Franse nooit. Ze kregen dezelfde
+  behandeling in dezelfde regels: de matrix en haar modificatoren, de kleuren en alles wat erop
+  gebouwd is, schelpen en plantenresten als bijmenging en de vertelling van een handgeschreven
+  boorstaat uit 1900 zijn gewoon; de materialen blijven vlaggen (nu 140 woorden). **Een gevlagde
+  term blijft het Franse woord zelf** - "cailloux", nooit "keien" - want het rapport citeert de
+  beschrijving en spreekt niet namens haar.
+  Twee valkuilen die de data aanwees. Dezelfde woorden staan in DOV met én zonder accent
+  ("vegetale" naast "végétale", "gres" naast "grès", "debris"/"dèbris" naast "débris"), dus haalt
+  `lithology._plain` de accenten eruit vóór de vergelijking; een lijst die beide spellingen opsomt
+  raadt welke accenten een klerk in 1904 gezet heeft. En Frans BUIGT waar Nederlands samenstelt
+  (grise/grises, terre/terres), en "-âtre" is het Franse "-achtig", dus dat zijn UITGANGEN die er
+  vóór de opzoeking afgaan (`FRENCH_ENDINGS`) en geen dertig extra woorden. Die uitgang snijdt
+  nooit korter dan vier letters: "löss" vouwt naar "loss", dat is "los" met een -s erbij, en zo
+  hield loess stilletjes op een materiaal te zijn. De Franse kleuren worden exact vergeleken en
+  niet als deelstring zoals de Nederlandse - "bleu" zit in "sableuse", "vert" in "couvert".
+  `ALWAYS_NOTABLE` draagt daarom ook de Franse materialen (`caillou`, `silex`, `gravier`, `briqu`,
+  `remani`, `lignit`, en `glauconi` in plaats van `glauconiet`/`glauconif`): het verbreden van de
+  gewone lijst mag ze nooit kunnen wegpoetsen. `grès` staat er bewust NIET bij - als stam zit het
+  ook in "tongres" - dat vlagt de gewone weg, door niet op de lijst te staan.
   Twee dingen die de vlagregel NIET aanraken maar wel bepalen wat er op papier komt. Een kort
   brokstuk met een punt is een afkorting, geen waarneming: "Num. planulatus" gaf "num" in het
   rapport van een klant, en `ABBREVIATION_MAX` gooit zo'n stomp weg (kort EN midden in de zin, of
