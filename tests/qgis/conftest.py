@@ -22,6 +22,24 @@ def write_png(path, width=100, height=100):
     return path
 
 
+def pdf_pages(path):
+    """Het aantal pagina's in een PDF. Elke pagina is een object met /Type /Page; de paginaboom
+    zelf draagt /Type /Pages en die telt niet mee. Hier, want de exporttests en de pijplijntests
+    stellen allebei dezelfde vraag aan hetzelfde bestand."""
+    data = path.read_bytes()
+    return data.count(b"/Type /Page") - data.count(b"/Type /Pages")
+
+
+def rings_close(ring, other, tolerance):
+    """Of twee ringen punt voor punt binnen `tolerance` samenvallen.
+
+    Een ring die door een coordinaattransformatie is geweest komt nooit exact terug, dus wordt er
+    op afstand vergeleken - in de dialoogtests en in de zone-invoertests op dezelfde manier.
+    """
+    return len(ring) == len(other) and all(
+        abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance for a, b in zip(ring, other))
+
+
 def report_meta():
     """De `report.meta` die een layout verwacht: alles wat op het titelblad en in de voettekst
     terechtkomt. Hier en niet in twee testbestanden, want twee kopieën van dezelfde dict drijven
