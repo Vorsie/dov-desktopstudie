@@ -2,6 +2,24 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [0.4.1] - 2026-09-22
+
+### Opgelost
+- **Enter in de adreslijst koos het adres niet.** De kandidatenlijst had niets aangekoppeld en Enter
+  in het adresveld zocht altijd opnieuw. Bovendien reisde de toets door naar de dialoog, die haar
+  standaardknop indrukte: een Enter op een kandidaat koos het adres en stelde de geocoder dezelfde
+  vraag nog eens. Enter en dubbelklik nemen nu een kandidaat aan, de pijltjes lopen door de lijst,
+  en een tweede Enter start de studie.
+- **Een hapering bij een kaartdienst kostte een blad.** Kaartbeelden en ondergronden krijgen drie
+  pogingen in plaats van twee; legendes en tekeningen blijven zoals ze waren en de time-out blijft
+  30 s.
+- **Een ontbrekend kaartbeeld stond als aandachtspunt tussen de bevindingen over de ondergrond.**
+  Die melding gaat over het rapport, niet over de grond, en draagt nu `info`.
+- **Het infovak op een kaartblad liep over zijn rand.** De breedte was de eigen meting van de
+  langste regel, zonder marge, zodat de tekenaar met zijn eigen metriek een extra regel op de rand
+  zette. De reserve is gemeten (drie keer 4,8 % van de breedte) en is nu een aandeel in plaats van
+  een vaste millimeter, wat op QGIS 3.34 wél houdt en op 1 mm niet.
+
 ## [0.4.0] - 2026-09-22
 
 ### Gewijzigd
@@ -323,7 +341,8 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...v0.2.0

@@ -1836,10 +1836,12 @@ def test_a_tall_column_joins_a_short_table_the_way_it_joins_a_long_one(make_layo
 
 
 def _ink_below(lay, item, page_index: int) -> int:
-    """Hoeveel donkere pixels staan er ONDER de onderrand van dit kader?
+    """Hoeveel donkere pixels staan er op of onder de onderrand van dit kader?
 
     Gemeten aan het gerenderde blad. Een infovak dat zijn tekst niet kan houden laat de laatste
-    regel op en door zijn eigen rand lopen, en dat is precies wat de gebruiker op papier zag.
+    regel op en door zijn eigen rand lopen, en dat is precies wat de gebruiker op papier zag. De
+    band begint daarom bij de BINNENrand en niet bij de rand zelf: een rij die het vak er te veel
+    aan heeft, landt op de rand en niet eronder, en werd zo niet gezien.
     """
     import numpy as np
     from qgis.core import QgsLayoutExporter
@@ -1858,8 +1860,74 @@ def _ink_below(lay, item, page_index: int) -> int:
     left = int((item.pos().x()) * px_per_mm)
     right = int((item.pos().x() + item.rect().width()) * px_per_mm)
     bottom = int((item.pos().y() - origin.y() + item.rect().height()) * px_per_mm)
-    below = arr[bottom + 2:bottom + int(4 * px_per_mm), left + 2:right - 2]
-    return int((below < 128).sum())
+    # De kaderlijn zelf is zwart en telt niet mee: de band loopt van de binnenrand tot net boven
+    # de lijn, en daarna van net onder de lijn tot vier millimeter eronder.
+    pen = max(2, int(item.frameStrokeWidth().length() * px_per_mm))
+    inner = bottom - int(item.marginY() * px_per_mm)
+    bands = (arr[inner:bottom - pen, left + pen:right - pen],
+             arr[bottom + pen:bottom + int(4 * px_per_mm), left + pen:right - pen])
+    return sum(int((band < 128).sum()) for band in bands)
+
+
+def _info_label(project, size: float = 6.0):
+    """Een leeg infovak zoals `info_box` er een maakt: zelfde lettertype, zelfde marge, zelfde
+    kader. Het label is wat meet, dus het moet in alles op het echte lijken. De layout komt mee
+    terug omdat een layout met haar items sterft."""
+    from qgis.core import QgsLayoutItemLabel, QgsPrintLayout
+
+    from desktopstudie.qgis import layout as layout_mod
+
+    lay = QgsPrintLayout(project)
+    lay.initializeDefaults()
+    item = QgsLayoutItemLabel(lay)
+    item.setTextFormat(layout_mod.text_format(size))
+    item.setMargin(layout_mod.INFO_MARGIN_MM)
+    item.setFrameEnabled(True)
+    lay.addLayoutItem(item)
+    return lay, item
+
+
+def test_a_measured_row_is_never_as_wide_as_the_box_it_goes_in(qgs_app, project):
+    """"de laatste regel ligt op en door de onderrand" - opnieuw, en op het bronvak van bijna
+    elke kaart.
+
+    Het vak wordt zo breed gemaakt als zijn langste regel, en daarna wordt diezelfde regel tegen
+    diezelfde breedte gemeten: ze past op de micrometer, met nul speling. Wat `adjustSizeToText`
+    meet en wat de renderer op papier legt verschilt met een haar, en in de PDF-export valt die
+    haar de verkeerde kant op: de renderer breekt de regel alsnog, het vak tekent een rij meer dan
+    waarvoor het gemeten is, en die rij landt op de onderrand. Gemeten in het rapport van de
+    gebruiker (77 bladen, 2026-09-22): bronvakken van 10,33 mm met VIER tekstrijen erin en de
+    onderste inkt 0,08 mm boven de rand, op de bladen 2, 3, 4, 7-10, 21, 22, 25, 28, 30, 32, 34,
+    37, 39 en 41. Nagespeeld met een eigen PDF-export: zeven van de tien bronvakken van de
+    catalogus doen het; in een beeldrender van datzelfde vak doet geen enkel het, en dat is
+    waarom de vorige test hier niet op aansloeg.
+
+    De regel die dat onmogelijk maakt: geen enkele rij die `_fit_box` teruggeeft is zo breed als
+    het vak waarin ze getekend wordt. De hoogte had die speling al (`BOX_SLACK_MM`); de breedte
+    niet, en een haar te smal kost daar een hele rij.
+    """
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis import layout as layout_mod
+
+    # Hoeveel een rij moet overhouden is een AANDEEL van de breedte, geen vaste haar. Gemeten in
+    # qgis/qgis:release-3_34 (Arial 6 pt) door de speling te laten groeien tot de renderer ophield
+    # er een rij bij te maken: 2,50 mm op een vak van 52,34 mm, 2,00 mm op 42,65 mm en 1,50 mm op
+    # 31,49 mm - 4,8 %, 4,7 % en 4,8 %. Vijf procent is dus de ondergrens; wat de code zelf
+    # aanhoudt mag ruimer zijn.
+    reserve = 0.05
+    lay, item = _info_label(project)
+    assert lay.itemById is not None  # de layout blijft leven zolang haar item gelezen wordt
+    for entry in catalogue.entries(enabled_only=False):
+        lines = [part for part in (entry.attribution, entry.licence, "opgehaald 2026-09-22")
+                 if part]
+        width, _height, rows = layout_mod._fit_box(item, lines, layout_mod.INFO_W,
+                                                   layout_mod.INFO_MARGIN_MM)
+        for row in rows:
+            drawn = layout_mod._measured_width(item, row)
+            assert drawn <= width * (1.0 - reserve), (
+                f"{entry.id}: de rij {row!r} is {drawn:.2f} mm breed in een vak van "
+                f"{width:.2f} mm - de renderer breekt haar alsnog en de laatste rij valt op "
+                f"de onderrand")
 
 
 def test_an_info_box_holds_its_own_text(make_layout, tmp_path):

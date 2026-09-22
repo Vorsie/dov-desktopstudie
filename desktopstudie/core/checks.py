@@ -365,6 +365,15 @@ def _chapter_of(source: str) -> str:
 
 
 def check_sources(result: StudyResult) -> List[Signalering]:
+    """A source that did not answer, as a row of its own - at `info`, never at "aandacht".
+
+    It belongs in the table: the reader has to know that a chapter is short of something. It does
+    not belong among the findings about the ground. A service that stuttered says nothing about
+    the subsurface, and printed at the same severity as a shallow water table or a shrink-swell
+    class it competes with them for the reader's attention. The two other signals about an
+    incomplete report - a truncated table, a section with missing columns - already carry `info`;
+    this is the third of that kind, and the advice line says the same thing in words.
+    """
     out = []
     for p in result.provenance:
         if p.ok:
@@ -373,7 +382,7 @@ def check_sources(result: StudyResult) -> List[Signalering]:
         where = f"Hoofdstuk {chapter} is onvolledig" if chapter else "Het rapport is onvolledig"
         out.append(Signalering(
             "bron_niet_beschikbaar", f"Bron niet beschikbaar: {plain_reason(p.message)}", p.source,
-            f"{where}; bron later opnieuw raadplegen.", severity="aandacht"))
+            f"{where}; bron later opnieuw raadplegen.", severity="info"))
     return out
 
 

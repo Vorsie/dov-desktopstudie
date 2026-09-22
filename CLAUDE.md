@@ -140,6 +140,27 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   de kaartlabels niet, en die twee staan op hetzelfde blad naast elkaar. Dit is niet hetzelfde als
   de ontbrekende `QT_QPA_FONTDIR` hieronder: die maakt van elke letter een blokje, dit vervangt er
   een paar - je ziet het pas als je een naam teken voor teken tegen de tabel legt.
+- **Een beeldrender en de PDF-export breken tekst niet op dezelfde plek af.** Het zijn twee paint
+  engines met hun eigen metriek, en het verschil is een haar - genoeg om een regel die in een PNG
+  op één rij past in de PDF in tweeën te breken. Een vak dat op de millimeter om zijn tekst
+  gesloten is, telt dan een rij meer dan waarvoor het gemeten is en de laatste regel landt op zijn
+  onderrand. Precies dat gebeurde met het bronvak onder elke kaart (`layout._fit_box`): de breedte
+  was de meting van de langste regel en diezelfde regel werd daarna tegen diezelfde breedte
+  gehouden. Gemeten 2026-09-22 in het rapport van een gebruiker (77 bladen): zeventien bladen met
+  een vak van 10,33 mm waarin vier rijen stonden, onderste inkt 0,08 mm boven de rand; nagespeeld
+  via onze eigen PDF-export vier van de twaalf infovakken, terwijl een beeldrender van dezelfde
+  bladen er geen enkele liet zien - en dat is waarom de test die op `renderPageToImage` keek hem
+  niet ving. Drie gevolgen. **Elk vak dat om zijn tekst sluit, krijgt speling in BEIDE richtingen.**
+  **En op de breedte is die speling een AANDEEL, geen haar** (`ROW_SLACK`, 8 %): het verschil
+  tussen wat `adjustSizeToText` meet en wat de renderer tekent is evenredig met de lengte van de
+  regel, dus een vaste millimeter dekt een postzegel en geen licentieregel. Gemeten door de
+  speling te laten groeien tot de renderer ophield er een rij bij te maken: in
+  `qgis/qgis:release-3_34` 2,50 mm op een vak van 52,34 mm, 2,00 op 42,65 en 1,50 op 31,49 - drie
+  keer 4,8 %; op Windows 4 %. De eerste poging met één vaste millimeter was op deze laptop groen
+  en in de container nog steeds rood op acht van de tien vakken. En **een maatvraag over gedrukte
+  tekst wordt op de PDF gemeten, niet op een PNG** - de huisregel "bladen als PNG bekijken" blijft
+  staan voor wat er op het blad STAAT, maar voor waar een letter precies landt is de PDF de enige
+  die de waarheid vertelt, en de containers zijn de enige die zeggen of het elders ook klopt.
 - **`QgsPrintLayout.initializeDefaults()` legt pagina 0 LIGGEND neer.** Het rapport is van kaft tot
   kaft staand A4, dus pagina 0 moet expliciet op `Orientation.Portrait` worden gezet. Gebeurt dat
   niet, dan valt op het titelblad alles onder 210 mm (inhoudsopgave, disclaimer) van het papier -
