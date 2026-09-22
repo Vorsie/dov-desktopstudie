@@ -9,10 +9,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
 DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/wfs"
-DOV_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/wms"
-# The DOV maps are asked at the service of their own GeoServer workspace, not at the global one
-# above. A WMS layer costs a GetCapabilities, and the global service answers with the whole of
-# DOV: 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. A workspace service
+# The DOV maps are asked at the service of their own GeoServer workspace, never at the global
+# `/geoserver/wms`. A WMS layer costs a GetCapabilities, and the global service answers with the
+# whole of DOV: 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. A workspace service
 # answers with a few kB (0,03 s a map) and serves identical GetMap and GetLegendGraphic bytes -
 # live 2026-09-16 for all fifteen. On it a layer goes by its own name, without the prefix.
 DOV_WORKSPACE_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/{workspace}/wms"
