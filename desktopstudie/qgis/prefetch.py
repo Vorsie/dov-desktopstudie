@@ -87,9 +87,19 @@ ZONE_LEGEND_TRIES = 2
 MAP_IMAGE_DPI = PDF_DPI
 MAP_IMAGE_MAX_PX = 4096
 # A full-page GetMap is a hundred times the work of a 64 px probe, so it gets a longer breath than
-# a legend - but one retry only: the page can be printed without its background.
+# a legend. Three attempts, and only here: a map image is the largest fetch of a study, eight of
+# them are in flight at once, and a public service under load drops one now and then - reported
+# twice from real runs as "kaartbeeld niet opgehaald" on a URL that answered HTTP 200 with 338 kB
+# when it was replayed minutes later. What the third attempt can cost, measured in
+# `test_a_map_service_that_stutters_twice_still_hands_over_its_sheet`: 3 x 30 s of waiting plus
+# 1,5 s + 3,0 s of backoff = 94,5 s for ONE image that never answers, against 61,5 s before. A
+# study of thirty images over eight workers is four rounds, so a service that accepts the
+# connection and then says nothing at all stretches this phase from ~250 s to ~380 s. It cannot
+# stall a run further than that: the timeout is deliberately left alone - a slow service still
+# fails fast, it is the transient failure we buy our way past - and an error that is not worth
+# retrying (a 404, a refused connection) still raises on the first attempt.
 MAP_IMAGE_TIMEOUT_S = 30.0
-MAP_IMAGE_RETRIES = 1
+MAP_IMAGE_RETRIES = 2
 
 
 # --- the legends and the colour strips --------------------------------------------------------
