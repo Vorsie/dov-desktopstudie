@@ -46,8 +46,7 @@ from qgis.core import (
     QgsProperty,
 )
 
-from ..core.parallel import CANCELLED_MESSAGE
-from ..core.study import StudyCancelled
+from ..core.parallel import CANCELLED_MESSAGE, Cancelled
 from .compat import enum_name
 
 PAGE_STEM = "pagina"  # QGIS writes pagina.png, pagina_2.png, pagina_3.png, ...
@@ -253,7 +252,7 @@ def export_pdf(layout: QgsPrintLayout, path,
     if runs.cancelled:
         if path.exists():
             path.unlink()
-        raise StudyCancelled(CANCELLED_MESSAGE)
+        raise Cancelled(CANCELLED_MESSAGE)
     _check(result, "PDF-export", path)
     return path
 
