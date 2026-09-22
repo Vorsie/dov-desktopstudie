@@ -33,15 +33,14 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core import catalogue
-from ..core.geometry import Point
+from ..core.geometry import CRS, Point
 from ..core.logging_util import Log
 from ..core.model import StudyZone
 from ..core.report_content import ReportMeta
 from ..core.services.geocoder import GeocodeHit, geocode
-from ..core.services.http import CACHE_MODES, HttpClient
+from ..core.services.http import CACHE_DIR, CACHE_MODES, HttpClient
 from ..core.study import Settings
 from . import map_tools, zone_input
-from .layers import CRS_AUTHID
 from .settings import PluginSettings
 from .task import PLUGIN_NAME, StudyRequest, StudyRunner, plugin_log
 
@@ -56,9 +55,9 @@ LAMBERT_MAX_M = 400000.0
 DEFAULT_BUFFER_M = 50.0
 NO_HITS = "Geen kandidaat gevonden."
 NOTHING_DRAWN = "Nog niets getekend."
-# Wat een laag bijdraagt, in de woorden van de laag zelf: een vlaklaag heeft vlakken, een lijnlaag
-# lijnen. Een enkel object heeft geen selectie nodig; pas bij meerdere is er iets te kiezen, en dan
-# zegt de weigering hoeveel het er zijn en wat de gebruiker moet doen.
+# What a layer contributes, in the layer's own words: a polygon layer has polygons, a line layer
+# has lines. A single feature needs no selection; only with several is there anything to choose,
+# and then the refusal says how many there are and what the user has to do.
 NOTE_ONLY_FEATURE = {
     "polygon": "Geen selectie; het enige vlak in de laag {layer} is gebruikt.",
     "line": "Geen selectie; de enige lijn in de laag {layer} is gebruikt.",
@@ -91,12 +90,13 @@ LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter
 COMPACT_TIP = ("Zet zoveel korte tabellen en figuren op een blad als erop passen. Uit levert de "
                "voorspelbare opmaak: hoogstens twee stukken per blad, en kaartbladen blijven "
                "altijd alleen.")
-CACHE_DIR_NAME = "cache"  # under the output folder, shared by every run written there
 # A user is waiting at the address box: one try, and not the client's minute.
 GEOCODE_TIMEOUT_S = 15.0
 
 
 def _spin(low: float, high: float, value: float, decimals: int = 0, suffix: str = " m") -> QDoubleSpinBox:
+    """A number box. Distances carry their unit; a coordinate does not, so X and Y ask for
+    `suffix=""` - "104326 m" reads as a length where a Lambert 72 easting belongs."""
     spin = QDoubleSpinBox()
     spin.setRange(low, high)
     spin.setDecimals(decimals)
@@ -183,8 +183,8 @@ class StudyDialog(QDialog):
         layout.addWidget(self.hits_list)
 
         self.mode_point = QRadioButton("X/Y in Lambert 72 (EPSG:31370)")
-        self.x_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1)
-        self.y_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1)
+        self.x_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1, suffix="")
+        self.y_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1, suffix="")
         row = QHBoxLayout()
         for label, spin in (("X", self.x_spin), ("Y", self.y_spin)):
             row.addWidget(QLabel(label))
@@ -379,7 +379,7 @@ class StudyDialog(QDialog):
         if mode == MODE_RING:
             if not self._ring:
                 raise ValueError("Teken eerst een polygoon op de kaart.")
-            return zone_input.zone_from_ring(self._ring, CRS_AUTHID, radius)
+            return zone_input.zone_from_ring(self._ring, CRS, radius)
         layer = self._chosen_layer(self.layer_combo)
         feature = self._chosen_feature(layer, "polygon")
         return zone_input.zone_from_feature(feature, layer.crs(), radius, name=f"{layer.name()} #{feature.id()}",
@@ -489,9 +489,11 @@ class StudyDialog(QDialog):
         base = self.output_edit.text().strip()
         if not base:
             raise ValueError("Geef een uitvoermap op.")
+        # The cache sits BESIDE the run folders, not in one: a cache inside a run folder is never
+        # hit twice. Same folder name as `http.cache_dir_for` uses inside a run, one spelling.
         return StudyRequest(zone, settings, meta, zone_input.run_folder(Path(base), meta.project),
                             self.cache_combo.currentData(), self.legends_check.isChecked(),
-                            cache_dir=Path(base) / CACHE_DIR_NAME)
+                            cache_dir=Path(base) / CACHE_DIR)
 
     def save_settings(self) -> None:
         settings = self.settings

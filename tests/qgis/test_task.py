@@ -134,10 +134,10 @@ def test_an_exception_in_the_worker_reaches_the_callback_as_the_error_and_the_lo
 
 def test_a_cancelled_task_reports_cancelled_not_an_error(qgs_app, tmp_path, monkeypatch):
     """Annuleren loopt via de vlag van de taak: de pijplijn krijgt `isCanceled` als should_cancel,
-    stopt met StudyCancelled, en de callback ziet "afgebroken" - geen fout, geen resultaat."""
+    stopt met Cancelled, en de callback ziet "afgebroken" - geen fout, geen resultaat."""
     from qgis.core import QgsApplication
 
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import pipeline
     from desktopstudie.qgis.task import StudyTask
 
@@ -149,7 +149,7 @@ def test_a_cancelled_task_reports_cancelled_not_an_error(qgs_app, tmp_path, monk
         task.cancel()
         seen.append(should_cancel())
         if should_cancel():
-            raise StudyCancelled("afgebroken door de gebruiker")
+            raise Cancelled("afgebroken door de gebruiker")
         return _fake_result(zone)
 
     monkeypatch.setattr(pipeline, "run_core", core_that_gets_cancelled)
@@ -298,7 +298,7 @@ def test_cancel_on_the_main_thread_stops_at_the_next_poll_with_a_message(qgs_app
     run, de gebruiker leest "Studie afgebroken." en `finished` draagt None."""
     from qgis.core import Qgis
 
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import pipeline
     from desktopstudie.qgis.task import StudyRunner
 
@@ -309,7 +309,7 @@ def test_cancel_on_the_main_thread_stops_at_the_next_poll_with_a_message(qgs_app
     def finish_that_gets_cancelled(*args, should_cancel=None, **kwargs):
         runner.cancel()  # as the button does, between two phases
         if should_cancel():
-            raise StudyCancelled("afgebroken door de gebruiker")
+            raise Cancelled("afgebroken door de gebruiker")
         raise AssertionError("should_cancel hoort de knop te zien")
 
     monkeypatch.setattr(pipeline, "finish", finish_that_gets_cancelled)

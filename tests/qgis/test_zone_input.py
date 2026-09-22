@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.qgis.conftest import rings_close
+
 GENT = (104326.0, 192506.0)
 
 
@@ -24,11 +26,6 @@ def _transformed(ring, to_authid):
                                        QgsCoordinateReferenceSystem(to_authid),
                                        QgsCoordinateTransformContext())
     return [(p.x(), p.y()) for p in (transform.transform(QgsPointXY(x, y)) for x, y in ring)]
-
-
-def _close(ring, other, tolerance):
-    return len(ring) == len(other) and all(abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance
-                                           for a, b in zip(ring, other))
 
 
 def test_a_zone_from_an_address_hit_is_a_circle_named_after_the_address(qgs_app):
@@ -71,7 +68,7 @@ def test_a_ring_drawn_in_another_crs_arrives_in_lambert_72(qgs_app, gent_zone):
     zone = zone_from_ring(drawn, "EPSG:4326", radius_m=500.0, name="Getekend")
 
     assert zone.name == "Getekend" and zone.address is None
-    assert _close(zone.ring, gent_zone.ring, 0.01)
+    assert rings_close(zone.ring, gent_zone.ring, 0.01)
     # The project's transform context (its chosen datum transforms) can be handed in.
     from qgis.core import QgsCoordinateTransformContext
 
@@ -99,7 +96,7 @@ def test_a_selected_feature_gives_its_exterior_ring_in_lambert_72(qgs_app, gent_
     zone = zone_from_feature(next(layer.getFeatures()), layer.crs(), radius_m=500.0, name="percelen #1")
 
     assert zone.name == "percelen #1"
-    assert _close(zone.ring, gent_zone.ring, 0.05)
+    assert rings_close(zone.ring, gent_zone.ring, 0.05)
 
 
 def test_a_multipart_feature_takes_its_largest_part(qgs_app, gent_zone):
@@ -117,7 +114,7 @@ def test_a_multipart_feature_takes_its_largest_part(qgs_app, gent_zone):
 
     zone = zone_from_feature(feature, "EPSG:31370", radius_m=500.0)
 
-    assert _close(zone.ring, gent_zone.ring, 0.001)
+    assert rings_close(zone.ring, gent_zone.ring, 0.001)
 
 
 def test_what_is_not_an_area_is_refused_with_a_reason(qgs_app):
@@ -161,3 +158,8 @@ def test_the_run_folder_carries_the_project_and_the_moment(qgs_app):
 
     assert folder == Path("C:/uit") / "Project_X_Y_Gent_20260916_1405"
     assert run_folder(Path("C:/uit"), "   ", dt.datetime(2026, 9, 16, 14, 5)).name == "Desktopstudie_20260916_1405"
+    # Een projectnaam die alleen uit scheidingstekens bestaat is geen naam. ".." al helemaal niet:
+    # dat noemt een map, en een runmap hoort onder de uitvoermap te blijven staan.
+    for hopeless in ("..", ".", "///", "___"):
+        assert run_folder(Path("C:/uit"), hopeless,
+                          dt.datetime(2026, 9, 16, 14, 5)).name == "Desktopstudie_20260916_1405", hopeless

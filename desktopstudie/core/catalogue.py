@@ -9,10 +9,9 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Tuple
 
 DOV_WFS_URL = "https://www.dov.vlaanderen.be/geoserver/wfs"
-DOV_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/wms"
-# The DOV maps are asked at the service of their own GeoServer workspace, not at the global one
-# above. A WMS layer costs a GetCapabilities, and the global service answers with the whole of
-# DOV: 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. A workspace service
+# The DOV maps are asked at the service of their own GeoServer workspace, never at the global
+# `/geoserver/wms`. A WMS layer costs a GetCapabilities, and the global service answers with the
+# whole of DOV: 1,1 MB that QGIS parses for 2,6 s per map, fifteen times a study. A workspace service
 # answers with a few kB (0,03 s a map) and serves identical GetMap and GetLegendGraphic bytes -
 # live 2026-09-16 for all fifteen. On it a layer goes by its own name, without the prefix.
 DOV_WORKSPACE_WMS_URL = "https://www.dov.vlaanderen.be/geoserver/{workspace}/wms"
@@ -28,7 +27,8 @@ WATERINFO_WMS_URL = (
     "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
 )
-# Reserved for the QGIS shell (plan 2): it loads the DTM as a WCS coverage to fill StudyResult.relief.
+# Used by the shell: `dem.relief_of_zone` loads the DTM as a WCS coverage to fill
+# `StudyResult.relief`, and `pipeline` records that fetch as a source under this URL.
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 # What the two ends of the DTM's colour ramp mean, in mTAW. Read off the service's own
@@ -485,9 +485,9 @@ CATALOGUE: List[MapEntry] = [
           "image/jpeg", scale=5000),
     _hist("ortho_2000_03", "Orthofoto 2000-2003", "https://geo.api.vlaanderen.be/OMW/wms", "OMWRGB00_03VL",
           "image/jpeg", scale=5000),
-    # `note` van een uitgeschakelde entry wordt afgedrukt in de bronnenlijst en is dus tekst voor
-    # de LEZER: waarom de kaart niet in de studie zit en waar ze wel te vinden is. Geen enkele
-    # aanwijzing voor wie de plugin onderhoudt - die staat in de schuldlijst van CLAUDE.md.
+    # The `note` of a disabled entry is printed in the sources chapter, so it is text for the
+    # READER: why the map is not in the study and where it can be found instead. Not a word for
+    # whoever maintains the plugin - that belongs in the debt list in CLAUDE.md.
     MapEntry("ngi_hist", "historisch", "Historische topografische kaarten NGI (1873-1989)", "", "",
              "Nationaal Geografisch Instituut", enabled=False,
              note="Het NGI publiceert deze reeks niet als open kaartdienst; ze is te raadplegen via "
@@ -520,19 +520,21 @@ CATALOGUE: List[MapEntry] = [
          ("type", "profiel"), wfs="quartair:quartair_200k",
          field_labels={"type": "Type", "profiel": "Profiel"}, guide=GUIDE_QUARTAIR_200K,
          scale=100000),
-    # De isopachen van de kartering op 1:50 000, niet de grove reeks `dov-pub:Quartair_Isopachen`
-    # voor heel Vlaanderen. Dat verschil is het verschil tussen een leeg blad en een bruikbaar:
-    # de grove reeks telt 780 lijnen en haar dichtstbijzijnde lag 5,6 km van de Gentse zone, deze
-    # geeft er vier binnen 300 m (live 2026-09-20: 67 m / 5 m, 71 m / 10 m, 146 m / 2,5 m,
-    # 270 m / 2,5 m). Dit is ook de laag die de DOV-verkenner zelf tekent, mét de dikte op de
-    # lijnen: een GetMap brengt die labels mee, dus het blad heeft geen eigen legenda nodig.
-    # Niet te verwarren met `quartair:Qisopachen_Tertair_50k`, dat het tertiair oppervlak geeft.
-    # Het dikteveld heet `Dikte_Quartair_m` en de geometrie `geom` (DescribeFeatureType, idem).
+    # The isopachs of the 1:50 000 mapping, not the coarse `dov-pub:Quartair_Isopachen` series
+    # for the whole of Flanders. That difference is the difference between an empty sheet and a
+    # usable one: the coarse series holds 780 lines and its nearest lay 5,6 km from the Gent zone,
+    # while this one gives four within 300 m (live 2026-09-20: 67 m / 5 m, 71 m / 10 m,
+    # 146 m / 2,5 m, 270 m / 2,5 m). It is also the layer DOV's own verkenner draws, WITH the
+    # thickness on the lines: a GetMap brings those labels along, so the sheet needs no legend of
+    # its own. Not to be confused with `quartair:Qisopachen_Tertair_50k`, which gives the tertiary
+    # surface. The thickness field is `Dikte_Quartair_m` and the geometry `geom` (DescribeFeatureType,
+    # same date).
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)",
          "quartair:qisopachen_quartair_50k",
+         # Geen field_labels: dit blad drukt geen tabel af (zie `report_content._zone_legend_for`),
+         # dus een kolomkop zou nergens terechtkomen. De velden zelf reizen wel mee naar
+         # studie.json en voeden de regel onder de kaart.
          ("Dikte_Quartair_m", DISTANCE_FIELD), wfs="quartair:qisopachen_quartair_50k", legend=False,
-         field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
-                       DISTANCE_FIELD: "Afstand tot de zone (m)"},
          guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
          sld_body=ISOPACH_SLD,
          empty_meaning="De isopachenkartering 1/50 000 dekt deze locatie niet; er ligt geen "

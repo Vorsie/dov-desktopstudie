@@ -15,16 +15,19 @@ from .model import (
     Cpt,
     GwFilter,
     MapFact,
-    Provenance,
     Section,
     Signalering,
     StudyResult,
     StudyZone,
     now_iso,
+    record_source,
 )
+from .parallel import Cancelled
+from .paths import safe_segment
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
 from .services.dov_wfs import DovWfs, feature_xy
+from .services.http import DATA_DIR
 from .services.virtuele_boring import fetch_virtual_borehole
 
 Progress = Callable[[float, str], None]
@@ -36,20 +39,17 @@ GFI_WORKERS = 2  # inside the pool over the maps, so this multiplies with Settin
 # cost the whole study its time, while the WFS query that fills a table keeps the patient default.
 ITEM_TIMEOUT_S = 15.0
 ITEM_RETRIES = 1
-# The path the provenance records for the JSON: relative, so the sources chapter does not print
-# the folder structure of whoever ran the study.
-JSON_RELATIVE = "data/studie.json"
+# The machine-readable product of a study, and the path the provenance records for it: relative,
+# so the sources chapter does not print the folder structure of whoever ran the study. Spelled
+# here and nowhere else - the shell writes the very same file after its own phases.
+JSON_NAME = "studie.json"
+JSON_RELATIVE = f"{DATA_DIR}/{JSON_NAME}"
 # The two signals that come from the run itself rather than from `checks`: nothing in the result
 # still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
 # (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
 TRUNCATION_CODE = "wfs_afgekapt"
 SECTION_CODE = "doorsnede_onvolledig"
 ORCHESTRATOR_CODES = (TRUNCATION_CODE, SECTION_CODE)
-
-
-# The same class under the name the rest of the code knows: `parallel.load_each` raises it from
-# inside a batch, and `except StudyCancelled` has to catch exactly that.
-StudyCancelled = parallel.Cancelled
 
 
 class EmptySource(Exception):
@@ -139,8 +139,7 @@ class _Runner:
 
     # --- plumbing -----------------------------------------------------------------------
     def _raise_if_cancelled(self) -> None:
-        if self.should_cancel():
-            raise StudyCancelled("afgebroken door de gebruiker")
+        parallel.stop_if(self.should_cancel)
 
     def _step(self, fraction: float, message: str) -> None:
         """A stage boundary: the chance to stop, then the progress report."""
@@ -148,18 +147,23 @@ class _Runner:
         self.progress(fraction, message)
 
     def guarded(self, source: str, url: str, fn: Callable[[], None]) -> None:
+        """One stage, isolated: a failure becomes a failed source and the run goes on.
+
+        Through `record_source`, so a source consulted twice leaves one row rather than two that
+        contradict each other - the same rule the shell records its own sources by.
+        """
         try:
             fn()
-            self.result.provenance.append(Provenance(source, url, _now(), True))
-        except StudyCancelled:
+            record_source(self.result, source, url, True)
+        except Cancelled:
             raise  # a cancelled run is not a broken source
         except EmptySource as exc:
             self.log.warning(f"{source}: {exc}")
-            self.result.provenance.append(Provenance(source, url, _now(), False, str(exc)))
+            record_source(self.result, source, url, False, str(exc))
         except Exception as exc:  # noqa: BLE001 - isolate every source
             self.log.warning(f"{source} niet beschikbaar: {exc}")
-            self.result.provenance.append(
-                Provenance(source, url, _now(), False, f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}"))
+            record_source(self.result, source, url, False,
+                          f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}")
 
     def _load_each(self, items: Sequence[Any], load_one: Callable[[Any], None], label: str,
                    max_workers: Optional[int] = None) -> int:
@@ -220,11 +224,7 @@ class _Runner:
 
     def boreholes(self) -> None:
         feats = self.wfs.within_distance("dov-pub:Boringen", self.zone.wkt, self.s.radius_m, self.s.max_features)
-        interp = {}
-        for typename in ("interpretaties:lithologische_beschrijvingen", "interpretaties:gecodeerde_lithologie"):
-            for f in self.wfs.within_distance(typename, self.zone.wkt, self.s.radius_m, self.s.max_features):
-                p = f["properties"]
-                interp.setdefault(p.get("Proeffiche"), p.get("Interpretatiefiche"))
+        interp = self.wfs.interpretation_urls(self.zone.wkt, self.s.radius_m, self.s.max_features)
         out: List[Borehole] = []
         for f in feats:
             p = f["properties"]
@@ -295,14 +295,15 @@ class _Runner:
         section = build_section(
             self.client, self.zone.section_line, self.zone, self.result.cpts, self.result.boreholes,
             self.result.gw_filters, self.s.n_section_points, self.s.corridor_m, self.s.model_section,
-            log=self.log.child("section"), max_workers=self.s.max_workers, with_profile=self.s.with_profile)
+            log=self.log.child("section"), max_workers=self.s.max_workers,
+            with_profile=self.s.with_profile, should_cancel=self.should_cancel)
         # The dense profile is a source of its own: losing it costs the fine columns and leaves
         # only the handful of anchors, which the reader has to be told about. Not reported when
         # the caller asked for no profile at all - nothing was tried, so nothing failed.
         if self.s.with_profile and section.profile is None:
-            self.result.provenance.append(Provenance(
-                "Doorsnede - profielbevraging", catalogue.VB_PROFILE_URL.format(model=self.s.model_section),
-                _now(), False, "profiel niet beschikbaar; alleen doorprik-ankers"))
+            record_source(self.result, "Doorsnede - profielbevraging",
+                          catalogue.VB_PROFILE_URL.format(model=self.s.model_section), False,
+                          "profiel niet beschikbaar; alleen doorprik-ankers")
         if not has_geology(section):
             raise EmptySource("geen modellagen langs de lijn")
         self.result.section = section
@@ -397,7 +398,12 @@ class _Runner:
         rows.sort(key=lambda row: row[catalogue.DISTANCE_FIELD])
         return rows
 
-    def _fact_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+    def _fetch_facts(self, entry: catalogue.MapEntry) -> List[dict]:
+        """Go and get this map's facts, from the WFS or from the drawn map itself.
+
+        Fetching, not reading: `model.facts_of` is the one that reads them back out of a finished
+        result, and the two used to share a name.
+        """
         if entry.fact_mode == "wfs":
             if entry.fact_within_m:
                 return self._nearest_rows(entry)
@@ -418,8 +424,8 @@ class _Runner:
 
         def fetch(entry: catalogue.MapEntry) -> None:
             try:
-                fetched[entry.id] = self._fact_rows(entry)
-            except StudyCancelled:
+                fetched[entry.id] = self._fetch_facts(entry)
+            except Cancelled:
                 raise
             except Exception as exc:  # noqa: BLE001 - handed to `guarded` below, not swallowed
                 # Stored, not re-raised: `guarded` records and logs it on the main thread, and
@@ -459,25 +465,33 @@ class _Runner:
                             "Doorsnede onvolledig; de kolommen op die punten ontbreken.", severity="info")]
 
     def figures(self) -> None:
+        """Write the figures and record where each one landed, keyed as the report looks it up.
+
+        The KEY keeps the permkey exactly as DOV gave it - that is what `pipeline._figured` matches
+        the investigations against - while the FILE NAME goes through `safe_segment`, because a
+        permkey is the last piece of a URL and a URL can hold a path. The two need not be the same
+        string: what ties them together is the recorded path, not the spelling of the key.
+        """
         fig_dir = self.out / "figuren"
         for c in self.result.cpts:
             if c.profile and c.profile.depth_m:
                 self.result.figures[f"cpt_{c.permkey}"] = self._relative(
-                    cpt_figure.plot_cpt(c, fig_dir / f"cpt_{c.permkey}.png"))
+                    cpt_figure.plot_cpt(c, fig_dir / f"cpt_{safe_segment(c.permkey)}.png"))
         for b in self.result.boreholes:
             if b.lithology:
                 self.result.figures[f"boring_{b.permkey}"] = self._relative(
-                    borehole_column.plot_borehole(b, fig_dir / f"boring_{b.permkey}.png"))
+                    borehole_column.plot_borehole(
+                        b, fig_dir / f"boring_{safe_segment(b.permkey)}.png"))
         for model, vb in self.result.virtual_boreholes.items():
             self.result.figures[f"vb_{model}"] = self._relative(
-                vb_column.plot_virtual_borehole(vb, fig_dir / f"vb_{model}.png"))
+                vb_column.plot_virtual_borehole(vb, fig_dir / f"vb_{safe_segment(model)}.png"))
         if self.result.section is not None and has_geology(self.result.section):
             self.result.figures["section"] = self._relative(
                 section_figure.plot_section(self.result.section, fig_dir / "section.png"))
         self.log.info(f"{len(self.result.figures)} figuren geschreven in {fig_dir}")
 
     def write_json(self) -> None:
-        path = self.out / "data" / "studie.json"
+        path = self.out / DATA_DIR / JSON_NAME
         path.parent.mkdir(parents=True, exist_ok=True)
         self.result.write_json(path)
 
@@ -504,7 +518,7 @@ class _Runner:
         self._step(0.92, "Signaleringen")
         all_signals = checks.run_all(self.result) + self._truncation_signals() + self._section_signals()
         self.result.signaleringen = checks.validate(all_signals)
-        self.guarded("studie.json", JSON_RELATIVE, self.write_json)
+        self.guarded(JSON_NAME, JSON_RELATIVE, self.write_json)
         self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
         return self.result
@@ -530,6 +544,6 @@ def run(zone: StudyZone, settings: Settings, client, out_dir: Path, progress: Op
     own object is updated, so the shell can draw exactly the line that was used.
 
     `should_cancel` is polled between stages and around every per-item fetch; when it returns True
-    the run raises `StudyCancelled` and writes no JSON.
+    the run raises `Cancelled` and writes no JSON.
     """
     return _Runner(zone, settings, client, Path(out_dir), progress, log or Log("study"), should_cancel).run()

@@ -5,6 +5,11 @@ from __future__ import annotations
 import math
 from typing import List, Optional, Sequence, Tuple
 
+# The one coordinate reference system this project computes in: Lambert 72. Every service is
+# asked in it, every figure is drawn in it and every layer is set to it, so the string belongs
+# with the geometry rather than with the QGIS layers - a name for a CRS is not a QGIS import.
+CRS = "EPSG:31370"
+
 Point = Tuple[float, float]
 Ring = List[Point]
 BBox = Tuple[float, float, float, float]
@@ -54,7 +59,8 @@ def bbox(ring: Sequence[Point]) -> BBox:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-# Reserved for the QGIS shell (plan 2): the map pages pad the zone bbox before setting an extent.
+# Used by the shell: `layout.overlay_boxes` pads the zone bbox by the search radius, and the
+# plugin's task zooms the canvas to a padded zone (`task.py`).
 def expand_bbox(b: BBox, margin: float) -> BBox:
     return (b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin)
 

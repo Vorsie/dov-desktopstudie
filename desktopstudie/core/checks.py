@@ -7,7 +7,7 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from . import catalogue, lithology
 from .catalogue import WATERTOETS_LABELS
-from .model import Signalering, StudyResult, VirtualBorehole, plain_reason
+from .model import Signalering, StudyResult, VirtualBorehole, facts_of, plain_reason
 from .services.virtuele_boring import layers_named
 
 SOFT_WORDS = re.compile(r"\b(klei|veen|leem)\b")
@@ -39,10 +39,14 @@ def _vb(result: StudyResult, *models: str) -> Optional[VirtualBorehole]:
 
 
 def _facts(result: StudyResult, map_id: str):
-    for mf in result.map_facts:
-        if mf.map_id == map_id:
-            return mf.rows
-    return []
+    """The rows of one map, with "the source never answered" flattened to "no rows".
+
+    Every rule here fires on what WAS found, so the two cases are the same answer: no row, no
+    signal. The report keeps them apart (`model.facts_of` returns None for the second), because
+    "geen kaarteenheden" about a map that is down would tell the reader there is no flood risk.
+    A failed source becomes a signal of its own in `check_sources`.
+    """
+    return facts_of(result, map_id) or []
 
 
 def check_anthropogenic(result: StudyResult) -> List[Signalering]:
@@ -193,13 +197,22 @@ def check_flood(result: StudyResult) -> List[Signalering]:
     return out
 
 
+def _parcel_line(rows, field: str) -> str:
+    """"op N perceel/percelen in de zone: a; b" - the tail the two parcel maps share.
+
+    Erosion and OVAM both answer with one row per cadastral parcel, so both count parcels and
+    both list, once each, what was found on them; only the words in front of it differ.
+    """
+    distinct = sorted({str(row.get(field, "")) for row in rows})
+    return f"op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}."
+
+
 def check_erosion(result: StudyResult) -> List[Signalering]:
     rows = [r for r in _facts(result, "erosie") if "hoog" in str(r.get("Totale_erosie", "")).lower()]
     if rows:
-        distinct = sorted({str(r.get("Totale_erosie", "")) for r in rows})
         return [Signalering(
             "erosie",
-            f"Totale erosie op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
+            f"Totale erosie {_parcel_line(rows, 'Totale_erosie')}",
             "DOV erosiekaart",
             "Aandachtspunt voor het grondonderzoek: erosiegevoelige helling; stabiliteit en afwatering.")]
     return []
@@ -213,12 +226,13 @@ def _shrink_swell_class(row) -> int:
 
 
 def check_shrink_swell(result: StudyResult) -> List[Signalering]:
-    """De klasse die de kaart zelf tekent, niet het aantal rijen.
+    """The class the map itself draws, not the number of rows.
 
-    Zolang de feiten van `IndexPlastisch` kwamen - een index van de beoordeelde G3Dv3-eenheden -
-    telde alleen of er een rij was: Brugge, waar de kaart klasse 4 (hoog) tekent, leverde geen rij
-    en dus geen enkele regel, terwijl klasse 2 elders "krimp-zwelgevoelige gronden" heette zonder
-    te zeggen hoe gevoelig. De klasse staat nu in de regel en bepaalt of er een regel is.
+    While the facts came from `IndexPlastisch` - an index of the assessed G3Dv3 units - only the
+    presence of a row counted: Brugge, where the map draws class 4 (high), yielded no row and
+    therefore no line at all, while class 2 elsewhere was called "krimp-zwelgevoelige gronden"
+    without saying how sensitive. The class is in the line now, and it decides whether there is
+    a line.
     """
     graded = [_shrink_swell_class(row) for row in _facts(result, "krimp_zwel")]
     worst = max(graded) if graded else 0
@@ -235,10 +249,9 @@ def check_shrink_swell(result: StudyResult) -> List[Signalering]:
 def check_ovam(result: StudyResult) -> List[Signalering]:
     rows = _facts(result, "ovam")
     if rows:
-        distinct = sorted({str(r.get("uitspraak", "")) for r in rows})
         return [Signalering(
             "ovam",
-            f"OVAM-uitspraken op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
+            f"OVAM-uitspraken {_parcel_line(rows, 'uitspraak')}",
             "OVAM via DOV",
             "Aandachtspunt voor het grondonderzoek: mogelijke bodemverontreiniging; "
             "bodemattest raadplegen en veiligheidsmaatregelen.")]
@@ -338,10 +351,10 @@ DRAWING_PREFIXES = ("Legenda profieltype", "Eenhedentabel kaartblad")
 
 
 def _chapter_of(source: str) -> str:
-    """Het hoofdstuk dat deze bron draagt, of "" als het er geen enkel is.
+    """The chapter this source belongs to, or "" when it belongs to none.
 
-    De lezer vroeg zich af WELK hoofdstuk iets mist: "Hoofdstuk onvolledig" zonder naam laat hem
-    het bronnenhoofdstuk achterin uitpluizen om dat zelf uit te zoeken.
+    The reader wondered WHICH chapter is missing something: "Hoofdstuk onvolledig" without a name
+    leaves him to comb through the sources chapter at the back and work it out for himself.
     """
     if source.startswith(DRAWING_PREFIXES):
         return CHAPTER_TITLES["geologie"]

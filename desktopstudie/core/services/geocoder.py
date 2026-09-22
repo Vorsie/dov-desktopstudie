@@ -22,11 +22,15 @@ class GeocodeHit:
         return self.location_type.startswith("basisregisters_huisnummer")
 
 
-def geocode(client, query: str, max_results: int = 5, log: Optional[Log] = None) -> List[GeocodeHit]:
+# How many candidates to ask for: the dialog shows a short list and the scripts take the first.
+MAX_RESULTS = 5
+
+
+def geocode(client, query: str, log: Optional[Log] = None) -> List[GeocodeHit]:
     """Candidates for `query`, best first. An address the geocoder does not know answers HTTP 200
     with an empty LocationResult, so "no candidates" is WARNED about with the query in it rather
     than handed back as a bare empty list."""
-    payload = client.get_json(GEOCODER_URL, {"q": query, "c": max_results})
+    payload = client.get_json(GEOCODER_URL, {"q": query, "c": MAX_RESULTS})
     hits: List[GeocodeHit] = []
     for item in payload.get("LocationResult", []):
         loc = item.get("Location", {})

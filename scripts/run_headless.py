@@ -59,8 +59,8 @@ def parse_args(argv=None) -> argparse.Namespace:
     ap.add_argument("--legendas", action="store_true",
                     help="wel aparte legendapagina's aanmaken (standaard niet); de klassen die in "
                          "de zone liggen staan sowieso onder hun eigen kaart")
-    # De oude schakelaar van v0.1, toen de legendabladen standaard aan stonden. Ze doet niets meer
-    # maar blijft bestaan, zodat een script uit die tijd niet afbreekt op een onbekend argument.
+    # The old switch from v0.1, when the legend sheets were on by default. It does nothing any
+    # more but stays, so a script from that time does not break on an unknown argument.
     ap.add_argument("--geen-legendas", action="store_true",
                     help="verouderd: legendapagina's staan al uit; dit argument doet niets")
     ap.add_argument("--compact", action="store_true",
@@ -88,8 +88,8 @@ def run(args: argparse.Namespace, log: Log) -> int:
         log.warning("--geen-legendas is verouderd en doet niets: legendapagina's staan standaard "
                     "uit; gebruik --legendas om ze wel te maken")
 
-    # The two halves are run separately rather than through `run_pipeline` for one reason: the
-    # summary can then say where the time went. They share one client, so also one disk cache.
+    # The two halves, clocked separately so the summary can say where the time went. They share
+    # one client, so also one disk cache: the shell re-uses what the core already fetched.
     started = time.monotonic()
     result = pipeline.run_core(zone, settings, out, log,
                                progress=pipeline.part_of(_print_progress, 0.0, pipeline.CORE_SHARE),

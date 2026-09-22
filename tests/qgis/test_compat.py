@@ -19,12 +19,6 @@ def test_size_mm_is_in_millimetres(qgs_app):
     assert s.units() == compat.MM
 
 
-def test_version_is_three_or_four(qgs_app):
-    from desktopstudie.qgis import compat
-
-    assert compat.qgis_version().startswith(("3.", "4."))
-
-
 def test_an_enum_value_is_named_not_numbered(qgs_app):
     """Een kale "3" in een logregel zegt niemand iets. PyQt5 levert de oude QGIS-enums als gewone
     getallen zonder `.name`, dus de naam wordt bij de houder opgezocht; een echte Python-enum

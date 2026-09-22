@@ -19,9 +19,13 @@ CPT/boring/peilput binnen de corridor), figuren
 rapportinhoud (`report_content.py`: bouwt de hoofdstuk/pagina-boom - `Chapter` met `MapPage` /
 `FigurePage` / `TablePage` / `TextPage` - uit een `StudyResult`; rendert zelf niets, dat doet de
 schil) en de orchestrator `study.py`.
-`desktopstudie/qgis/` is de dunne schil: lagen (`layers.py`), reliëf (`dem.py`), layout
-(`layout.py`), export (`export.py`), versieshims (`compat.py`), de pijplijn (`pipeline.py`:
-`run_core` / `prepare` / `finish`, `run_pipeline` als alles-in-één) en de plugin zelf - `plugin.py`
+`desktopstudie/qgis/` is de dunne schil: lagen (`layers.py`), reliëf (`dem.py`), het pixelwerk
+(`images.py`: wat er op een plaatje staat en waar het gesneden mag worden - geen enkele papiermaat),
+het ophalen (`prefetch.py`: legenda's, profieltypetekeningen en kaartbeelden; dit is wat de
+werkthread draait), layout (`layout.py`: papier, kadrering en de bouwer), export (`export.py`),
+versieshims (`compat.py`), de pijplijn (`pipeline.py`:
+`run_core` / `prepare` / `finish`; er is geen alles-in-een, elke oproeper drijft de helften zelf
+aan) en de plugin zelf - `plugin.py`
 (actie en menu), `dialog.py` (het formulier, in code gebouwd), `zone_input.py` (pure functies:
 adres, X/Y, getekende ring of geselecteerd object -> `StudyZone` in Lambert 72; doorsnedelijn;
 uitvoermap per run), `map_tools.py` (polygoon/lijn tekenen), `task.py` (`StudyTask`, `StudyRunner`,
@@ -111,7 +115,7 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   rapport op een plek waar de kaart klasse 4 (hoog) tekent. Staat de waarde OP de kaart, vraag dan
   de kaart (`fact_mode="gfi"`) - en controleer een nieuw feitveld altijd tegen wat de kaart op
   dezelfde plek tekent, niet alleen tegen het feit dat er een rij terugkomt.
-- **`MapEntry.opacity` bereikt het gedrukte blad alleen via `backdrop`.** `layout._over_backdrop`
+- **`MapEntry.opacity` bereikt het gedrukte blad alleen via `backdrop`.** `images.over_backdrop`
   is de enige plek die haar toepast; een kaart zonder ondergrond krijgt de PNG van de dienst
   ongewijzigd op het blad. Een doorzichtigheid in de catalogus zonder `backdrop=True` is dus een
   stille no-op op papier (ze dimt alleen de laag in `studie.qgz`).
@@ -179,7 +183,7 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   kaart en de andere helft overpagina leest slechter dan een blok dat op een eigen blad begint.
 - **De kleurschaal van het hoogtemodel is rapportinhoud, geen legendablad.** De GetLegendGraphic
   van `dhmv_dtm` is een kleurbalk van 16 x 48 px met de titel erboven en "300 - -50" ernaast (live
-  2026-09-17, 102 x 68 px). `layout.ramp_rect` zoekt de balk als de langste reeks rijen die met een
+  2026-09-17, 102 x 68 px). `images.ramp_rect` zoekt de balk als de langste reeks rijen die met een
   effen kleurloop tegen de linkerrand beginnen, `ramp_strip` knipt die eruit en draait ze een
   kwartslag rechtsom (laag links, hoog rechts), en de kaartpagina tekent ze onder het kader met de
   twee uiteinden uit `catalogue.DHMV_RAMP_MTAW` en de drie hoogtes uit `StudyResult.relief`. Vindt
@@ -220,10 +224,10 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   maar enkele procenten van hun uitsnede tekenen (gemeten op Gent, 2026-09-17: gekarteerde
   grondverschuivingen, erosie, watertoets fluviaal en de dikte van het Quartair 100 % doorzichtig,
   watertoets pluviaal 91 %, OVAM 69 %, PFAS 61 % - tegen 0 % voor de bodemkaart, het Tertiair,
-  HCOV en de kwetsbaarheidskaart). `prepare_map_images` haalt daarvoor `catalogue.BASE_MAP_ID` op
+  HCOV en de kwetsbaarheidskaart). `prefetch.prepare_map_images` haalt daarvoor `catalogue.BASE_MAP_ID` op
   bij dezelfde extent en hetzelfde pixelformaat en schildert het thema erover met de opaciteit uit
   de catalogus, zodat de pagina één beeld tekent en niets achteraf hoeft te passen. De dekkingsproef
-  (`_is_empty`) wordt op het THEMA gedaan, vóór er iets onder komt te staan - anders beantwoordt de
+  (`images.is_empty`) wordt op het THEMA gedaan, vóór er iets onder komt te staan - anders beantwoordt de
   basiskaart de vraag of de dienst hier iets tekent. `TRANSPARENT=TRUE` ging altijd al mee en wordt
   gehonoreerd (live 2026-09-17: mét de parameter vier kanalen met een echt alfa, zonder drie
   kanalen met wit); het lege blad kwam dus niet van een ondoorzichtig thema maar van niets eronder.
@@ -232,8 +236,8 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
   staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
-  de kop eraf (`layout.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
-  snijdt diezelfde rij van boven van de eenhedentabel (`crop_sheet_units`, anders leest die tabel
+  de kop eraf (`images.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
+  snijdt diezelfde rij van boven van de eenhedentabel (`images.crop_sheet_units`, anders leest die tabel
   als die van het ene profieltype waarmee ze binnenkwam) en levert `profieltype:<code>` en
   `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**: de
   kaartpagina, met onder het kader per profieltype de regel "Profieltype <code> - kaartblad <nn>"
@@ -245,13 +249,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   opgehaald".
 - **De legenda-URL van een profieltype is een downloadlink van een documentportaal.** Ze eindigt op
   `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug. Wat
-  `layout._drawing_bytes` daarmee doet, en waar de grens ligt, staat één keer beschreven: zie
+  `prefetch._drawing_bytes` daarmee doet, en waar de grens ligt, staat één keer beschreven: zie
   **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** in de schuldlijst hieronder.
 - **Kaartbeelden worden vooraf opgehaald, niet tijdens het renderen.** De QGIS-WMS-provider haalt
   tegel na tegel op TERWIJL een blad tekent, en het rapport wacht daarop: dat was 312 s van de
-  607 s die een studie voor Gent kostte (gemeten 2026-09-16 met de fasetabel). `layout.
+  607 s die een studie voor Gent kostte (gemeten 2026-09-16 met de fasetabel). `prefetch.
   plan_map_images` leidt uit de rapportboom af welke uitsnedes nodig zijn - één per (kaart, kader),
-  dus vier GRB-bladen delen wat ze kunnen delen - en `prepare_map_images` haalt ze met acht
+  dus vier GRB-bladen delen wat ze kunnen delen - en `prefetch.prepare_map_images` haalt ze met acht
   werkers op als één GetMap per blad, op de pixelmaat waarop het blad ze afdrukt (`MAP_IMAGE_DPI`
   = de export-dpi, geplafonneerd op 4096 px). Ze landen als PNG + wereldbestand in
   `data/kaarten/` en de layout tekent die lokale rasters (`layers.snapshot_layer`, CRS expliciet
@@ -273,16 +277,21 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **Een dienst die hier niets tekent, zegt dat - en dat kost geen extra oproep.** De Popp-kaart is
   in Gent een wit blad: het mozaiek heeft geen kaartblad voor de stad, en de dienst antwoordt netjes
   met een lege tegel. Het kaartbeeld is er toch al, dus het antwoord valt er gratis uit te lezen:
-  `layout._is_empty` in `prepare_map_images` kijkt of alle pixels gelijk of volledig doorzichtig
+  `images.is_empty` in `prefetch.prepare_map_images` kijkt of alle pixels gelijk of volledig doorzichtig
   zijn. De aparte dekkingsproef (een GetMap van 64 px) bestaat niet meer. Is de tegel leeg, dan
-  VERVALT het blad (zie de regel over een kaart zonder kaartbeeld hierboven) en blijft de bron `ok`
-  met de reden "geen dekking op deze locatie" (de bronnentabel drukt die reden af achter "ok").
-  Twee grenzen. Alleen kaarten
-  **zonder feiten**, want een doorzichtige tegel van de watertoets betekent "geen
-  overstromingsgevoelig gebied", niet "geen dekking" (live gemeten 2026-09-16). En per **kader**,
-  niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de andere bladen van
-  dezelfde kaart niet meeneemt. Een ophaling die faalt, verandert niets: onbekend is geen "geen
-  dekking".
+  blijft de bron `ok` met de reden "geen dekking op deze locatie" (de bronnentabel drukt die reden
+  af achter "ok").
+  De proef wordt op **elke** kaart gedaan, ook op een kaart met feiten - wat een lege tegel KOST
+  wordt elders beslist. Dat is `pipeline._pages_without_an_image`, en het antwoord is: een lege
+  tegel kost haar blad alleen als dat blad verder niets te tonen heeft. Staat er een
+  `Legenda voor de zone` met rijen onder, dan betekent de doorzichtige tegel dat de laag hier
+  niets tekent - een doorzichtige watertoetstegel is "geen overstromingsgevoelig gebied", niet
+  "geen dekking" (live gemeten 2026-09-16) - en houdt het blad zijn kaart. Is er niets anders,
+  dan VERVALT het blad (zie de regel over een kaart zonder kaartbeeld hierboven), want dan is het
+  een basiskaart, een leeg kader en een leeswijzer naar een tabel die er niet is.
+  En per **kader**, niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de
+  andere bladen van dezelfde kaart niet meeneemt. Een ophaling die faalt, verandert niets:
+  onbekend is geen "geen dekking".
 - **De kaartenkeuze reist mee met het resultaat, en iedereen filtert ermee.** Wat de gebruiker in
   de checklist aanvinkt staat als `Settings.map_ids` in de aanvraag en wordt door `study.run` op
   `StudyResult.map_ids` gezet (None = alle ingeschakelde entries), zodat het ook in `studie.json`
@@ -384,6 +393,19 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   update-modus en zegt dat per blad op stderr. Het beeld is wel geschreven. `export._quiet_gdal()`
   zet de GDAL-foutafhandelaar stil rond een export; een echte mislukking komt nog steeds terug in
   de ExportResult, die sowieso gecontroleerd wordt.
+- **Tekst van een dienst wordt nooit zelf een pad.** Een permkey is het laatste stuk van een
+  DOV-URL, een profieltypecode en een kaartbladnummer komen uit een WFS-rij, en alle drie worden
+  ze een stuk van een bestandsnaam. Een antwoord met scheidingstekens erin bepaalt dan WAAR de
+  plugin schrijft: gemeten met `permkey="../../../x"` landde de figuur in de runmap in plaats van
+  in `figuren/`, en `quartair_sheet("../../x")` geeft `".."`, waarmee `Path.with_name` in de
+  bovenliggende map schrijft. Elke externe string gaat daarom door `core/paths.safe_segment`
+  vóór ze aan een map geplakt wordt: letters, cijfers, punt, streepje en liggend streepje blijven,
+  de rest wordt een liggend streepje, en wat niets overhoudt wordt geweigerd in plaats van geraden.
+  De SLEUTEL waaronder het rapport zo'n figuur of tekening opzoekt houdt de rauwe waarde - alleen
+  de bestandsnaam wordt opgeschoond - want `pipeline._figured` vergelijkt die sleutel met de
+  permkey uit DOV. Wie een nieuw bestand schrijft waarvan de naam uit een antwoord komt, doet
+  hetzelfde; twee tests bewaken de bekende gevallen (`tests/core/test_paths.py`, en de twee die het
+  pad oplossen in plaats van naar de string te kijken).
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
@@ -472,13 +494,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   pas de layout en de PDF; elk van die drie producten staat onder zijn eigen bewaking, zodat een
   GeoPackage dat nog openstaat in een andere QGIS dat ene product kost en niet de studie
   (`PipelineResult.pdf`, `.geopackage` en `.project_file` zijn `Optional`, `failures` zegt waarom).
-  `StudyCancelled` komt door elke bewaking heen - afbreken is geen mislukt product.
+  `parallel.Cancelled` komt door elke bewaking heen - afbreken is geen mislukt product.
 - **GeoPackage en projectbestand gaan vóór de PDF de deur uit.** Negentig bladen renderen is de
   langste en meest fragiele stap van een studie; valt ze om, dan moet de gebruiker de data houden
   die al verzameld was. Een mislukte export levert daarom `PipelineResult.pdf = None` plus een
   regel in `failures`, geen exception die de studie weggooit.
 - **Elke bron die de schil raadpleegt krijgt provenance.** Het DHMV-reliëf, elke WMS-laag en elke
-  legenda worden met `pipeline.record_source` vastgelegd (ok of niet), en daarom draaien de
+  legenda worden met `model.record_source` vastgelegd (ok of niet), en daarom draaien de
   signaleringsregels pas ná die fasen: `check_sources` maakt er een signalering van, zodat het
   rapport de ontbrekende kaart noemt in plaats van stil een blad zonder ondergrond af te drukken.
   `record_source` vervangt een bestaande regel met dezelfde bron, zodat een tweede `finish` op
@@ -600,6 +622,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   rapporttekst af en bewaakt het.
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
+- **Commentaar en docstrings in het Engels.** Elke uitleg IN de code - wat een functie doet, wat er
+  gemeten is, waarom een omweg er staat - is Engels, in dezelfde taal als de identifiers eromheen.
+  Twee uitzonderingen, allebei omdat het CITATEN zijn en geen uitleg: een string die op papier of
+  in de GUI terechtkomt blijft Nederlands, en een DOV-vakterm (sondering, boring, peilput,
+  profieltype, kaartblad) blijft Nederlands ook midden in een Engelse zin - vertaald verliest ze de
+  koppeling met wat de dienst zelf zegt. CLAUDE.md, de plannen en de ontwerpen blijven Nederlands:
+  dat zijn documenten, geen code.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
   `main` draagt de releases (tag `vX.Y.Z`, de zip uit `build_zip.py` als release-asset).
 - **De gemeenschapsbestanden zeggen dezelfde regels tegen wie van buiten komt.**
@@ -624,6 +653,11 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   Vanuit PowerShell: `& "C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" -m pytest tests/qgis -q`.
   In de gewone venv wordt `tests/qgis` in zijn geheel overgeslagen (`pytest.importorskip("qgis.core")`
   in de conftest), dus `.venv\Scripts\python -m pytest tests -q` blijft groen zonder QGIS.
+  **CI lokaal nadoen: `sh scripts/ci_containers.sh`** (of met één image erachter). Dat draait de
+  schil-tests in `qgis/qgis:release-3_34` en `qgis/qgis:latest` zoals `ci-qgis.yml` ze draait -
+  drie dingen gaan alleen daar stuk, zie de regel daarover hierboven - en het duurt ongeveer een
+  minuut per image tegen acht minuten voor de lokale QGIS. `tests/scripts/test_ci_containers.py`
+  wordt rood zodra het script en de workflow uiteenlopen.
 - **Offscreen rendert zonder lettertypes: zet `QT_QPA_FONTDIR`.** Het `offscreen`-platform gebruikt
   Qt's eigen lettertypedatabank en die zoekt in `<QGIS>/apps/Qt5/lib/fonts`, een map die niet
   bestaat (`QFontDatabase: Cannot find font directory`). Elke letter komt dan als zwart blokje uit
@@ -752,7 +786,7 @@ Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 - **Van de DSpace-omweg zit alleen de goedkoopste stap in de code** (dé beschrijving van het
   profieltype-portaal; de huisregel hierboven verwijst hiernaar) / het DOV-documentportaal
   antwoordt op de `_png`-downloadlink soms met zijn eigen webpagina (HTTP 200, `text/html`; live
-  gezien 2026-09-16, dezelfde URL leverde minuten eerder nog de PNG). `layout._drawing_bytes`
+  gezien 2026-09-16, dezelfde URL leverde minuten eerder nog de PNG). `prefetch._drawing_bytes`
   controleert daarom de PNG-magie, gooit een niet-PNG uit de cache (`HttpClient.forget`, want een
   webpagina in de schijfcache bederft elke volgende run), leest met
   `core/services/dov_portal.content_link` de directe bitstream-link uit die pagina - die staat er

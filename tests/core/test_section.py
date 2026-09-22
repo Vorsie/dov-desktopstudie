@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from desktopstudie.core import parallel
 from desktopstudie.core import section as s
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import Cpt, StudyZone
@@ -59,7 +60,19 @@ def test_failed_point_is_skipped_and_counted(gent_ring):
     sec = s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0, model="g3dv3_F", log=log)
     assert len(sec.boreholes) == 4
     assert sec.failed_points == 1
-    assert any("mislukt" in m for m in messages)
+    assert any("104226/192506" in m for m in messages), messages
+
+
+def test_cancelling_is_heard_while_the_doorprik_points_are_fetched(gent_ring):
+    """Annuleren hoort binnen de doorsnedefase gehoord te worden. De punten zijn de langste
+    reeks netwerkoproepen van die fase; wie daar niet pollt, laat de gebruiker de hele fase
+    uitzitten nadat hij op Annuleren drukte."""
+    client = _client()
+    zone = StudyZone(ring=gent_ring, name="z")
+
+    with pytest.raises(parallel.Cancelled):
+        s.build_section(client, LINE, zone, [], [], [], n_points=5, corridor_m=50.0,
+                        model="g3dv3_F", should_cancel=lambda: True)
 
 
 def test_all_points_failing_raises(gent_ring):
@@ -148,7 +161,7 @@ def test_the_profile_carries_the_section_when_every_doorprik_anchor_fails(gent_r
     # with no anchor to take an order from, the units stack on their numeric suffix
     codes = [layer.code for layer in sec.profile.columns[2].layers]
     assert codes == sorted(codes, key=lambda code: int(code.rsplit("_", 1)[-1]))
-    assert any("mislukt" in m for m in messages)
+    assert sum("virtuele boring" in m for m in messages) == 5, messages
 
 
 def test_the_section_raises_only_when_both_the_anchors_and_the_profile_are_gone(gent_ring):

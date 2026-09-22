@@ -7,7 +7,7 @@ ONLY table for that map - and it travels ON the map page (`MapPage.zone_legend`)
 the map frame, because a sheet holding two legend rows is a sheet of white paper. The "Leeswijzer"
 behind it says how to read those codes (`MapEntry.reading_guide`). The quartair map adds the drawings DOV
 publishes - those drawings ARE its legend - but this module fetches nothing: the shell hands the
-files it already downloaded in through `build_report(..., zone_legend_images=...)`, keyed by
+files it already downloaded in through `build_report(..., report_images=...)`, keyed by
 `profieltype:<code>` and `kaartblad:<nn>`.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
-from .model import StudyResult, plain_reason
+from .model import StudyResult, facts_of, plain_reason
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
@@ -199,12 +199,6 @@ def _map_pages(chapter: str, only: Optional[List[str]] = None, **kw) -> List[Pag
             for entry in catalogue.entries(chapter, only=only)]
 
 
-def _fact_rows(entry: catalogue.MapEntry, result: StudyResult) -> Optional[List[Dict[str, Any]]]:
-    """The rows the study found for this map: `[]` when the zone holds none, None when the source
-    never answered. Telling those two apart is the whole point of keeping it Optional."""
-    return next((mf.rows for mf in result.map_facts if mf.map_id == entry.id), None)
-
-
 # A sentence in a reading guide that describes the table under it. When there is no table, such a
 # sentence promises the reader something the sheet does not hold, so it is left out.
 TABLE_SENTENCE = re.compile(r"(?:De|Deze) (?:tabel|kolom|kolommen) ")
@@ -324,12 +318,12 @@ def quartair_sheet(code: str) -> str:
 
 
 def profile_image_key(code: str) -> str:
-    """How `zone_legend_images` names the header strip of one profile type."""
+    """How `report_images` names the header strip of one profile type."""
     return f"{PROFILE_KEY}:{code}"
 
 
 def sheet_image_key(sheet: str) -> str:
-    """How `zone_legend_images` names the units table of one map sheet."""
+    """How `report_images` names the units table of one map sheet."""
     return f"{SHEET_KEY}:{sheet}"
 
 
@@ -351,7 +345,7 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
     line of description - says what the URL was for. The raw URL stays in `MapFact.rows` and in
     studie.json.
     """
-    rows_src = _fact_rows(entry, result)
+    rows_src = facts_of(result, entry.id)
     entries: List[LegendEntry] = []
     for row in rows_src or []:
         code = _s(row.get(QUARTAIR_CODE))
@@ -404,10 +398,11 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     spread = sorted({float(row[THICKNESS_FIELD]) for row in rows or []
                      if row.get(THICKNESS_FIELD) is not None})
     if not spread and _quartair_model_layer(result) is not None:
-        # Geen contour in beeld EN de dikte staat al in de periodetabel van hoofdstuk 4: dan heeft
-        # dit blad niets eigens meer te zeggen. Een lege bladzijde met een modelzin erop leest als
-        # een fout, dus valt de kaart weg en komt ze op de gebundelde pagina achteraan te staan.
-        # Ontbreekt die tabel wel, dan is deze zin het enige dat de dikte nog noemt en blijft ze.
+        # No contour in view AND the thickness already stands in the period table of chapter 4:
+        # then this sheet has nothing of its own left to say. An empty page carrying one modelled
+        # sentence reads as a fault, so the map drops out and lands on the bundled page at the
+        # back. Where that table is missing, this sentence is the only thing still naming the
+        # thickness and it stays.
         return ""
     if spread:
         seen = (f"{spread[0]:.1f} tot {spread[-1]:.1f} m" if spread[0] != spread[-1]
@@ -421,6 +416,17 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     return " ".join(parts)
 
 
+def legend_shows_rows(legend) -> bool:
+    """Whether a map page's zone legend actually shows something.
+
+    A `LegendPage` carries `entries`, a `TablePage` carries `rows`, and `None` carries neither;
+    the three callers that ask this question (the guide sentence, the bundled page of empty
+    legends, and the shell's check for a sheet with nothing on it) must agree, and two of them
+    stand on either side of the core/shell boundary.
+    """
+    return bool(getattr(legend, "rows", None) or getattr(legend, "entries", None))
+
+
 def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
                      images: Dict[str, str]) -> Union[TablePage, LegendPage]:
     """The classes that lie inside the zone, once each.
@@ -431,18 +437,19 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
     """
     if entry.id == QUARTAIR_ID:
         return _quartair_zone_legend(entry, result, images)
-    rows_src = _fact_rows(entry, result)
+    rows_src = facts_of(result, entry.id)
+    if entry.id == ISOPACH_ID:
+        # No table at all: the thickness is printed on the lines by the service's own style, and a
+        # column of distances to lines the reader can see is furniture, not an answer. Decided
+        # before the cells are formatted, because none of them is ever printed.
+        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
+        return TablePage(entry.title, [], [], note)
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
     for row in rows_src or []:
         cells = _cells(entry, row, fields)  # `_cells` already prints a bare URL in its short form
         if cells not in rows:
             rows.append(cells)
-    if entry.id == ISOPACH_ID:
-        # No table at all: the thickness is printed on the lines by the service's own style, and a
-        # column of distances to lines the reader can see is furniture, not an answer.
-        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
-        return TablePage(entry.title, [], [], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
         # number, and nine near-identical rows cost two sheets while saying nothing the first row
@@ -466,7 +473,7 @@ def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
         return []
     pages: List[Page] = []
     seen = set()
-    for row in _fact_rows(entry, result) or []:
+    for row in facts_of(result, entry.id) or []:
         sheet = quartair_sheet(_s(row.get(QUARTAIR_CODE)))
         units = images.get(sheet_image_key(sheet))
         if units is None or sheet in seen:
@@ -489,12 +496,12 @@ CLASS_KEY = "klassensleutel"
 
 
 def ramp_image_key(map_id: str) -> str:
-    """How `zone_legend_images` names the colour strip the shell cut for one map."""
+    """How `report_images` names the colour strip the shell cut for one map."""
     return f"{RAMP_KEY}:{map_id}"
 
 
 def class_key_image_key(map_id: str) -> str:
-    """How `zone_legend_images` names the class key the shell fetched for one map."""
+    """How `report_images` names the class key the shell fetched for one map."""
     return f"{CLASS_KEY}:{map_id}"
 
 
@@ -558,7 +565,7 @@ def _gxg_ramp(entry: catalogue.MapEntry, result: StudyResult, images: Dict[str, 
     steps = len(ticks) - 1
     path = images.get(ramp_image_key(entry.id), "")
     level = _gxg_level(entry)
-    row = next(iter(_fact_rows(entry, result) or []), None)
+    row = next(iter(facts_of(result, entry.id) or []), None)
     depth = row.get(entry.fact_fields[0]) if row else None
     if depth is None:
         summary = f"{level}: geen waarde op dit punt (zie hoofdstuk Bronnen)."
@@ -630,7 +637,7 @@ def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
     return hist
 
 
-def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -> Chapter:
+def _chapter_geologie(result: StudyResult, report_images: Dict[str, str]) -> Chapter:
     """Per map: the map, with how to read its codes and the classes that lie in the zone printed
     under it.
 
@@ -649,18 +656,16 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                        note=entry.note)
         if entry.ramp:
-            page.ramp = _ramp_for(entry, result, zone_legend_images)
+            page.ramp = _ramp_for(entry, result, report_images)
         if entry.class_key:
-            page.class_key = zone_legend_images.get(class_key_image_key(entry.id), "")
+            page.class_key = report_images.get(class_key_image_key(entry.id), "")
         if entry.fact_mode is not None:
-            page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
-        # A LegendPage carries `entries`, a TablePage `rows`; either way an empty one means the
-        # sheet holds no table for the guide to describe.
-        legend = page.zone_legend
-        shown = getattr(legend, "rows", None) or getattr(legend, "entries", None)
-        page.guide = _guide_text(entry, bool(shown) or entry.fact_mode is None)
+            page.zone_legend = _zone_legend_for(entry, result, report_images)
+        # An empty zone legend means the sheet holds no table for the guide to describe.
+        page.guide = _guide_text(entry, legend_shows_rows(page.zone_legend)
+                                 or entry.fact_mode is None)
         geo.pages.append(page)
-        geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
+        geo.pages.extend(_zone_legend_figures(entry, result, report_images))
     return geo
 
 
@@ -870,7 +875,7 @@ def _empty_answer(page: MapPage) -> Optional[Tuple[str, str]]:
     modelled value) is content, not an exception, and must never be swept up with these.
     """
     legend = page.zone_legend
-    if legend is None or getattr(legend, "rows", None) or getattr(legend, "entries", None):
+    if legend is None or legend_shows_rows(legend):
         return None
     entry = catalogue.by_id(page.map_id)
     note = getattr(legend, "note", "")
@@ -908,12 +913,14 @@ def _gather_empty_answers(chapters: List[Chapter],
 
 
 def build_report(result: StudyResult, meta: ReportMeta,
-                 zone_legend_images: Optional[Dict[str, str]] = None,
+                 report_images: Optional[Dict[str, str]] = None,
                  unavailable: Optional[Set[MapPageKey]] = None) -> Report:
-    """The whole report tree. `zone_legend_images` maps `profieltype:<code>` to the header strip,
-    `kaartblad:<nn>` to the units table and `kleurschaal:<map id>` to a colour strip the shell
-    fetched, as paths relative to the output directory (the same shape as `StudyResult.figures`);
-    without it the legend keeps its lines but shows no drawings.
+    """The whole report tree. `report_images` is every picture the shell fetched that is report
+    CONTENT rather than a legend sheet, keyed by what it belongs to: `profieltype:<code>` for a
+    header strip, `kaartblad:<nn>` for a units table, `kleurschaal:<map id>` for a colour strip
+    and `klassensleutel:<map id>` for a class key, as paths relative to the output directory (the
+    same shape as `StudyResult.figures`). Without it a legend keeps its lines but shows no
+    drawings.
 
     `unavailable` holds the `map_page_key`s whose map image did not come back - no coverage here,
     or a fetch that failed. Those pages are left out entirely; the shell knows them because it
@@ -922,7 +929,7 @@ def build_report(result: StudyResult, meta: ReportMeta,
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
-    images = zone_legend_images or {}
+    images = report_images or {}
     chapters = [
         _chapter_ligging(result, images), _chapter_historisch(result.map_ids),
         _chapter_geologie(result, images),

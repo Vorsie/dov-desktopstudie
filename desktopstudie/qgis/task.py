@@ -4,9 +4,9 @@ thread for the rest, and the log that lands in the QGIS log panel.
 Three rules keep the GUI alive while a study of a few minutes runs.
 
 *Nothing in the worker touches a widget or the project.* `StudyTask.run` does `run_core` and
-`prepare` - data, figures, legends, drawings, map images - and reports progress through a signal
-that Qt queues to the main thread. What it hands back is plain Python: a result, a `Prepared`, or
-an exception.
+`prepare`, which between them are the core and the whole of `prefetch` - the import graph says so,
+and that is where to check it rather than here. Progress goes out through a signal that Qt queues
+to the main thread, and what comes back is plain Python: a result, a `Prepared`, or an exception.
 
 *The main thread yields.* `finish` polls `should_cancel` between phases, between pages of the
 layout and between runs of the exporter, and the runner's `should_cancel` pumps the event loop
@@ -41,12 +41,13 @@ from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import QProgressBar, QPushButton
 
 from ..core import geometry
+from ..core.geometry import CRS
 from ..core.logging_util import Log
 from ..core.model import StudyResult, StudyZone
+from ..core.parallel import Cancelled
 from ..core.report_content import ReportMeta
-from ..core.study import Settings, StudyCancelled
+from ..core.study import Settings
 from . import pipeline
-from .layers import CRS_AUTHID
 from .pipeline import CORE_SHARE, PipelineResult, Prepared, part_of
 
 PLUGIN_NAME = "DOV Desktopstudie"
@@ -123,7 +124,7 @@ class StudyTask(QgsTask):
                                              should_cancel=self.isCanceled, client=client,
                                              cache_mode=request.cache_mode, legends=request.legends)
             return True
-        except StudyCancelled:
+        except Cancelled:
             self.cancelled = True
             self.log.info("studie afgebroken in de werkthread")
             return False
@@ -296,7 +297,7 @@ class StudyRunner(QObject):
                                    legends=request.legends, should_cancel=self._should_cancel,
                                    cache_mode=request.cache_mode, prepared=outcome.prepared,
                                    compact=request.settings.compact)
-        except StudyCancelled:
+        except Cancelled:
             return self._stopped()
         except Exception as exc:  # noqa: BLE001 - reported to the user, never swallowed
             self.log.debug(traceback.format_exc())
@@ -333,7 +334,7 @@ class StudyRunner(QObject):
         minx, miny, maxx, maxy = zone.bbox
         margin = max(maxx - minx, maxy - miny) * ZOOM_MARGIN
         extent = QgsRectangle(*geometry.expand_bbox(zone.bbox, margin))
-        lambert = QgsCoordinateReferenceSystem(CRS_AUTHID)
+        lambert = QgsCoordinateReferenceSystem(CRS)
         target = canvas.mapSettings().destinationCrs()
         if target.isValid() and target != lambert:
             extent = QgsCoordinateTransform(lambert, target, QgsProject.instance()).transformBoundingBox(extent)

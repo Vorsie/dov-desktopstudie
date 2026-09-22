@@ -46,7 +46,7 @@ from qgis.core import (
     QgsProperty,
 )
 
-from ..core.study import StudyCancelled
+from ..core.parallel import CANCELLED_MESSAGE, Cancelled
 from .compat import enum_name
 
 PAGE_STEM = "pagina"  # QGIS writes pagina.png, pagina_2.png, pagina_3.png, ...
@@ -214,7 +214,7 @@ def _page_number(path: Path) -> int:
     return int(suffix) if suffix.isdigit() else 1
 
 
-def export_pdf(layout: QgsPrintLayout, path, dpi: int = PDF_DPI,
+def export_pdf(layout: QgsPrintLayout, path,
                pages_per_run: int = PDF_PAGES_PER_RUN,
                should_cancel: Optional[Callable[[], bool]] = None,
                progress: Optional[Callable[[int, int], None]] = None) -> Path:
@@ -240,7 +240,7 @@ def export_pdf(layout: QgsPrintLayout, path, dpi: int = PDF_DPI,
     path.parent.mkdir(parents=True, exist_ok=True)
     refresh_data_defined(layout)
     settings = QgsLayoutExporter.PdfExportSettings()
-    settings.dpi = dpi
+    settings.dpi = PDF_DPI
     settings.rasterizeWholeImage = False
     settings.textRenderFormat = Qgis.TextRenderFormat.AlwaysText
     with _frozen_exclusions(layout) as exported:
@@ -252,7 +252,7 @@ def export_pdf(layout: QgsPrintLayout, path, dpi: int = PDF_DPI,
     if runs.cancelled:
         if path.exists():
             path.unlink()
-        raise StudyCancelled("afgebroken door de gebruiker")
+        raise Cancelled(CANCELLED_MESSAGE)
     _check(result, "PDF-export", path)
     return path
 

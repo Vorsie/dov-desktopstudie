@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import (
+    drawn_png,
+    report_of,
+    striped_png,
+)
 from tests.qgis.conftest import report_meta as _meta
 from tests.qgis.conftest import write_png as _png
 
@@ -17,12 +22,6 @@ ZONE_WIDTH_M = 100.0  # de Gent-zone is een cirkel van 50 m straal
 MARGIN = 15.0
 TABLE_COLUMNS = ["Eenheid", "Top (mTAW)", "Basis (mTAW)"]
 FIGURE_REL = "figuren/sondering.png"
-
-
-def _report(pages):
-    from desktopstudie.core.report_content import Chapter, Report
-
-    return Report(title="Desktopstudie testproject", meta={}, chapters=[Chapter(1, "Test", pages)])
 
 
 def _standard_pages():
@@ -56,7 +55,7 @@ def make_layout(project, gent_zone, tmp_path):
             legend_images = {MAP_ID: _png(tmp_path / "legendas" / f"{MAP_ID}.png", 120, 300)}
         merged = {"zone": [zone]}
         merged.update(overlays or {})
-        return layout.build_layout(project, _report(_standard_pages() if pages is None else pages),
+        return layout.build_layout(project, report_of(_standard_pages() if pages is None else pages),
                                    merged, tmp_path, gent_zone.ring,
                                    _meta(), legends=legends, legend_images=legend_images,
                                    no_coverage=no_coverage, compact=compact)
@@ -259,7 +258,7 @@ def test_a_long_source_line_makes_its_info_box_taller(project, gent_zone, tmp_pa
     from desktopstudie.qgis import layout
 
     def source_box_height(map_id):
-        lay = layout.build_layout(project, _report([MapPage(map_id, "Kaart", legend=False)]),
+        lay = layout.build_layout(project, report_of([MapPage(map_id, "Kaart", legend=False)]),
                                   {}, tmp_path, gent_zone.ring, _meta())
         boxes = [lbl for lbl in _items_of(lay, 1, QgsLayoutItemLabel) if lbl.frameEnabled()]
         source = max(boxes, key=lambda box: box.pos().y())  # het bronvak staat onderaan de kaart
@@ -285,7 +284,7 @@ def test_the_extent_is_the_wider_of_the_target_scale_and_the_zone(project, gent_
     wint, want anders valt de zone buiten beeld."""
     from desktopstudie.qgis import layout
 
-    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, report_of([]), {}, tmp_path, gent_zone.ring, _meta())
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(layout.MAP_W / 1000.0 * 2500, abs=0.5)
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
     assert builder.map_extent(2500, 10.0).width() == pytest.approx(ZONE_WIDTH_M * 10.0, abs=0.5)
@@ -301,7 +300,7 @@ def test_the_extent_also_holds_what_the_page_asked_to_draw(project, gent_zone, t
     from desktopstudie.qgis import layers, layout
 
     search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
-    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, report_of([]), {}, tmp_path, gent_zone.ring, _meta())
 
     tight = builder.map_extent(2500, 3.0)
     wide = builder.map_extent(2500, 3.0, [search_area])
@@ -317,7 +316,7 @@ def test_a_map_widened_for_its_overlays_lands_on_a_round_scale(project, gent_zon
     from desktopstudie.qgis import layers, layout
 
     search_area = layers.circle_layer(gent_zone)  # 500 m rond de zone van 50 m
-    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, report_of([]), {}, tmp_path, gent_zone.ring, _meta())
 
     extent = builder.map_extent(5000, 1.0, [search_area])  # de overzichtspagina van hoofdstuk 5
 
@@ -330,7 +329,7 @@ def test_a_map_that_was_not_widened_keeps_the_catalogue_scale(project, gent_zone
     tussenstap die naar de ladder mag worden getrokken."""
     from desktopstudie.qgis import layout
 
-    builder = layout.LayoutBuilder(project, _report([]), {}, tmp_path, gent_zone.ring, _meta())
+    builder = layout.LayoutBuilder(project, report_of([]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert builder.map_extent(2500, 3.0).width() == pytest.approx(450.0, abs=0.5)
 
@@ -346,7 +345,7 @@ def test_the_info_box_prints_the_rounded_scale(project, gent_zone, tmp_path):
                    extent_factor=1.0, show_investigations=True)
     overlays = {"zone": [layers.zone_layer(gent_zone)],
                 "investigations": [layers.circle_layer(gent_zone)]}
-    lay = layout.build_layout(project, _report([page]), overlays, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), overlays, tmp_path, gent_zone.ring, _meta())
 
     texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
     assert any("schaal 1:10 000" in text for text in texts), texts
@@ -388,22 +387,6 @@ def test_a_legend_taller_than_a_page_is_cut_into_page_sized_strips(make_layout, 
         assert prop.expressionString() == "@legendas = 0", f"blad {index} volgt de schakelaar niet"
 
 
-def _striped_png(path, width=200, blocks=100, block_h=30, gap_h=6):
-    """Een legenda zoals een GeoServer ze tekent: gekleurde regels van 30 px, telkens gescheiden
-    door een witte tussenruimte van 6 px. Elke gekleurde regel is een legenda-item."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, blocks * (block_h + gap_h), QImage.Format.Format_ARGB32)
-    image.fill(QColor(255, 255, 255))
-    painter = QPainter(image)
-    for number in range(blocks):
-        painter.fillRect(0, number * (block_h + gap_h), width, block_h, QColor(20, 90 + number % 150, 160))
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def _row_is_white(image, y):
     from qgis.PyQt.QtGui import QColor
 
@@ -417,7 +400,7 @@ def test_a_strip_boundary_never_runs_through_a_legend_item(qgs_app, tmp_path):
 
     from desktopstudie.qgis import layout
 
-    source = _striped_png(tmp_path / "legendas" / "gxg_ghg.png")
+    source = striped_png(tmp_path / "legendas" / "gxg_ghg.png")
     strips = layout._legend_strips(source, "gxg_ghg")
 
     assert len(strips) >= 2, "een strook van 3600 px hoort niet op een blad te passen"
@@ -437,7 +420,7 @@ def test_a_legend_without_any_blank_row_is_still_cut(qgs_app, tmp_path):
 
     from desktopstudie.qgis import layout
 
-    solid = _striped_png(tmp_path / "legendas" / "vol.png", blocks=1, block_h=3600, gap_h=0)
+    solid = striped_png(tmp_path / "legendas" / "vol.png", blocks=1, block_h=3600, gap_h=0)
     strips = layout._legend_strips(solid, "vol")
 
     assert len(strips) >= 2
@@ -471,283 +454,7 @@ def test_the_legend_switch_drops_the_pages_from_a_real_export(make_layout, tmp_p
 
 # --- legenda-URL en ophalen ------------------------------------------------------------------
 
-def test_the_legend_url_asks_for_the_style_and_the_column_layout():
-    """Een legenda hoort bij een laag en bij een stijl: gxg zonder stijl tekent een andere legenda
-    dan de kaart. LEGEND_OPTIONS houdt de klassen in kolommen in plaats van in een strook."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    entry = catalogue.by_id("gxg_ghg")
-    url = layout.wms_legend_url(entry, entry.legend_options)
-
-    assert "REQUEST=GetLegendGraphic" in url and "VERSION=1.3.0" in url
-    # the workspace service, on which the layer goes by its bare name; the style keeps its prefix
-    assert url.startswith("https://www.dov.vlaanderen.be/geoserver/gxg/wms?")
-    assert "LAYER=ghg_mmv_main&" in url
-    assert "STYLE=gxg%3Agxg" in url or "STYLE=gxg:gxg" in url
-    assert "LEGEND_OPTIONS=" in url and "columns" in url
-    assert "LEGEND_OPTIONS" not in layout.wms_legend_url(entry, "")
-
-
-def test_a_legend_that_cannot_be_fetched_is_reported_not_swallowed(qgs_app, tmp_path):
-    """Een bron die faalt, faalt luid: geen pad terug en een WARNING."""
-    from dataclasses import replace
-
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    entry = replace(catalogue.by_id("gxg_ghg"), wms_url="http://127.0.0.1:9/wms")
-    lines = []
-    client = HttpClient(cache_dir=None, timeout=1.0, retries=0, sleep=lambda _s: None)
-
-    assert layout.fetch_legend(entry, tmp_path, client, Log("layout", lines.append, scope="qgis")) is None
-    assert any("WARNING" in line for line in lines), lines
-
-
-def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
-    """Kaarten met legend=False worden niet opgehaald - de bodemkaart alleen al zou een strook van
-    duizenden pixels binnenhalen die nergens op past."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    asked = []
-    blob = _png(tmp_path / "bron.png").read_bytes()
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append((url, timeout, retries))
-            return blob
-
-    entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("tertiair")]
-    images, missing = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
-
-    assert list(images) == ["tertiair"]
-    assert missing == []
-    assert len(asked) == 1 and "tertiair_50k" in asked[0][0]
-    # Een legenda is één plaatje van veertien: een korte adem, net als een fiche. Drie keer een
-    # volle minuut wachten op een dienst die plat ligt, kost het rapport zijn legendapagina's.
-    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
-
-
-@pytest.mark.live
-def test_live_the_gxg_legend_is_a_real_png(qgs_app, tmp_path):
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    path = layout.fetch_legend(catalogue.by_id("gxg_ghg"), tmp_path, HttpClient(cache_dir=None))
-
-    assert path is not None and path.exists()
-    assert path.stat().st_size > 1024
-    assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
-
-
 # --- legenda's van de zone (profieltypes van het Quartair) ------------------------------------
-
-def _quartair_result(gent_zone, codes):
-    from desktopstudie.core.model import StudyResult
-    from tests import quartair
-
-    result = StudyResult(zone=gent_zone, created_at="2026-09-15T10:00:00")
-    result.map_facts = [quartair.map_fact(codes)]
-    return result
-
-
-def _profile_drawing(path, width=980, header_h=103, gap_h=14, body_h=586):
-    """Een profieltypetekening zoals DOV ze levert: bovenaan het profieltype zelf (kleurvlak, code
-    en een regel uitleg), dan een witte tussenruimte, dan de eenhedentabel van het kaartblad."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, header_h + gap_h + body_h, QImage.Format.Format_ARGB32)
-    image.fill(QColor(255, 255, 255))
-    painter = QPainter(image)
-    painter.fillRect(0, 0, 120, 24, QColor(0, 0, 0))            # "Profieltype"
-    painter.fillRect(0, 34, 130, header_h - 34, QColor(200, 198, 170))  # kleurvlak + omschrijving
-    painter.fillRect(0, header_h + gap_h, width, body_h, QColor(40, 40, 40))  # eenhedentabel
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
-def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, gent_zone):
-    """De echte legenda van de Quartairkaart is een tekening per profieltype. Twee kaartvlakken van
-    hetzelfde type vragen om een tekening, en een tekening die de dienst niet levert, levert geen
-    bestand op - een lege figuurpagina belooft de lezer een legenda die er niet is."""
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.core.report_content import profile_image_key, sheet_image_key
-    from desktopstudie.core.services.http import HttpClient, HttpError
-    from desktopstudie.qgis import layout
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-    asked = []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append((url, timeout, retries))
-            if url.endswith("22098_png"):
-                raise HttpError(url, 500, "dienst plat")
-            return blob
-
-    lines = []
-    result = _quartair_result(gent_zone, ["22026", "22010", "22026", "22098"])
-
-    images, _unpublished = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
-                                               Log("layout", lines.append, scope="qgis"))
-
-    # Een kopstrook per profieltype, en de eenhedentabel een keer voor het hele kaartblad.
-    assert set(images) == {profile_image_key("22026"), profile_image_key("22010"),
-                           sheet_image_key("22")}
-    assert images[profile_image_key("22026")].name == "quartair_22026_kop.png"
-    assert images[sheet_image_key("22")].name == "quartair_kaartblad_22.png"
-    # De eenhedentabel van het blad houdt alles behalve de kop van het profieltype waarmee ze
-    # binnenkwam; die kop staat al op de legendapagina.
-    assert images[sheet_image_key("22")].read_bytes() != blob
-    assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
-    # Ruimer dan een GetLegendGraphic-stempel, want dit is een bestand uit een documentportaal:
-    # 168 kB haalt vijftien seconden op een trage dag niet. Wel begrensd - een dienst die plat
-    # ligt mag het rapport geen drie volle minuten kosten.
-    assert asked[0][1:] == (layout.DRAWING_TIMEOUT_S, layout.LEGEND_RETRIES)
-    assert layout.DRAWING_TIMEOUT_S > layout.LEGEND_TIMEOUT_S
-    assert any("WARNING" in line for line in lines), lines
-
-
-def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_zone):
-    """De kopstrook is het deel dat per profieltype verschilt; de eenhedentabel eronder is voor elk
-    type van hetzelfde kaartblad dezelfde. De snede valt in de witte band ertussen, dus de strook
-    is korter dan de tekening en breder dan hoog."""
-    from qgis.PyQt.QtGui import QImage
-
-    from desktopstudie.core.report_content import profile_image_key
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return blob
-
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
-                                               _Client(cache_dir=None))
-
-    header = QImage(str(images[profile_image_key("22026")]))
-    whole = QImage(str(tmp_path / "bron.png"))
-    assert header.width() == whole.width()
-    assert header.height() < whole.height() / 2, "de eenhedentabel hoort er niet meer op te staan"
-    assert header.height() > 60, "het kleurvlak en de omschrijving horen er wel op te staan"
-    assert header.width() > header.height()
-
-
-def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone):
-    """De eenhedentabel geldt voor elk profieltype van het blad. Stond de kop van profieltype 22010
-    er nog boven, dan leest ze als de tabel van dat ene type - dus die kop gaat eraf, en de bronregel
-    onder de tabel blijft staan."""
-    from qgis.PyQt.QtGui import QImage
-
-    from desktopstudie.core.report_content import profile_image_key, sheet_image_key
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return blob
-
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
-                                               _Client(cache_dir=None))
-
-    whole = QImage(str(tmp_path / "bron.png"))
-    header = QImage(str(images[profile_image_key("22026")]))
-    units = QImage(str(images[sheet_image_key("22")]))
-    assert units.width() == whole.width()
-    assert units.height() == whole.height() - header.height(), "precies de kop eraf"
-    assert units.height() > whole.height() / 2, "de tabel zelf staat er nog helemaal op"
-
-
-def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_path, gent_zone):
-    """De legenda-URL's van DOV zijn downloadlinks die soms met HTTP 200 de webpagina van de dienst
-    teruggeven in plaats van het bestand (live gezien op 2026-09-16). Die pagina als PNG
-    wegschrijven levert een figuurpagina met een leeg kader, en in de schijfcache zou ze elke
-    volgende run bederven - dus wordt er nog een keer gevraagd, langs de cache heen."""
-    from desktopstudie.core.report_content import profile_image_key
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-    asked = []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append(cache_mode)
-            return b"<html><body>DSpace</body></html>" if len(asked) == 1 else blob
-
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
-                                               _Client(cache_dir=None))
-
-    assert profile_image_key("22026") in images
-    assert asked == [None, "refresh"], "de herkansing hoort de cache over te slaan"
-
-
-def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path, gent_zone):
-    """Blijft de dienst haar webpagina geven, dan komt er geen bestand en geen figuurpagina - een
-    mislukte bron, geen leeg kader."""
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return b"<html><body>Service unavailable</body></html>"
-
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
-                                               _Client(cache_dir=None))
-
-    assert images == {}
-    assert not (tmp_path / "legendas" / "quartair_22026.png").exists()
-
-
-def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_zone):
-    from desktopstudie.core.model import StudyResult
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
-
-    assert layout.prepare_zone_legend_images(
-        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == ({}, set())
-
-
-def test_a_profile_type_the_wfs_gives_no_drawing_link_for_counts_as_unpublished(gent_zone, tmp_path):
-    """Het rapport sprak zichzelf tegen: onder de kaart stond "tekening niet opgehaald - zie
-    hoofdstuk Bronnen" terwijl de Feiten "Bronnen niet beschikbaar: 0" zeiden en hoofdstuk Bronnen
-    er geen regel over had. De WFS gaf voor dat profieltype namelijk geen enkele link, dus werd er
-    ook nooit iets opgehaald en viel er niets te melden. Geen link is hetzelfde feit als een
-    niet-gevonden-pagina: DOV publiceert hier geen tekening."""
-    from desktopstudie.core.model import MapFact, StudyResult
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-    from tests import quartair
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            raise AssertionError(f"er is geen link, en toch gevraagd: {url}")
-
-    result = StudyResult(zone=gent_zone, created_at="t")
-    result.map_facts = [MapFact("quartair", quartair.TITLE,
-                                [{"profieltype": "13064", "legende": None}])]
-
-    images, unpublished = layout.prepare_zone_legend_images(result, tmp_path,
-                                                            _Client(cache_dir=None))
-
-    assert images == {}
-    assert unpublished == {"13064"}
-
 
 # --- overige pagina's ------------------------------------------------------------------------
 
@@ -794,7 +501,7 @@ def test_the_footer_leaves_out_what_the_study_does_not_know(project, gent_zone, 
 
     from desktopstudie.qgis import layout
 
-    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring,
+    lay = layout.build_layout(project, report_of([]), {}, tmp_path, gent_zone.ring,
                               {"project": "", "company": "", "created_at": "2026-09-15T10:00:00"})
     footer = _footers_on(lay, 0)[0]
     assert footer.text().startswith("pagina ")
@@ -858,7 +565,7 @@ def test_a_wide_table_lands_on_a_landscape_sheet_with_every_column_on_it(project
     from desktopstudie.qgis import layout
 
     page = _sonderingen_page()
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
     metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Landscape)
@@ -878,7 +585,7 @@ def test_a_narrow_table_stays_portrait_and_wraps_its_long_sentences(project, gen
     from desktopstudie.qgis import layout
 
     page = _signaleringen_page()
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
     metrics = layout._page_metrics(QgsLayoutItemPage.Orientation.Portrait)
@@ -897,7 +604,7 @@ def test_a_table_of_fiches_says_where_the_fiches_live(project, gent_zone, tmp_pa
     from desktopstudie.qgis import layout
 
     page = _sonderingen_page()
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = [item.text() for item in lay.items() if isinstance(item, QgsLayoutItemLabel)]
     assert any("https://www.dov.vlaanderen.be/data/sondering/" in text for text in texts), texts
@@ -910,7 +617,7 @@ def test_a_figure_wider_than_tall_gets_a_landscape_sheet(project, gent_zone, tmp
     from desktopstudie.qgis import layout
 
     _png(tmp_path / "figuren" / "breed.png", 1400, 1142)
-    lay = layout.build_layout(project, _report([FigurePage("Doorsnede", "figuren/breed.png")]), {},
+    lay = layout.build_layout(project, report_of([FigurePage("Doorsnede", "figuren/breed.png")]), {},
                               tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
@@ -932,7 +639,7 @@ def test_a_legend_page_puts_a_label_and_a_strip_per_entry_on_one_sheet(project, 
         LegendEntry("22010", "22", "legendas/quartair_22010_kop.png"),
         LegendEntry("22026", "22", "legendas/quartair_22026_kop.png")])
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert lay.pageCollection().pageCount() == 1 + 1, "een blad, geen strookje per blad"
     sheet = lay.pageCollection().page(1)
@@ -960,7 +667,7 @@ def test_a_legend_entry_without_a_drawing_says_so(project, gent_zone, tmp_path):
 
     page = LegendPage("Legenda voor de zone - Quartair", [LegendEntry("22098", "22", "")])
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Profieltype 22098 - kaartblad 22" in texts
@@ -980,7 +687,7 @@ def test_a_legend_page_that_is_full_continues_on_the_next_sheet(project, gent_zo
         _png(tmp_path / "legendas" / f"quartair_{code}_kop.png", 980, 98)
         entries.append(LegendEntry(code, "22", f"legendas/quartair_{code}_kop.png"))
 
-    lay = layout.build_layout(project, _report([LegendPage("Legenda voor de zone - Quartair",
+    lay = layout.build_layout(project, report_of([LegendPage("Legenda voor de zone - Quartair",
                                                            entries)]),
                               {}, tmp_path, gent_zone.ring, _meta())
 
@@ -1003,7 +710,7 @@ def test_an_empty_legend_page_prints_its_note(project, gent_zone, tmp_path):
 
     page = LegendPage("Legenda voor de zone - Quartair", [], note="Bron niet beschikbaar.")
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Bron niet beschikbaar." in texts
@@ -1014,7 +721,7 @@ def test_a_tall_figure_stays_on_a_portrait_sheet(project, gent_zone, tmp_path):
     from desktopstudie.qgis import layout
 
     _png(tmp_path / "figuren" / "hoog.png", 535, 985)
-    lay = layout.build_layout(project, _report([FigurePage("Sondering", "figuren/hoog.png")]), {},
+    lay = layout.build_layout(project, report_of([FigurePage("Sondering", "figuren/hoog.png")]), {},
                               tmp_path, gent_zone.ring, _meta())
 
     sheet = lay.pageCollection().page(1)
@@ -1031,7 +738,7 @@ def test_building_a_layout_stops_when_the_user_cancels(project, gent_zone, tmp_p
     pages = [TextPage(f"Blad {number}", "<p>tekst</p>") for number in range(20)]
 
     with pytest.raises(Cancelled):
-        layout.build_layout(project, _report(pages), {}, tmp_path, gent_zone.ring, _meta(),
+        layout.build_layout(project, report_of(pages), {}, tmp_path, gent_zone.ring, _meta(),
                             should_cancel=lambda: True)
 
 
@@ -1051,14 +758,31 @@ def _honest_width(columns, rows):
     Niet als getal in de test: dezelfde tekst is in de QGIS-containers breder dan op deze machine
     (andere lettertypes), en een tabel die daar niet meer past valt terug op de andere regel -
     "past zelfs de ondergrens niet, dan krimpt alles evenredig" - waar deze test niet over gaat.
-    Ruim gemeten, zodat de kap van MAX_COLUMN_SHARE niet meespeelt.
+    Gemeten met dezelfde helper als de opmaak zelf, en zonder kap (UNBOUNDED_WIDTH), zodat
+    MAX_COLUMN_SHARE niet meespeelt.
     """
     from desktopstudie.qgis import layout
 
-    roomy = 10_000.0
-    cells = [[row[index] for row in rows] for index in range(len(columns))]
-    return sum(layout._floor_width(column, column_cells, roomy, layout.TABLE_FONT_PT)
-               for column, column_cells in zip(columns, cells))
+    _wanted, floor = layout._column_demand(columns, rows, layout.UNBOUNDED_WIDTH)
+    return sum(floor)
+
+
+def test_the_table_furniture_is_exactly_what_qgis_gives_a_bare_table(project):
+    """De orientatie van een tabel wordt beslist VOOR de tabel bestaat, dus staan QGIS' eigen
+    maten - celmarge en rasterlijn - als constante in de module. Verschuift een QGIS-release er
+    een, dan rekent `_fits_portrait` met een andere breedte dan `_new_table` en steekt een tabel
+    over haar frame heen. Hier gepind tegen een kale tabel, want een assert hierop zou pas midden
+    in het bouwen van een rapport afgaan."""
+    from qgis.core import QgsLayoutItemTextTable, QgsPrintLayout
+
+    from desktopstudie.qgis import layout
+
+    lay = QgsPrintLayout(project)
+    table = QgsLayoutItemTextTable(lay)
+
+    assert table.cellMargin() == pytest.approx(layout.TABLE_CELL_MARGIN)
+    assert table.gridStrokeWidth() == pytest.approx(layout.TABLE_GRID_WIDTH)
+    assert table.showGrid(), "zonder raster telt _fits_portrait een rasterlijn te veel mee"
 
 
 def test_a_column_of_unbreakable_words_keeps_its_own_width(qgs_app):
@@ -1132,7 +856,7 @@ def test_a_table_without_rows_prints_its_reason_and_no_empty_header(project, gen
     page = TablePage("Legenda voor de zone - Erosie", ["Erosieklasse", "Totale erosie"], [],
                      note="Geen kaarteenheden binnen de zone.")
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Geen kaarteenheden binnen de zone." in texts
@@ -1165,7 +889,7 @@ def test_a_zone_legend_never_prints_a_header_with_nothing_under_it(project, gent
     _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
     page.class_key = "legendas/krimp_zwel.png"
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     context = QgsLayoutUtils.createRenderContextForLayout(lay, None)
     for index in range(lay.pageCollection().pageCount()):
@@ -1183,7 +907,7 @@ def test_a_table_with_rows_keeps_its_header(project, gent_zone, tmp_path):
 
     page = TablePage("Legenda", ["Klasse"], [["C - kleine kans [2]"]])
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta())
 
     assert len(_items_of(lay, 1, QgsLayoutFrame)) == 1
 
@@ -1198,7 +922,7 @@ def test_the_title_page_leaves_out_a_zone_line_that_repeats_the_address(project,
 
     meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Kortrijksesteenweg 100")
 
-    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, meta)
+    lay = layout.build_layout(project, report_of([]), {}, tmp_path, gent_zone.ring, meta)
 
     texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
     assert "Adres" in texts and "Kortrijksesteenweg 100" in texts
@@ -1212,38 +936,13 @@ def test_the_title_page_keeps_a_zone_line_that_says_something_else(project, gent
 
     meta = dict(_meta(), address="Kortrijksesteenweg 100", zone_name="Getekende polygoon")
 
-    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, meta)
+    lay = layout.build_layout(project, report_of([]), {}, tmp_path, gent_zone.ring, meta)
 
     texts = " ".join(item.text() for item in _items_of(lay, 0, QgsLayoutItemLabel))
     assert "Getekende polygoon" in texts
 
 
 # --- dekking: levert de dienst hier wel een kaartbeeld? ---------------------------------------
-
-def _solid_png(path, width=64, height=64, rgba=(255, 255, 255, 0)):
-    """Een tegel zonder tekening: één kleur, of volledig doorzichtig."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(width, height, QImage.Format.Format_ARGB32)
-    image.fill(QColor(*rgba))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
-def _drawn_png(path, width=64, height=64):
-    """Een tegel met iets erop: twee kleuren, zoals elke kaart die hier wel dekking heeft."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, height, QImage.Format.Format_ARGB32)
-    image.fill(QColor(240, 240, 230))
-    painter = QPainter(image)
-    painter.fillRect(4, 4, width // 2, height // 2, QColor(120, 40, 40))
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
 
 def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout, gent_zone):
     """De kaart blijft staan - de zonecirkel hoort zichtbaar te zijn - maar het blad zegt dat de
@@ -1300,73 +999,6 @@ def layout_module():
     return layout
 
 
-def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent_zone):
-    """Een profieltype zonder bruikbare legenda-URL levert een regel zonder tekening op. Zonder
-    logregel is dat niet te onderscheiden van een download die mislukte - en wat NIET gevonden is,
-    hoort in het log."""
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.core.model import MapFact, StudyResult
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-    from tests import quartair
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return blob
-
-    result = StudyResult(zone=gent_zone, created_at="t")
-    result.map_facts = [MapFact("quartair", "Quartair", [
-        quartair.rows(["22026"])[0], {"profieltype": "22099", "legende": None}])]
-    lines = []
-
-    layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
-                                      Log("layout", lines.append, scope="qgis"))
-
-    assert any("22099" in line and "WARNING" in line for line in lines), lines
-    assert not any("22026" in line and "WARNING" in line for line in lines), lines
-
-
-def test_a_drawing_that_cannot_be_read_gives_no_strip(qgs_app, tmp_path):
-    """Een bestand dat geen afbeelding is, levert geen kopstrook en zegt dat in het log - het mag
-    geen leeg kader op de legendapagina worden."""
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.qgis import layout
-
-    kapot = tmp_path / "legendas" / "quartair_22026.png"
-    kapot.parent.mkdir(parents=True, exist_ok=True)
-    kapot.write_bytes(b"dit is geen png")
-    lines = []
-
-    assert layout.crop_profile_header(kapot, Log("layout", lines.append, scope="qgis")) is None
-    assert layout.crop_sheet_units(kapot, "22", Log("layout", lines.append, scope="qgis")) is None
-    assert sum("WARNING" in line for line in lines) == 2, lines
-
-
-def test_a_drawing_without_a_white_band_falls_back_to_a_fixed_strip(qgs_app, tmp_path):
-    """Zonder witte band is er geen natuurlijke snede. Dan wint een vaste strook: nog altijd een
-    strook, en niet een heel blad eenhedentabel."""
-    from qgis.PyQt.QtGui import QImage
-
-    from desktopstudie.qgis import layout
-
-    vol = _drawn_png(tmp_path / "vol.png", 980, 703)
-
-    assert layout.header_rows(QImage(str(vol))) == layout.HEADER_FALLBACK_ROWS
-
-
-def test_a_drawing_shorter_than_the_fallback_keeps_its_own_height(qgs_app, tmp_path):
-    """Een tekening die korter is dan de vaste strook wordt niet langer gemaakt dan ze is."""
-    from qgis.PyQt.QtGui import QImage
-
-    from desktopstudie.qgis import layout
-
-    klein = _drawn_png(tmp_path / "klein.png", 200, 40)
-
-    assert layout.header_rows(QImage(str(klein))) == 40
-
-
 # --- kaartbeelden vooraf ophalen ---------------------------------------------------------------
 
 def test_every_map_page_asks_for_one_image_at_the_size_it_will_be_printed(project, gent_zone,
@@ -1375,93 +1007,19 @@ def test_every_map_page_asks_for_one_image_at_the_size_it_will_be_printed(projec
     rapport wacht daarop. Dus wordt elk kaartbeeld vooraf als een enkele GetMap opgehaald, op de
     extent en de pixelmaat waarop het blad het toch afdrukt."""
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     pages = [MapPage("grb", "Ligging", scale=2500), MapPage("ferraris", "Ferraris", scale=25000)]
 
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+    requests = prefetch.plan_map_images(report_of(pages), gent_zone.ring, {})
 
     assert [request.map_id for request in requests] == ["grb", "ferraris"]
     first = requests[0]
     # 180 x 200 mm op de exportresolutie, en nooit meer dan de dienst aankan
-    assert first.width == int(round(layout.MAP_W / 25.4 * layout.MAP_IMAGE_DPI))
-    assert first.height == int(round(layout.MAP_H / 25.4 * layout.MAP_IMAGE_DPI))
-    assert max(first.width, first.height) <= layout.MAP_IMAGE_MAX_PX
+    assert first.width == int(round(layout.MAP_W / 25.4 * prefetch.MAP_IMAGE_DPI))
+    assert first.height == int(round(layout.MAP_H / 25.4 * prefetch.MAP_IMAGE_DPI))
+    assert max(first.width, first.height) <= prefetch.MAP_IMAGE_MAX_PX
     assert first.extent == layout.map_extent(gent_zone.ring, 2500, 3.0)
-
-
-def test_two_pages_of_the_same_map_at_the_same_extent_share_one_image(project, gent_zone, tmp_path):
-    """De GRB-basiskaart staat op vier bladen. Waar de uitsnede dezelfde is, hoeft ze maar een keer
-    opgehaald te worden; waar ze verschilt (hoofdstuk 5 rekt open voor de zoekstraal) niet."""
-    from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
-
-    pages = [MapPage("grb", "Ligging", scale=2500), MapPage("grb", "Nog eens", scale=2500),
-             MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
-
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
-
-    assert len(requests) == 2, [request.key for request in requests]
-    assert len({request.key for request in requests}) == 2
-
-
-def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tmp_path):
-    """Een PNG zonder wereldbestand ligt nergens: de layout moet hem op de meter kunnen plaatsen."""
-    from desktopstudie.core.report_content import MapPage
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    blob = _drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
-    asked = []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append((url, timeout, retries))
-            return blob
-
-    requests = layout.plan_map_images(_report([MapPage("grb", "Ligging", scale=2500)]),
-                                      gent_zone.ring, {})
-
-    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
-                                                          _Client(cache_dir=None))
-
-    path = images[requests[0].key]
-    assert path.parent.name == layout.MAP_IMAGE_DIR and path.suffix == ".png"
-    world = path.with_suffix(".pgw")
-    assert world.exists()
-    lines = world.read_text(encoding="utf-8").splitlines()
-    extent = requests[0].extent
-    assert float(lines[0]) == pytest.approx(extent.width() / requests[0].width, rel=1e-6)
-    assert float(lines[3]) == pytest.approx(-extent.height() / requests[0].height, rel=1e-6)
-    assert float(lines[4]) == pytest.approx(extent.xMinimum() + float(lines[0]) / 2, rel=1e-6)
-    assert empty == set()
-    assert "REQUEST=GetMap" in asked[0][0] and "VERSION=1.1.1" in asked[0][0]
-    assert asked[0][1:] == (layout.MAP_IMAGE_TIMEOUT_S, layout.MAP_IMAGE_RETRIES)
-
-
-def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_path):
-    """De dekkingsproef was een extra GetMap per kaart. Nu het beeld er toch al is, valt het
-    antwoord eruit: een volledig lege tegel betekent geen kaartbeeld op deze locatie, voor ELKE
-    kaart. Wat zo'n tegel kost wordt beslist waar de legenda bekend is - met eenheden eronder
-    blijft het blad, zonder eenheden vervalt het - en niet hier."""
-    from desktopstudie.core.report_content import MapPage
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    leeg = _solid_png(tmp_path / "leeg.png", 64, 64).read_bytes()
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            return leeg
-
-    pages = [MapPage("popp", "Popp", scale=5000), MapPage("watertoets_pluviaal", "Watertoets",
-                                                          scale=10000)]
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
-
-    _images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
-                                                           _Client(cache_dir=None))
-
-    assert empty == {request.key for request in requests}, "elke lege tegel, per kader gemeten"
 
 
 def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
@@ -1475,43 +1033,22 @@ def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
     from qgis.core import QgsRectangle
 
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
-    blob = _drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
+    blob = drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
     extent = QgsRectangle(104226.0, 192406.0, 104426.0, 192606.0)
-    request = layout.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
+    request = prefetch.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
 
-    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path,
+    images, _empty, _backdrops = prefetch.prepare_map_images([request], tmp_path,
                                                            _Client(cache_dir=None))
 
     assert request.key == "grb:104226:192406:104426:192606"
     assert images[request.key].name == "grb_84a197c3.png"
-
-
-def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, gent_zone, tmp_path):
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.core.report_content import MapPage
-    from desktopstudie.core.services.http import HttpClient, HttpError
-    from desktopstudie.qgis import layout
-
-    class _Down(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            raise HttpError(url, 500, "dienst plat")
-
-    requests = layout.plan_map_images(_report([MapPage("popp", "Popp", scale=5000)]),
-                                      gent_zone.ring, {})
-    lines = []
-
-    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
-                                              Log("layout", lines.append, scope="qgis"))
-
-    assert images == {} and empty == set(), "een mislukte ophaling zegt niets over dekking"
-    assert any("WARNING" in line for line in lines), lines
 
 
 def test_a_map_page_draws_the_fetched_image_instead_of_the_live_service(project, gent_zone,
@@ -1531,7 +1068,7 @@ def test_a_map_page_draws_the_fetched_image_instead_of_the_live_service(project,
     page = MapPage("grb", "Ligging", scale=2500)
     extent = layout.map_extent(gent_zone.ring, 2500, 3.0)
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path,
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path,
                               gent_zone.ring, _meta(),
                               map_images={layout.map_image_key("grb", extent): snapshot})
 
@@ -1552,7 +1089,7 @@ def test_a_map_page_without_an_image_says_the_source_was_not_available(project, 
     wms = layers.zone_layer(gent_zone)
     project.addMapLayer(wms, False)
 
-    lay = layout.build_layout(project, _report([MapPage("grb", "Ligging", scale=2500)]),
+    lay = layout.build_layout(project, report_of([MapPage("grb", "Ligging", scale=2500)]),
                               {}, tmp_path, gent_zone.ring, _meta(), map_images={})
 
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
@@ -1609,18 +1146,18 @@ def test_a_page_widens_for_the_study_boxes_it_was_given_not_for_its_layers(proje
     from qgis.core import QgsLayoutItemLabel
 
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     boxes = layout.overlay_boxes(_gent_result(gent_zone))
     page = MapPage(MAP_ID, "Overzicht", legend=False, scale=5000, extent_factor=1.0,
                    show_investigations=True)
 
-    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta(),
+    lay = layout.build_layout(project, report_of([page]), {}, tmp_path, gent_zone.ring, _meta(),
                               overlay_boxes=boxes)
 
     texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
     assert any("schaal 1:10 000" in text for text in texts), texts
-    planned = layout.plan_map_images(_report([page]), gent_zone.ring, boxes)
+    planned = prefetch.plan_map_images(report_of([page]), gent_zone.ring, boxes)
     assert planned[0].extent == layout.map_extent(gent_zone.ring, 5000, 1.0, boxes["investigations"])
 
 
@@ -1631,42 +1168,9 @@ def test_the_layout_is_named_after_its_study(project, gent_zone, tmp_path):
 
     assert layout.layout_name("Gent") == "DOV Desktopstudie - Gent"
     assert layout.layout_name("") == layout.LAYOUT_NAME
-    lay = layout.build_layout(project, _report([]), {}, tmp_path, gent_zone.ring, _meta(),
+    lay = layout.build_layout(project, report_of([]), {}, tmp_path, gent_zone.ring, _meta(),
                               name=layout.layout_name("Gent"))
     assert lay.name() == "DOV Desktopstudie - Gent"
-
-
-def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path, gent_zone):
-    """Stuurt het portaal zijn eigen webpagina in plaats van de tekening, dan wijst die pagina zelf
-    naar het bestand: die link wordt gevolgd. En de pagina blijft niet in de cache staan, want dan
-    kwam ze er bij elke volgende run zonder netwerk weer uit."""
-    from desktopstudie.core.report_content import profile_image_key
-    from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
-
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
-    link = ("https://datasets-services.omgeving.vlaanderen.be/server/api/core/bitstreams/"
-            "0082d459-f86d-4a5b-9508-bbb98ae38e88/content")
-    page = ('<html>' + link + '"_name":"DOV_Quartair_50000_22026.png"</html>').encode()
-    asked, forgotten = [], []
-
-    class _Client(HttpClient):
-        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-            asked.append(url)
-            return blob if url == link else page
-
-        def forget(self, url, params=None):
-            forgotten.append(url)
-            return True
-
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
-                                               _Client(cache_dir=None))
-
-    assert profile_image_key("22026") in images, (
-        "de tekening hoort er via de link uit de pagina te zijn")
-    assert link in asked, "de link uit de pagina is niet gevolgd"
-    assert any(url.endswith("_png") for url in forgotten), (
-        "de webpagina hoort uit de cache gegooid te worden")
 
 
 # --- de legenda voor de zone staat onder haar eigen kaart ----------------------------------------
@@ -1781,61 +1285,6 @@ def test_the_quartair_zone_legend_draws_its_strips_under_the_map(make_layout, tm
 
 
 # --- de kleurschaal van het hoogtemodel ---------------------------------------------------------
-
-def _dhmv_legend(path):
-    """Een GetLegendGraphic zoals de DHMV-dienst hem levert: een titelregel, daaronder een
-    verticale kleurverloop-balk van 16 px breed met het bereik ernaast (live 2026-09-17)."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(102, 68, QImage.Format.Format_RGB32)
-    image.fill(QColor(255, 255, 255))
-    for x in range(20, 90):  # de titeltekst
-        image.setPixelColor(x, 6, QColor(0, 0, 0))
-    for y in range(18, 66):  # de kleurbalk zelf: bruin bovenaan, groen onderaan
-        share = (y - 18) / 47.0
-        colour = QColor(int(184 - 140 * share), int(79 + 131 * share), int(22 + 118 * share))
-        for x in range(16):
-            image.setPixelColor(x, y, colour)
-    for x in range(40, 80):  # het bereik "300 - -50" naast de balk
-        image.setPixelColor(x, 40, QColor(0, 0, 0))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
-def test_the_colour_bar_of_a_legend_graphic_is_cut_out_and_laid_on_its_side(qgs_app, tmp_path):
-    """Het strookje onder de kaart draagt de kleuren van de dienst zelf: het verloop wordt uit de
-    GetLegendGraphic geknipt en een kwartslag gedraaid, met de laagste waarde links."""
-    from qgis.PyQt.QtGui import QImage
-
-    from desktopstudie.qgis import layout
-
-    source = _dhmv_legend(tmp_path / "legendas" / "dhmv_dtm.png")
-
-    strip = layout.ramp_strip(source, tmp_path / "legendas" / "dhmv_dtm_schaal.png")
-
-    assert strip is not None and strip.exists()
-    image = QImage(str(strip))
-    assert image.width() > image.height(), "liggend, want het gaat onder de kaart"
-    left, right = image.pixelColor(0, image.height() // 2), image.pixelColor(image.width() - 1,
-                                                                            image.height() // 2)
-    assert left.green() > left.red(), "links het groen van de laagste waarde"
-    assert right.red() > right.green(), "rechts het bruin van de hoogste"
-
-
-def test_a_legend_graphic_without_a_colour_bar_gives_no_strip(qgs_app, tmp_path):
-    """Verandert de dienst haar legenda van vorm, dan komt er geen strookje - liever geen
-    kleurschaal dan een strook die niet bij de kaart hoort."""
-    from desktopstudie.qgis import layout
-
-    plain = _png(tmp_path / "legendas" / "plat.png", 4, 4)
-    from qgis.PyQt.QtGui import QColor, QImage
-    image = QImage(60, 20, QImage.Format.Format_RGB32)
-    image.fill(QColor(255, 255, 255))
-    assert image.save(str(plain))
-
-    assert layout.ramp_strip(plain, tmp_path / "legendas" / "plat_schaal.png") is None
-
 
 def test_the_map_page_prints_the_ramp_with_both_ends_and_the_zone_values(make_layout, tmp_path):
     """Onder de kaart staat de kleurbalk met de twee uiteinden van de dienst en daaronder de
@@ -2161,178 +1610,7 @@ def test_a_zone_label_near_the_right_end_stays_on_the_sheet(make_layout, tmp_pat
 
 # --- een thema krijgt de basiskaart eronder -----------------------------------------------------
 
-def _tile(colour, size=40, alpha=255):
-    """Een GetMap-antwoord: een effen tegel, desnoods volledig doorzichtig."""
-    from qgis.PyQt.QtCore import QBuffer, QByteArray
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(size, size, QImage.Format.Format_ARGB32)
-    image.fill(QColor(*colour, alpha))
-    store = QByteArray()
-    buffer = QBuffer(store)
-    buffer.open(QBuffer.OpenModeFlag.WriteOnly)
-    assert image.save(buffer, "PNG")
-    return bytes(store)
-
-
-class _TileClient:
-    """Een client die per laagnaam een vaste tegel teruggeeft en de opgevraagde lagen onthoudt."""
-
-    def __init__(self, tiles, failing=()):
-        self.tiles, self.failing, self.asked = tiles, set(failing), []
-
-    def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
-        from desktopstudie.core.services.http import HttpError
-
-        layer = url.split("LAYERS=")[1].split("&")[0]
-        self.asked.append(layer)
-        if layer in self.failing:
-            raise HttpError(url, 500, "dienst plat")
-        return self.tiles[layer]
-
-
-def _one_request(map_id, gent_zone):
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    entry = catalogue.by_id(map_id)
-    extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
-    return layout.MapRequest(layout.map_image_key(map_id, extent), map_id, extent, 40, 40)
-
-
-def _pixels(path):
-    from qgis.PyQt.QtGui import QImage
-
-    image = QImage(str(path))
-    assert not image.isNull()
-    return image
-
-
-def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_path):
-    """Een thema dat bijna niets tekent, levert op wit papier een leeg blad. Het beeld dat de
-    pagina afdrukt draagt daarom de basiskaart eronder: straten en gebouwen onder het thema."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    theme_id = "grondverschuiving_gekarteerd"
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0), alpha=0),
-             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
-    request = _one_request(theme_id, gent_zone)
-
-    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path,
-                                                          _TileClient(tiles))
-
-    assert backdrops == {theme_id: ""}, "de ondergrond hoort als eigen bron gemeld te worden"
-    drawn = _pixels(images[request.key]).pixelColor(20, 20)
-    assert (drawn.red(), drawn.green(), drawn.blue()) == (0, 0, 255), (
-        "waar het thema niets tekent, hoort de basiskaart te staan")
-
-
-def test_a_map_that_fills_the_sheet_itself_asks_for_no_base_map(qgs_app, gent_zone, tmp_path):
-    """De bodemkaart bedekt de hele uitsnede; een ondergrond eronder is werk dat niemand ziet."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    tiles = {catalogue.by_id("bodemkaart").wms_layer: _tile((0, 200, 0))}
-    request = _one_request("bodemkaart", gent_zone)
-    client = _TileClient(tiles)
-
-    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path, client)
-
-    assert backdrops == {}
-    assert client.asked == [catalogue.by_id("bodemkaart").wms_layer], client.asked
-    assert images
-
-
-def test_a_backdrop_that_fails_costs_the_theme_its_background_not_its_page(qgs_app, gent_zone,
-                                                                           tmp_path):
-    """Valt de basiskaart weg, dan wordt het thema alleen getekend - het blad blijft - en de
-    bronnenlijst zegt dat de ondergrond ontbrak."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.core.logging_util import Log
-    from desktopstudie.qgis import layout
-
-    theme_id = "watertoets_pluviaal"
-    base = catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)), base: b""}
-    request = _one_request(theme_id, gent_zone)
-    lines = []
-
-    images, _empty, backdrops = layout.prepare_map_images(
-        [request], tmp_path, _TileClient(tiles, failing={base}),
-        Log("kaarten", lines.append))
-
-    assert request.key in images, "het thema houdt zijn blad"
-    assert backdrops[theme_id], "de reden hoort bewaard te blijven"
-    assert any("ondergrond" in line.lower() for line in lines), lines
-
-
-def test_the_theme_keeps_its_own_colours_over_the_backdrop(qgs_app, gent_zone, tmp_path):
-    """Waar het thema wel tekent, blijft het thema zichtbaar - de basiskaart schemert eronder door
-    met de doorzichtigheid die de catalogus voor die kaart kiest."""
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    theme_id = "grondverschuiving_gekarteerd"
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)),
-             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
-    request = _one_request(theme_id, gent_zone)
-
-    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path, _TileClient(tiles))
-
-    drawn = _pixels(images[request.key]).pixelColor(20, 20)
-    assert drawn.red() > drawn.blue(), "het thema hoort bovenop te liggen"
-    assert drawn.blue() > 0, "en de basiskaart hoort er doorheen te schemeren"
-
-
 # --- een balk die niet tegen de rand begint, en haar klassegrenzen ------------------------------
-
-def _inset_legend(path, margin=1):
-    """De GxG-legenda: een kleurloop met een witte rand van een pixel ernaast, met de labels
-    rechts (live 2026-09-17: 38 x 272 px, band van x=1 tot x=20)."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(38, 100, QImage.Format.Format_RGB32)
-    image.fill(QColor(255, 255, 255))
-    for y in range(1, 99):
-        share = (y - 1) / 97.0
-        colour = QColor(int(240 - 220 * share), int(250 - 230 * share), 255)
-        for x in range(margin, margin + 20):
-            image.setPixelColor(x, y, colour)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
-def test_a_colour_bar_that_does_not_touch_the_edge_is_still_found(qgs_app, tmp_path):
-    """De GxG-legenda zet haar balk een pixel van de rand. Een zoeker die alleen naar kolom nul
-    kijkt, vindt hem niet en het rapport zou de kaart zonder legenda laten."""
-    from desktopstudie.qgis import layout
-
-    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
-
-    rect = layout.ramp_rect(_pixels(source))
-
-    assert rect is not None
-    x, _y, width, height = rect
-    assert x == 1 and width == 20 and height > 90
-
-
-def test_a_bar_whose_smallest_value_is_on_top_is_turned_the_other_way(qgs_app, tmp_path):
-    """Het hoogtemodel zet zijn hoogste waarde bovenaan, de grondwaterdiepte haar kleinste. Beide
-    horen op papier van klein links naar groot rechts te lopen, dus draait de ene andersom."""
-    from desktopstudie.qgis import layout
-
-    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
-
-    plain = layout.ramp_strip(source, tmp_path / "legendas" / "plain.png")
-    flipped = layout.ramp_strip(source, tmp_path / "legendas" / "flip.png", flip=True)
-
-    left_plain = _pixels(plain).pixelColor(0, 2)
-    left_flipped = _pixels(flipped).pixelColor(0, 2)
-    assert left_plain.blue() == left_flipped.blue()
-    assert left_plain.red() < left_flipped.red(), "gedraaid staat de bovenkant van de bron links"
-
 
 def test_the_class_boundaries_are_written_under_the_bar(make_layout, tmp_path):
     """Een balk waarvan de klassen niet even breed zijn - 0 tot 5 per meter, dan 10, 15, 20 -
@@ -2555,29 +1833,6 @@ def test_a_tall_column_joins_a_short_table_the_way_it_joins_a_long_one(make_layo
     assert long_count == 2, "titelblad plus een blad met tabel en kolom"
     assert short_count == 2, f"de korte tabel liet de kolom vallen ({short_count} bladen)"
     assert short_pages == long_pages == {1}
-
-
-def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
-    """De isopachenkaart vraagt haar eigen belettering aan met een SLD; die hoort in de GetMap
-    terecht te komen, en alleen bij die kaart."""
-    import urllib.parse
-
-    from qgis.core import QgsRectangle
-
-    from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
-
-    box = QgsRectangle(100000.0, 190000.0, 104500.0, 195000.0)
-
-    with_sld = layout.wms_map_url(catalogue.by_id("quartair_dikte"), box, 1063, 1181)
-    without = layout.wms_map_url(catalogue.by_id("bodemkaart"), box, 1063, 1181)
-
-    assert "SLD_BODY=" in with_sld and "Halo" in urllib.parse.unquote(with_sld)
-    assert "SLD_BODY" not in without
-    # De gateway voor de GeoServer van DOV weigert een lange URL met 502 Bad Gateway: de SLD met
-    # inspringing erin gaf 3120 tekens en vijf van de vijf pogingen mislukten, dezelfde SLD zonder
-    # witruimte 1905 tekens en vijf van de vijf lukten (live 2026-09-21). Ruim eronder blijven.
-    assert len(with_sld) < 2500, f"GetMap van {len(with_sld)} tekens; de gateway antwoordt 502"
 
 
 def _ink_below(lay, item, page_index: int) -> int:

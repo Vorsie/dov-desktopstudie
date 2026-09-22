@@ -3,11 +3,13 @@
 Split in three on purpose. `run_core` is everything that only needs Python and the network;
 `prepare` is the shell's own share of that - the legend images, the quartair drawings and the map
 images, planned from the study without a single layer - so both run on a worker thread in the
-plugin (its QgsTask); `finish` is everything that touches QGIS map layers, a layout and a project,
+plugin (its QgsTask); it is the whole of `prefetch.py` and none of `layout.py`, which is what
+that split is for; `finish` is everything that touches QGIS map layers, a layout and a project,
 which has to happen on the main thread, and it runs `prepare` itself when nobody did. What stays on
 the main thread yields between phases, between pages of the layout and between runs of the
-exporter, through the `should_cancel` it is handed. `run_pipeline` is all of it in one call; the
-headless script drives the halves itself, because it reports how long each took.
+exporter, through the `should_cancel` it is handed. Nobody runs the two halves through one call:
+the plugin has to put the second one on the main thread and the headless script reports how long
+each took, so both drive them separately with one `HttpClient` between them.
 
 Four things are easy to get wrong here and are therefore done in one place.
 
@@ -47,7 +49,8 @@ from qgis.core import QgsMapLayer, QgsProject
 from ..core import catalogue, checks
 from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
-from ..core.model import Provenance, StudyResult, StudyZone, now_iso
+from ..core.model import StudyResult, StudyZone, record_source
+from ..core.parallel import Cancelled, stop_if
 from ..core.report_content import (
     MapPage,
     MapPageKey,
@@ -55,6 +58,7 @@ from ..core.report_content import (
     ReportMeta,
     build_report,
     class_key_image_key,
+    legend_shows_rows,
     map_page_key,
     profile_image_key,
     quartair_sheet,
@@ -62,10 +66,11 @@ from ..core.report_content import (
     sheet_image_key,
 )
 from ..core.services.http import DATA_DIR, HttpClient, study_client
-from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
+from ..core.study import JSON_NAME, JSON_RELATIVE, Settings, orchestrator_signals
 from ..core.study import run as run_study
-from . import compat, dem, export, layers
+from . import compat, dem, export, layers, prefetch
 from . import layout as layout_mod
+from .layout import NO_DRAWING_PUBLISHED
 
 # chapter in the catalogue -> the group title in the project. These three ARE chapters of the
 # report and carry its numbers, so the layer panel reads in the same order as the PDF. The study's
@@ -75,15 +80,13 @@ CHAPTER_GROUPS = {"ligging": "1 Ligging en topografie", "historisch": "2 Histori
                   "geologie": "3 Geologie en bodem"}
 STUDY_GROUP = "DOV Desktopstudie"
 # The one catalogue map that opens checked in the project: a base map to see the zone on. The
-# other fourteen sit ready but unchecked - fifteen WMS layers rendering at once is a canvas that
-# loads for a minute and a user who cannot tell the zone from the noise. The same map goes UNDER
-# a thematic overlay on paper, so it is named once, in the catalogue.
+# others sit ready but unchecked - every enabled map rendering at once is a canvas that loads for
+# a minute and a user who cannot tell the zone from the noise. The same map goes UNDER a thematic
+# overlay on paper, so it is named once, in the catalogue.
 PDF_NAME = "rapport.pdf"
 PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
 GPKG_NAME = "studie.gpkg"
-JSON_NAME = "studie.json"
-RELIEF_SOURCE = "DHMV II relief"
 # Marks the copies the report maps draw with. They live outside the layer tree, so nobody can
 # remove them by hand; the flag lets a second run clean up after the first.
 REPORT_OVERLAY_FLAG = "desktopstudie/report_overlay"
@@ -140,20 +143,22 @@ def run_core(zone: StudyZone, settings: Settings, out_dir: Path, log: Log, progr
 
 # --- the sources the shell consults ---------------------------------------------------------------
 
-def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
-                  message: str = "") -> None:
-    """Record (or replace) what the shell consulted, so `check_sources` can report on it.
-
-    Replacing rather than appending keeps a second `finish` on the same result honest: the plugin
-    can re-run a study after a service comes back up, and two contradicting lines about the same
-    source in the sources chapter would be worse than none.
-    """
-    entry = Provenance(source, url, now_iso(), ok, message)
-    for index, existing in enumerate(result.provenance):
-        if existing.source == source:
-            result.provenance[index] = entry
-            return
-    result.provenance.append(entry)
+# How every source the shell records is named, in one block, because these strings are read back
+# elsewhere: `checks.check_sources` groups on them and `checks.DRAWING_PREFIXES` repeats the two
+# drawing ones on the core side of the boundary, where this module cannot reach. All but the
+# relief carry the title of the map behind them ("Kaartlaag Bodemkaart van Vlaanderen"), so the
+# space belongs to the f-string, not to the constant. The recording itself is `record_source`,
+# which lives in the core beside `Provenance`: replacing rather than appending is what keeps a
+# second `finish` on the same result from leaving two contradicting lines.
+RELIEF_SOURCE = "DHMV II relief"
+MAP_LAYER_SOURCE = "Kaartlaag"
+LEGEND_SOURCE = "Legenda"
+PROFILE_LEGEND_SOURCE = "Legenda profieltype"
+SHEET_UNITS_SOURCE = "Eenhedentabel kaartblad"
+CLASS_KEY_SOURCE = "Klassensleutel"
+RAMP_SOURCE = "Kleurschaal"
+MAP_IMAGE_SOURCE = "Kaartbeeld"
+BACKDROP_SOURCE = "Ondergrond"
 
 
 class PhaseClock:
@@ -191,11 +196,6 @@ class PhaseClock:
         self._log.info(f"fase totaal: {total:.1f} s; traagste fase {slowest} ({worst:.1f} s)")
 
 
-def _stop_if_cancelled(should_cancel: Optional[Callable[[], bool]]) -> None:
-    if should_cancel is not None and should_cancel():
-        raise StudyCancelled("afgebroken door de gebruiker")
-
-
 def _measure_relief(result: StudyResult, zone_layer: QgsMapLayer, log: Log, should_cancel) -> None:
     """Sample the DTM over the zone, and record the DHMV as a source either way.
 
@@ -209,7 +209,7 @@ def _measure_relief(result: StudyResult, zone_layer: QgsMapLayer, log: Log, shou
     pressed cancel must not find "DHMV niet beschikbaar" in a later report.
     """
     result.relief = dem.relief_of_zone(zone_layer, log.child("dem"), should_cancel)
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     ok = result.relief is not None
     record_source(result, RELIEF_SOURCE, DHMV_WCS_URL, ok,
                   "" if ok else "geen hoogtewaarden voor de zone (dienst of dekking)")
@@ -303,14 +303,14 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
         group_layers: List[QgsMapLayer] = []
         entries = catalogue.entries(chapter, only=result.map_ids)
         for entry in entries:
-            _stop_if_cancelled(should_cancel)
+            stop_if(should_cancel)
             layer = layers.wms_layer(entry)
             if not layer.isValid():
                 log.warning(f"WMS-laag niet geldig: {entry.id} ({entry.wms_url})")
-                record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, False,
+                record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, False,
                               "WMS-laag ongeldig; kaartpagina zonder ondergrond")
                 continue
-            record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, True)
+            record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, True)
             layers_by_map[entry.id] = [layer]
             group_layers.append(layer)
         group = layers.add_group(project, title, group_layers, visible=False, parent=study)
@@ -326,14 +326,14 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
                    should_cancel) -> Dict[str, Path]:
     """Every legend image of a CHOSEN map, with the misses recorded as failed sources."""
     chosen = catalogue.entries(only=result.map_ids)
-    images, _missing = layout_mod.prepare_legends(chosen, out_dir, client,
+    images, _missing = prefetch.prepare_legends(chosen, out_dir, client,
                                                   log.child("legendas"), should_cancel)
     for entry in chosen:
         if not entry.legend:
             continue
         found = entry.id in images
-        record_source(result, f"Legenda {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), found,
+        record_source(result, f"{LEGEND_SOURCE} {entry.title}",
+                      prefetch.wms_legend_url(entry, entry.legend_options), found,
                       "" if found else "legenda niet opgehaald; kaart zonder legendapagina")
     return images
 
@@ -346,29 +346,29 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     the layout resolves both the same way. Every drawing is a source of its own: one that did not
     come back is named in the sources chapter rather than quietly missing from the legend.
     """
-    images, unpublished = layout_mod.prepare_zone_legend_images(
+    images, unpublished = prefetch.prepare_zone_legend_images(
         result, out_dir, client, log.child("legendas"), should_cancel)
     for url, code in targets.items():
         found = profile_image_key(code) in images
-        # Twee verschillende dingen. Publiceert DOV hier niets, dan is dat een feit over de bron
-        # en geldt de regel als "ok": er valt niets op te halen, en "niet opgehaald" zou de lezer
-        # aanzetten het nog eens te proberen.
+        # Two different things. Where DOV publishes nothing, that is a fact about the source and
+        # the row counts as "ok": there is nothing to fetch, and "niet opgehaald" would send the
+        # reader off to try again.
         if code in unpublished:
-            record_source(result, f"Legenda profieltype {code}", url, True,
+            record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", url, True,
                           NO_DRAWING_PUBLISHED)
             continue
-        record_source(result, f"Legenda profieltype {code}", url, found,
+        record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
     # A type the WFS gave no link for has no URL to loop over, so it would leave the sources
     # chapter silent while the legend line under the map points the reader straight at it.
     for code in sorted(unpublished - set(targets.values())):
-        record_source(result, f"Legenda profieltype {code}", "", True, NO_DRAWING_PUBLISHED)
+        record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", "", True, NO_DRAWING_PUBLISHED)
     # The units table of a map sheet is a page of its own, cut from the same drawing but by a
     # second step that can fail on its own (`crop_sheet_units` returns None). Without a line per
     # sheet, that page can disappear from the report with nothing in the sources chapter about it.
     for sheet, sheet_url in _sheets_of(targets).items():
         found = sheet_image_key(sheet) in images
-        record_source(result, f"Eenhedentabel kaartblad {sheet}", sheet_url, found,
+        record_source(result, f"{SHEET_UNITS_SOURCE} {sheet}", sheet_url, found,
                       "" if found else "eenhedentabel van het kaartblad niet opgehaald of niet leesbaar")
     return ({key: path.relative_to(out_dir).as_posix() for key, path in images.items()},
             unpublished)
@@ -384,10 +384,6 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
     for url, code in targets.items():
         sheets.setdefault(quartair_sheet(code), url)
     return sheets
-
-
-RAMP_SOURCE = "Kleurschaal"
-CLASS_KEY_SOURCE = "Klassensleutel"
 
 
 def _ramp_entries(result: StudyResult):
@@ -412,9 +408,9 @@ def _fetch_class_keys(result: StudyResult, entries, out_dir: Path, client: HttpC
     """
     keys: Dict[str, str] = {}
     for entry in entries:
-        image = layout_mod.fetch_legend(entry, out_dir, client, log.child("legendas"))
+        image = prefetch.fetch_legend(entry, out_dir, client, log.child("legendas"))
         record_source(result, f"{CLASS_KEY_SOURCE} {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), image is not None,
+                      prefetch.wms_legend_url(entry, entry.legend_options), image is not None,
                       "" if image is not None else "klassensleutel niet opgehaald")
         if image is not None:
             keys[class_key_image_key(entry.id)] = Path(image).relative_to(out_dir).as_posix()
@@ -432,38 +428,56 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
     """
     strips: Dict[str, str] = {}
     for entry in entries:
-        strip = layout_mod.fetch_ramp(entry, out_dir, client, log.child("legendas"))
+        strip = prefetch.fetch_ramp(entry, out_dir, client, log.child("legendas"))
         record_source(result, f"{RAMP_SOURCE} {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), strip is not None,
+                      prefetch.wms_legend_url(entry, entry.legend_options), strip is not None,
                       "" if strip is not None else "kleurschaal niet opgehaald of niet herkend")
         if strip is not None:
             strips[ramp_image_key(entry.id)] = Path(strip).relative_to(out_dir).as_posix()
     return strips
 
 
-NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
-MAP_IMAGE_SOURCE = "Kaartbeeld"
+def _maps_with_more_to_show(report: Report) -> Set[str]:
+    """The maps whose sheet holds something besides the picture: a zone legend with rows in it.
+
+    The same question `_pages_without_an_image` asks per page, asked per MAP, because the sources
+    table records one line per map. A map that keeps its sheet must never be called "geen dekking"
+    there: the reader would have a table of units in front of him under a line that says the
+    source covers nothing here.
+    """
+    shows: Set[str] = set()
+    for chapter in report.chapters:
+        for page in chapter.pages:
+            if isinstance(page, MapPage) and legend_shows_rows(page.zone_legend):
+                shows.add(page.map_id)
+    return shows
 
 
-def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest], out_dir: Path,
-                      client: HttpClient, log: Log, should_cancel) -> Tuple[Dict[str, Path], Set[str]]:
+def _fetch_map_images(result: StudyResult, requests: List[prefetch.MapRequest], out_dir: Path,
+                      client: HttpClient, log: Log, should_cancel,
+                      shows: Set[str]) -> Tuple[Dict[str, Path], Set[str]]:
     """Every map page's background, fetched up front: {key -> PNG on disk}, and the maps that
     drew nothing here.
 
     One GetMap per distinct box, all of them in flight together, instead of the WMS provider
     pulling tiles while each of ninety sheets renders. Each image is a source of its own, and an
-    image that is empty answers the coverage question for free - for maps without facts, where an
-    empty tile really does mean "no sheet here". Pure HTTP and files: this is worker-thread work.
+    image that is empty answers the coverage question for free - asked of every map, whether it
+    carries facts or not, because what such a tile COSTS is decided in
+    `_pages_without_an_image`, where the legend that would stand under the sheet is known. Pure
+    HTTP and files: this is worker-thread work.
 
     One line per MAP, not per request, and that line fails as soon as ONE of the map's framings
     did not come back. `record_source` replaces by name, so a line per request would let a framing
     that succeeded overwrite the one that failed with "ok" - while the sheet that lost its image
     prints "Kaartbeeld van deze bron niet opgehaald" all the same.
+
+    `shows` are the maps that keep their sheet whatever the tile says (`_maps_with_more_to_show`),
+    and those are never recorded as uncovered: the message follows the sheet, not the pixels.
     """
-    images, empty, backdrops = layout_mod.prepare_map_images(
+    images, empty, backdrops = prefetch.prepare_map_images(
         requests, out_dir, client, log.child("kaarten"), should_cancel)
     _record_backdrops(result, requests, backdrops)
     for map_id, group in _by_map(requests).items():
@@ -472,18 +486,17 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
         told = failed[0] if failed else group[0]  # the URL that explains the line
         if failed:
             message = "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
+        elif all(r.key in empty for r in group) and map_id not in shows:
+            message = NO_COVERAGE_MESSAGE
         else:
-            message = NO_COVERAGE_MESSAGE if all(r.key in empty for r in group) else ""
+            message = ""
         record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
-                      layout_mod.wms_map_url(entry, told.extent, told.width, told.height),
+                      prefetch.wms_map_url(entry, told.extent, told.width, told.height),
                       not failed, message)
     return images, empty
 
 
-BACKDROP_SOURCE = "Ondergrond"
-
-
-def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest],
+def _record_backdrops(result: StudyResult, requests: List[prefetch.MapRequest],
                       backdrops: Dict[str, str]) -> None:
     """One provenance row per theme that asked for the base map under it.
 
@@ -499,19 +512,19 @@ def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest]
             continue
         told = group[0]
         record_source(result, f"{BACKDROP_SOURCE} {catalogue.by_id(map_id).title}",
-                      layout_mod.wms_map_url(base, told.extent, told.width, told.height),
+                      prefetch.wms_map_url(base, told.extent, told.width, told.height),
                       not reason, reason or "")
 
 
-def _by_map(requests: List[layout_mod.MapRequest]) -> Dict[str, List[layout_mod.MapRequest]]:
+def _by_map(requests: List[prefetch.MapRequest]) -> Dict[str, List[prefetch.MapRequest]]:
     """The requests grouped by map, in the order the report first asked for each map."""
-    grouped: Dict[str, List[layout_mod.MapRequest]] = {}
+    grouped: Dict[str, List[prefetch.MapRequest]] = {}
     for request in requests:
         grouped.setdefault(request.map_id, []).append(request)
     return grouped
 
 
-def _snapshot_layers(project: QgsProject, requests: List[layout_mod.MapRequest],
+def _snapshot_layers(project: QgsProject, requests: List[prefetch.MapRequest],
                      images: Dict[str, Path], owner: str) -> Dict[str, QgsMapLayer]:
     """The fetched images as raster layers the layout draws, registered in `project` without a
     tree node and flagged with the study's name so a later run of that study can clean them up.
@@ -554,7 +567,7 @@ def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]
     """
     try:
         return run()
-    except StudyCancelled:
+    except Cancelled:
         raise  # a cancelled run is not a broken product
     except Exception as exc:  # noqa: BLE001 - the study keeps what it has already written
         failures.append(f"{what}: {exc}")
@@ -568,11 +581,14 @@ class Prepared:
     field is plain Python or a file on disk, so it crosses from the worker thread to the main
     thread as data."""
     legend_images: Dict[str, Path]  # map id -> legend PNG
-    zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
+    # Every picture that is report content rather than a legend sheet - the quartair
+    # drawings, the colour strips, the class keys - as `build_report` wants them,
+    # relative to out_dir. Not "legend images": `legend_images` above is the other thing.
+    report_images: Dict[str, str]
     unpublished: Set[str]  # profile types the portal says it publishes no drawing for
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
-    requests: List[layout_mod.MapRequest]  # what was asked for, in page order
+    requests: List[prefetch.MapRequest]  # what was asked for, in page order
     # The map pages that have no image at all - no coverage here, or a fetch that failed. Worked
     # out here because the images are fetched BEFORE the report is built for printing, and handed
     # to `build_report` so those sheets are never made. Per framing, not per map.
@@ -599,11 +615,8 @@ def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[st
         for page in chapter.pages:
             if not isinstance(page, MapPage):
                 continue
-            extent = layout_mod.map_extent(result.zone.ring, page.scale, page.extent_factor,
-                                           layout_mod.page_boxes(page, boxes))
-            key = layout_mod.map_image_key(page.map_id, extent)
-            legend = page.zone_legend
-            shows = getattr(legend, "rows", None) or getattr(legend, "entries", None)
+            _extent, key = layout_mod.page_image(page, result.zone.ring, boxes)
+            shows = legend_shows_rows(page.zone_legend)
             if key not in images or (key in no_coverage and not shows):
                 missing.add(map_page_key(page))
     return missing
@@ -629,51 +642,53 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
 
     legend_images: Dict[str, Path] = {}
     if legends:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         clock.begin(0.02, "Legendas")
         client = client or make_client(out_dir, log, cache_mode)
         legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
 
-    zone_legend_images: Dict[str, str] = {}
+    report_images: Dict[str, str] = {}
     unpublished: Set[str] = set()
-    targets = layout_mod.zone_legend_targets(result)
-    # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
-    # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
-    # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
-    if targets or layout_mod.codes_without_a_drawing(result, targets):
-        _stop_if_cancelled(should_cancel)
+    targets = prefetch.zone_legend_targets(result)
+    # Even without a single usable URL: a profieltype the WFS gives no link for is exactly the case
+    # where the legend line under the map points the reader at the sources chapter, and then there
+    # has to be a row about it there. Hang this phase on "are there URLs?" and it skips precisely
+    # the case that needs it.
+    if targets or prefetch.codes_without_a_drawing(result, targets):
+        stop_if(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
+        report_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
                                                               log, should_cancel)
 
     ramp_entries = _ramp_entries(result)
     if ramp_entries:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
+        report_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
 
     key_entries = _class_key_entries(result)
     if key_entries:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
+        report_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
     client = client or make_client(out_dir, log, cache_mode)
     # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
     # zone - not from the signaleringen. So the tree is built once here to be read, and once in
     # `finish` to be printed, with every source of this study in it. Building it is pure Python.
-    planned = build_report(result, meta, zone_legend_images)
-    requests = layout_mod.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
-    map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
+    planned = build_report(result, meta, report_images)
+    requests = prefetch.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
+    map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log,
+                                                should_cancel, _maps_with_more_to_show(planned))
     unavailable = _pages_without_an_image(planned, result, map_images, no_coverage)
     if unavailable and log:
         log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
     clock.close()
-    return Prepared(legend_images, zone_legend_images, unpublished, map_images, no_coverage,
+    return Prepared(legend_images, report_images, unpublished, map_images, no_coverage,
                     requests, unavailable, clock.timings)
 
 
@@ -689,7 +704,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     """Main-thread part: relief, layers, files, report, layout, exports - on what `prepare` fetched.
 
     `prepared` is the network half, already done on a worker thread by the plugin; left None it is
-    done here first, on the calling thread (the headless script, `run_pipeline`). Either way the
+    done here first, on the calling thread (the headless script). Either way the
     phase table covers both halves.
 
     `project` is the project the layers and the layout go into - the one the user has open in the
@@ -716,13 +731,13 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                            legends)
     clock.timings.extend(prepared.timings)
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.28, "Relief uit DHMV")
     # The study's own layers first: the zone polygon among them is what the relief is measured on.
     overlays = _study_overlays(result)
     _measure_relief(result, overlays["zone"][0], log, should_cancel)
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.30, "Lagen")
     # One group per study, named after it; adding it replaces the previous run of THIS study,
     # layers and all, and leaves any other study in the project alone.
@@ -737,18 +752,18 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     map_images = _snapshot_layers(project, prepared.requests, prepared.map_images, owner)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.31, "Signaleringen en rapport")
     # Every source the shell consulted is recorded by now, so the rules see the whole study.
     result.signaleringen = checks.validate(checks.run_all(result) + orchestrator_signals(result))
     json_path = out_dir / DATA_DIR / JSON_NAME
     json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
-    record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
+    record_source(result, JSON_NAME, JSON_RELATIVE)  # stamped before the write it describes
     result.write_json(json_path)
     # The pages of maps that have no picture are left out: the sources chapter says per map that
     # it was tried and what came back, which is where a reader looks for that - not a sheet with
     # an empty frame and a line under it.
-    report = build_report(result, meta, prepared.zone_legend_images, prepared.unavailable)
+    report = build_report(result, meta, prepared.report_images, prepared.unavailable)
 
     report_progress(0.33, "GeoPackage en projectbestand")
     gpkg = out_dir / DATA_DIR / GPKG_NAME
@@ -759,7 +774,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         project.transformContext()) or gpkg)
     project_file = None
     if written is not None:
-        _stop_if_cancelled(should_cancel)  # fifteen clones and a write: seconds, and stoppable
+        stop_if(should_cancel)  # fifteen clones and a write: seconds, and stoppable
         standalone, dropped = layers.standalone_project(
             gpkg, CHAPTER_GROUPS, log,
             {map_id: group[0] for map_id, group in layers_by_map.items()}, only=result.map_ids)
@@ -767,14 +782,14 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         # the only place that sees an unreachable service. Naming it here keeps `studie.qgz` and
         # the sources chapter telling the same story.
         for entry in dropped:
-            record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, False,
+            record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, False,
                           "WMS-laag ongeldig; kaart niet in studie.qgz")
         project_file = _guarded("Projectbestand schrijven", failures, log,
                                 lambda: export.write_project(standalone, out_dir / PROJECT_NAME))
     log.info(f"Rapport: {len(report.chapters)} hoofdstukken, "
              f"{sum(len(chapter.pages) for chapter in report.chapters)} pagina's")
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.38, "Layout")
     # Everything THIS run has already put in the project - the styled copies and the map images -
     # is spared; they were made minutes ago and the layout below is about to draw with them.
@@ -793,7 +808,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     sheets = lay.pageCollection().pageCount()
     log.info(f"Layout: {sheets} bladen")
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     # Stoppable between two runs of the exporter, never inside one: QgsLayoutExporter takes no
     # feedback object. A run is ten sheets, a few seconds.
     report_progress(PDF_START, "PDF-export")
@@ -830,18 +845,3 @@ def part_of(progress: Optional[Callable[[float, str], None]], low: float, high: 
     if progress is None:
         return None
     return lambda fraction, message: progress(low + (high - low) * fraction, message)
-
-
-def run_pipeline(zone: StudyZone, settings: Settings, meta: ReportMeta, out_dir, project: QgsProject,
-                 log: Log, progress: Optional[Callable[[float, str], None]] = None,
-                 should_cancel: Optional[Callable[[], bool]] = None, cache_mode: str = "use",
-                 legends: bool = False, pngs: bool = False) -> PipelineResult:
-    """One study from zone to PDF, on the calling thread. The client is made once so both halves
-    share the same disk cache."""
-    out_dir = Path(out_dir)
-    client = make_client(out_dir, log, cache_mode)
-    result = run_core(zone, settings, out_dir, log, part_of(progress, 0.0, CORE_SHARE),
-                      should_cancel, cache_mode, client)
-    return finish(project, result, meta, out_dir, log, part_of(progress, CORE_SHARE, 1.0),
-                  legends=legends, should_cancel=should_cancel, client=client, cache_mode=cache_mode,
-                  pngs=pngs, compact=settings.compact)

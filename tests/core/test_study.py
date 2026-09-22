@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 import pytest
 
-from desktopstudie.core import geometry, study
+from desktopstudie.core import geometry, parallel, study
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import StudyZone
 from desktopstudie.core.report_content import ReportMeta, TextPage, build_report
@@ -197,7 +197,7 @@ def test_feature_info_points_are_spread_around_the_whole_ring(tmp_path):
 
 def test_cancelling_between_stages_raises_and_writes_nothing(gent_ring, tmp_path):
     seen = []
-    with pytest.raises(study.StudyCancelled):
+    with pytest.raises(parallel.Cancelled):
         study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), _client(),
                   tmp_path, progress=lambda f, m: seen.append(m), should_cancel=lambda: len(seen) >= 2)
     assert seen[:2] == ["Sonderingen", "Boringen"]
@@ -529,3 +529,61 @@ def _run_each(items, load):
         except Exception:  # noqa: BLE001
             failed += 1
     return failed
+
+
+def test_a_source_guarded_twice_leaves_one_row_and_it_is_the_last(gent_ring):
+    """Dezelfde regel als in de schil: een bron die twee keer geraadpleegd wordt laat EEN regel na.
+    `guarded` hing er tot nu toe een tweede achteraan, dus een tweede poging die wel lukte liet de
+    mislukking van de eerste gewoon staan - twee tegenstrijdige regels over dezelfde bron."""
+    from desktopstudie.core.model import StudyResult
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="2026-09-22")
+    runner.log = Log("test", sink=lambda _line: None)
+
+    runner.guarded("Sonderingen", "https://dov", _boom)
+    runner.guarded("Sonderingen", "https://dov", lambda: None)
+
+    rows = [p for p in runner.result.provenance if p.source == "Sonderingen"]
+    assert len(rows) == 1 and rows[0].ok, runner.result.provenance
+
+
+def _boom() -> None:
+    raise RuntimeError("502")
+
+
+def test_a_hostile_permkey_cannot_write_outside_the_figures_folder(gent_ring, tmp_path):
+    """De permkey is het laatste stuk van een DOV-URL en wordt de naam van een figuur. Komt daar
+    een pad uit, dan bepaalt het antwoord van de dienst WAAR de plugin schrijft - dat mag niet,
+    ook niet wanneer het een gekaapte DOV kost om het te laten gebeuren."""
+    from desktopstudie.core.model import Borehole, LithologyLayer, StudyResult, StudyZone
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.out = tmp_path
+    runner.log = Log("test", sink=lambda _line: None)
+    runner.result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="2026-09-22")
+    # Drie niveaus omhoog: "cpt_.." en de eerste ".." heffen elkaar op, dus twee is niet genoeg
+    # om de figurenmap uit te komen en drie wel (gemeten: het bestand landde in de runmap).
+    runner.result.cpts = [_cpt_with_profile("../../../ontsnapt")]
+    runner.result.boreholes = [Borehole(
+        permkey="../../../ook-ontsnapt", number="B1", x=0.0, y=0.0, z_mtaw=10.0, depth_m=5.0,
+        date=None, method=None, purpose=None, contractor=None, url="", distance_m=0.0,
+        lithology=[LithologyLayer(0.0, 5.0, "bruin zand")])]
+
+    runner.figures()
+
+    figures = (tmp_path / "figuren").resolve()
+    written = [path for path in tmp_path.rglob("*.png")]
+    assert len(written) == 2, written
+    for path in written:
+        assert path.resolve().parent == figures, path
+
+
+def _cpt_with_profile(permkey: str):
+    from desktopstudie.core.model import Cpt, CptProfile
+
+    cpt = Cpt(permkey=permkey, number="GEO-1", x=0.0, y=0.0, z_mtaw=8.0, depth_m=20.0, date=None,
+              method=None, cone=None, contractor=None, project=None, url="", distance_m=0.0)
+    cpt.profile = CptProfile(depth_m=[1.0, 2.0], qc_mpa=[1.0, 2.0],
+                             fs_kpa=[10.0, 12.0], u_kpa=[0.0, 1.0])
+    return cpt

@@ -44,6 +44,19 @@ def test_what_was_not_loaded_is_logged_with_its_label():
     assert "ZeroDivisionError" in warnings[0], warnings
 
 
+def test_the_label_may_name_the_item_that_did_not_come_in():
+    """Een batch waarin elk item een eigen plaats heeft - een doorprik op een coordinaat - moet die
+    plaats in de WARNING kunnen zetten. Een vast label per batch zegt alleen DAT er iets misging."""
+    lines = []
+
+    parallel.load_each([(104226.0, 192506.0)], lambda item: 1 / 0,
+                       lambda item: f"virtuele boring op {item[0]:.0f}/{item[1]:.0f}",
+                       log=_log(lines))
+
+    warnings = [line for line in lines if "WARNING" in line]
+    assert warnings and "virtuele boring op 104226/192506" in warnings[0], lines
+
+
 def test_every_item_is_tried_even_when_the_first_one_fails():
     """De volgorde waarin de threads klaar zijn, mag het resultaat niet bepalen."""
     seen = []

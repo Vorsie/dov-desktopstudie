@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.qgis.conftest import write_png
+from tests.qgis.conftest import pdf_pages, write_png
 
 LIVE_OUT = Path(__file__).resolve().parents[2] / "uitvoer" / "pipeline_live2"
 CPT_KEY = "k1"
@@ -34,11 +34,6 @@ def _log(lines=None):
     from desktopstudie.core.logging_util import Log
 
     return Log("pipeline", lines.append if lines is not None else (lambda _m: None), scope="qgis")
-
-
-def _pdf_pages(path):
-    data = path.read_bytes()
-    return data.count(b"/Type /Page") - data.count(b"/Type /Pages")
 
 
 @pytest.fixture
@@ -72,8 +67,7 @@ def offline_shell(monkeypatch, gent_zone):
     catalogus.
     """
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import dem, layers
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import dem, layers, prefetch
 
     def fake_wms(entry):
         layer = layers.zone_layer(gent_zone)
@@ -91,17 +85,16 @@ def offline_shell(monkeypatch, gent_zone):
 
     def fake_map_images(requests, out_dir, client, log=None, should_cancel=None):
         """Elk kaartbeeld als een klein plaatje op schijf, zonder een dienst aan te raken."""
-        from desktopstudie.qgis import layout
 
         images = {}
         for request in requests:
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
         return images, set(), {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake_map_images)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake_map_images)
     return RELIEF
 
 
@@ -143,7 +136,7 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     assert out.pdf == tmp_path / "rapport.pdf" and out.pdf.exists()
     assert out.failures == []
     assert len(out.report.chapters) == 8
-    pages = _pdf_pages(out.pdf)
+    pages = pdf_pages(out.pdf)
     assert pages >= len(out.report.chapters) + 1, f"{pages} pagina's voor 8 hoofdstukken"
     assert [path.name for path in out.page_pngs[:2]] == ["pagina.png", "pagina_2.png"]
     assert len(out.page_pngs) == pages
@@ -208,16 +201,16 @@ def test_the_network_half_runs_without_a_project_and_finish_takes_what_it_fetche
     is (dezelfde dozen aan beide kanten)."""
     from qgis.core import QgsLayoutItemLabel
 
-    from desktopstudie.qgis import layout, pipeline
+    from desktopstudie.qgis import layout, pipeline, prefetch
 
     fetched = []
-    stand_in = layout.prepare_map_images  # the offline stand-in; counted, not replaced
+    stand_in = prefetch.prepare_map_images  # the offline stand-in; counted, not replaced
 
     def counted(requests, out_dir, client, log=None, should_cancel=None):
         fetched.append(len(requests))
         return stand_in(requests, out_dir, client, log, should_cancel)
 
-    monkeypatch.setattr(layout, "prepare_map_images", counted)
+    monkeypatch.setattr(prefetch, "prepare_map_images", counted)
     steps = []
 
     prepared = pipeline.prepare(core_result, _meta(), tmp_path, _log(),
@@ -276,7 +269,7 @@ def test_a_cancel_during_the_layers_phase_stops_before_the_next_layer(project, c
                                                                      tmp_path, monkeypatch, no_pdf):
     """Annuleren wordt in elke fase binnen seconden gehoord - ook in de lagenfase, waar elke
     WMS-laag een netwerkronde is: na de laag die bezig was stopt de run, niet na alle."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import layers, pipeline
 
     built = []
@@ -288,7 +281,7 @@ def test_a_cancel_during_the_layers_phase_stops_before_the_next_layer(project, c
 
     monkeypatch.setattr(layers, "wms_layer", counted)
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
                         should_cancel=lambda: len(built) >= 1)
 
@@ -454,8 +447,7 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
     """
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layers, pipeline
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import layers, pipeline, prefetch
 
     core_result.map_ids = ["grb", "bodemkaart", "quartair"]  # ferraris is uitgevinkt
     asked_legends = []
@@ -465,7 +457,7 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
         return {entry.id: write_png(Path(out_dir) / "legendas" / f"{entry.id}.png")
                 for entry in entries}, []
 
-    monkeypatch.setattr(layout_mod, "prepare_legends", fake_legends)
+    monkeypatch.setattr(prefetch, "prepare_legends", fake_legends)
     built = []
     stand_in = layers.wms_layer
 
@@ -498,22 +490,22 @@ def test_a_map_with_one_failed_image_is_a_failed_source(qgs_app, core_result, ge
     het volgende kader wel lukte, spreekt dat blad tegen.
     """
     from desktopstudie.core.report_content import Chapter, MapPage, Report
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     pages = [MapPage("grb", "Ligging", scale=2500),
              MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
     report = Report(title="t", meta={}, chapters=[Chapter(1, "Test", pages)])
-    requests = layout_mod.plan_map_images(report, gent_zone.ring, {})
+    requests = prefetch.plan_map_images(report, gent_zone.ring, {})
     assert len(requests) == 2, [request.key for request in requests]
 
     def only_the_second(reqs, out_dir, client, log=None, should_cancel=None):
         write_png(Path(out_dir) / "kaarten" / "tweede.png")
         return {reqs[1].key: Path(out_dir) / "kaarten" / "tweede.png"}, set(), {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", only_the_second)
+    monkeypatch.setattr(prefetch, "prepare_map_images", only_the_second)
 
-    pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None)
+    pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None,
+                               pipeline._maps_with_more_to_show(report))
 
     images = [p for p in core_result.provenance if p.source.startswith(pipeline.MAP_IMAGE_SOURCE)]
     assert images and not any(p.ok for p in images), [(p.source, p.ok, p.message) for p in images]
@@ -527,11 +519,10 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     uit het rapport. Zonder een bronnenregel per kaartblad is er niets dat dat zegt.
     """
     from desktopstudie.core.report_content import profile_image_key, quartair_sheet
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     header = write_png(tmp_path / "legendas" / "quartair_22026_kop.png")
-    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+    monkeypatch.setattr(prefetch, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
                         ({profile_image_key("22026"): header}, set()))
 
@@ -572,10 +563,9 @@ def test_a_profile_type_without_a_drawing_link_is_named_in_the_sources(qgs_app, 
     """Zonder link wordt er niets opgehaald, en dan stond er ook niets in hoofdstuk Bronnen -
     terwijl de legendaregel de lezer er juist naartoe stuurde. De regel hoort er te staan, als
     feit over de bron: DOV publiceert geen tekening voor dit profieltype."""
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
-    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+    monkeypatch.setattr(prefetch, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
                         ({}, {"13064"}))
 
@@ -636,10 +626,10 @@ def test_a_failed_pdf_still_leaves_the_project_and_the_geopackage(project, core_
 
 def test_a_cancelled_run_stops_before_it_writes_a_report(project, core_result, offline_shell, tmp_path):
     """Afbreken hoort te stoppen, niet stilletjes door te draaien: geen half rapport in de map."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import pipeline
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
                         should_cancel=lambda: True)
 
@@ -683,15 +673,24 @@ def test_live_pipeline_for_gent(project, tmp_path):
                      radius_m=500.0, address="Kortrijksesteenweg 100, 9000 Gent")
     lines = []
     marks = {}
+    log = _log(lines)
     started = time.monotonic()
 
-    out = pipeline.run_pipeline(zone, study.Settings(radius_m=500.0), _meta(), LIVE_OUT, project,
-                                _log(lines), progress=lambda f, m: marks.setdefault(m, time.monotonic()),
-                                pngs=True)
+    # The two halves, with one client between them so they share one disk cache - the way the
+    # plugin and the headless script drive them. Both get the same progress callback: the phase
+    # names are what the timing below reads, and those do not change with the fraction.
+    def mark(_fraction, message):
+        marks.setdefault(message, time.monotonic())
+
+    client = pipeline.make_client(LIVE_OUT, log)
+    result = pipeline.run_core(zone, study.Settings(radius_m=500.0), LIVE_OUT, log,
+                               progress=mark, client=client)
+    out = pipeline.finish(project, result, _meta(), LIVE_OUT, log, progress=mark, client=client,
+                          pngs=True)
 
     elapsed = time.monotonic() - started
     core_done = marks.get("Relief uit DHMV", started) - started
-    pages = _pdf_pages(out.pdf)
+    pages = pdf_pages(out.pdf)
     print(f"\nlive pijplijn Gent: {elapsed:.0f} s totaal ({core_done:.0f} s kern, "
           f"{elapsed - core_done:.0f} s schil), {pages} pagina's, {len(out.page_pngs)} PNG's "
           f"-> {LIVE_OUT}")
@@ -756,17 +755,17 @@ def test_the_json_is_written_before_the_heavy_products(project, core_result, off
 
 def test_a_cancelled_export_is_not_swallowed_as_a_failure(project, core_result, offline_shell, tmp_path,
                                                           monkeypatch):
-    """Afbreken is geen mislukte export: het hoort door te komen als StudyCancelled, niet als een
+    """Afbreken is geen mislukte export: het hoort door te komen als Cancelled, niet als een
     regel in `failures` met een run die daarna "klaar" meldt."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import export, pipeline
 
     def cancelled(lay, path, **kwargs):
-        raise StudyCancelled("afgebroken door de gebruiker")
+        raise Cancelled("afgebroken door de gebruiker")
 
     monkeypatch.setattr(export, "export_pdf", cancelled)
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
 
@@ -774,9 +773,9 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
                                                                tmp_path, monkeypatch, no_pdf):
     """De Popp-kaart is in Gent wit: het mozaiek heeft daar geen blad. De dienst antwoordde wel, dus
     de bron blijft "ok" - met de reden erbij, zodat het witte blad verklaard is."""
-    from desktopstudie.qgis import layout, pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
-    real = layout.prepare_map_images
+    real = prefetch.prepare_map_images
 
     def empty_ferraris(requests, out_dir, client, log=None, should_cancel=None):
         images, _empty, backdrops = real(requests, out_dir, client, log, should_cancel)
@@ -784,7 +783,7 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
         return (images, {request.key for request in requests if request.map_id == "ferraris"},
                 backdrops)
 
-    monkeypatch.setattr(layout, "prepare_map_images", empty_ferraris)
+    monkeypatch.setattr(prefetch, "prepare_map_images", empty_ferraris)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
@@ -870,7 +869,7 @@ def test_a_run_with_project_groups_still_fills_the_open_project(project, core_re
 def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
     """Vervangt de kaartbeeld-ophaler: de genoemde kaarten leveren een lege tegel of helemaal
     niets, de rest een klein plaatje."""
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import prefetch
 
     def fake(requests, out_dir, client, log=None, should_cancel=None):
         images, empty = {}, set()
@@ -879,13 +878,13 @@ def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
                 continue
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
             if request.map_id in empty_maps:
                 empty.add(request.key)
         return images, empty, {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake)
 
 
 def _map_ids(report):
@@ -934,8 +933,7 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
     """Geen dekking hoort bij een kader, niet bij een kaart: de GRB-basiskaart draagt drie kaders
     en een lege tegel op het ene zegt niets over de andere."""
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     seen = []
 
@@ -944,14 +942,14 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
         for request in requests:
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
             if request.map_id == "grb" and not seen:
                 seen.append(request.key)
                 empty.add(request.key)
         return images, empty, {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
@@ -970,13 +968,12 @@ def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, 
     als de legendabladen uitstaan, en de kaartpagina draagt ze."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
                         [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
     strip = write_png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 48, 16)
-    monkeypatch.setattr(layout_mod, "fetch_ramp",
+    monkeypatch.setattr(prefetch, "fetch_ramp",
                         lambda entry, out_dir, client, log=None: strip)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
@@ -997,12 +994,11 @@ def test_a_height_ramp_that_did_not_come_back_is_a_failed_source(project, core_r
     waarom."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
                         [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
-    monkeypatch.setattr(layout_mod, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
+    monkeypatch.setattr(prefetch, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
@@ -1027,6 +1023,27 @@ def test_compact_packs_more_sheets_than_the_default(project, core_result, offlin
                              legends=False, compact=True)
 
     assert packed.sheets < plain.sheets
+
+
+def test_a_map_that_keeps_its_sheet_is_never_called_uncovered(project, core_result, offline_shell,
+                                                              tmp_path, monkeypatch, no_pdf):
+    """Een kaart die haar blad HOUDT, mag in de bronnentabel niet "geen dekking" heten.
+
+    De bodemkaart tekent hier een lege tegel maar de WFS vond wel eenheden, dus het blad blijft en
+    de lezer ziet een tabel met rijen. Stond er dan "ok - geen dekking op deze locatie" achter die
+    bron, dan spreekt het rapport zichzelf tegen: de zin voor de bron hoort dezelfde regel te
+    volgen als het blad - geen dekking alleen waar het blad verder niets te tonen heeft.
+    """
+    from desktopstudie.qgis import pipeline
+
+    _empty_map_images(monkeypatch, empty_maps=("bodemkaart",))
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert "bodemkaart" in _map_ids(out.report), "de WFS vond eenheden, dus het blad blijft"
+    source = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Bodemkaart"))
+    assert source.ok
+    assert source.message == "", source.message
 
 
 def test_an_empty_theme_with_an_empty_legend_costs_its_sheet(project, core_result, offline_shell,
