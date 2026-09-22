@@ -1,20 +1,20 @@
-"""Eén eigenaardigheid van het documentportaal van DOV, apart gehouden.
+"""One quirk of DOV's document portal, kept apart.
 
-De Quartair-profieltypetekeningen hangen aan een downloadlink van
-`datasets.omgeving.vlaanderen.be` die op `_png` eindigt. Die link hoort door te verwijzen naar het
-bestand, maar het portaal (een DSpace-installatie) antwoordt er soms met zijn eigen webpagina op -
-HTTP 200, `text/html`, 320 kB Angular. Live vastgesteld op 2026-09-16: dezelfde URL gaf minuten
-eerder de PNG.
+The quartair profieltype drawings hang from a download link on
+`datasets.omgeving.vlaanderen.be` that ends in `_png`. That link is supposed to redirect to the
+file, but the portal (a DSpace installation) answers it with its own web page now and then -
+HTTP 200, `text/html`, 320 kB of Angular. Observed live on 2026-09-16: the same URL had given the
+PNG minutes earlier.
 
-Die pagina is niet waardeloos: ze draagt de toestand van de webapplicatie in zich, en daarin staat
-de directe link naar het bestand (`.../server/api/core/bitstreams/<uuid>/content`) mét de naam van
-dat bestand. Deze module haalt die link eruit, zodat de beller hem kan volgen in plaats van de
-tekening als mislukt te melden.
+That page is not worthless: it carries the state of the web application inside it, and in there
+stands the direct link to the file (`.../server/api/core/bitstreams/<uuid>/content`) WITH the name
+of that file beside it. This module reads that link out, so the caller can follow it instead of
+reporting the drawing as a failure.
 
-Dit is bewust géén DSpace-client: geen zoekopdracht, geen item, geen bundles - één regex op het
-antwoord dat we tóch al binnen hebben. Verandert het portaal van vorm, dan vindt de regex niets,
-krijgt de beller `None` en blijft alles werken zoals voordien (de tekening wordt als niet-opgehaalde
-bron gemeld). Zie de schuldlijst in CLAUDE.md.
+Deliberately NOT a DSpace client: no search, no item, no bundles - one regex over the answer we
+already have in hand. If the portal changes shape the regex finds nothing, the caller gets `None`
+and everything keeps working as before (the drawing is reported as a source that did not come
+back). See the debt list in CLAUDE.md.
 """
 from __future__ import annotations
 
@@ -22,21 +22,21 @@ import re
 from typing import Optional
 from urllib.parse import urlsplit
 
-# De directe downloadlink van DSpace. Het uuid staat er los in zodat een halve match niet telt.
+# DSpace's direct download link. The uuid is spelled out so that half a match does not count.
 CONTENT_HREF = re.compile(r"https://[\w.-]+/server/api/core/bitstreams/[0-9a-f]{8}-[0-9a-f]{4}-"
                           r"[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/content")
-# HTML mag zijn aanhalingstekens ontsnappen (&q; in de transfer-state van Angular), dus de naam
-# wordt kaal gezocht: "DOV_Quartair_50000_22010.png" staat er hoe dan ook letterlijk in.
+# HTML may escape its quotes (&q; in Angular's transfer state), so the name is searched for bare:
+# "DOV_Quartair_50000_22010.png" is in there literally whatever the quoting does.
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
 def file_name_of(url: str) -> str:
-    """De bestandsnaam die een downloadlink vraagt: `..._22010_png` is `DOV_..._22010.png`.
+    """The file name a download link asks for: `..._22010_png` is `DOV_..._22010.png`.
 
-    De link eindigt op een handle - punten aan elkaar geregen, met de bestandsnaam als laatste
-    stuk en een liggend streepje waar die naam een punt heeft
-    (`be.vlaanderen...geo.<uuid>.DOV_Quartair_50000_22010_png`). De pagina noemt de naam zoals ze
-    op schijf staat, dus zonder deze vertaling matcht ze nooit.
+    The link ends in a handle - dots strung together, with the file name as its last piece and an
+    underscore where that name has a dot
+    (`be.vlaanderen...geo.<uuid>.DOV_Quartair_50000_22010_png`). The page names the file as it is
+    on disk, so without this translation it never matches.
     """
     last = urlsplit(url).path.rsplit("/", 1)[-1]
     if last.endswith("_png"):
@@ -44,17 +44,17 @@ def file_name_of(url: str) -> str:
     return last
 
 
-# Wat een portaalpagina zegt als het gevraagde document er niet is. Op de inhoud gelezen en niet
-# op de HTTP-status: DSpace antwoordt 200 op een "niet gevonden"-pagina, dus de status zegt niets.
+# What a portal page says when the document asked for is not there. Read off the CONTENT and not
+# off the HTTP status: DSpace answers 200 on a "not found" page, so the status says nothing.
 NOT_FOUND_MARKS = ("not found", "404", "niet gevonden", "does not exist")
 
 
 def says_not_found(page: bytes) -> bool:
-    """Of deze portaalpagina meldt dat er niets te vinden is.
+    """Whether this portal page says there is nothing to find.
 
-    Het verschil is voor de lezer: "DOV publiceert hiervoor geen tekening" is een feit over de
-    bron, "tekening niet opgehaald" klinkt als iets dat een tweede poging verdient. Een pagina met
-    een downloadlink erin is nooit een niet-gevonden-pagina, hoe vaak het woord er ook in staat.
+    The difference is for the reader: "DOV publishes no drawing for this one" is a fact about the
+    source, while "drawing not fetched" sounds like something a second attempt would fix. A page
+    with a download link in it is never a not-found page, however often the word appears on it.
     """
     if page.startswith(PNG_MAGIC):
         return False
@@ -65,11 +65,11 @@ def says_not_found(page: bytes) -> bool:
 
 
 def content_link(page: bytes, url: str) -> Optional[str]:
-    """De directe link naar het bestand dat `url` vraagt, gelezen uit de portaalpagina zelf.
+    """The direct link to the file `url` asks for, read out of the portal page itself.
 
-    `None` zodra iets niet klopt: het antwoord is geen pagina (een PNG bijvoorbeeld), de pagina
-    noemt de gevraagde bestandsnaam niet - dan gaat ze over iets anders en zou de link het verkeerde
-    bestand opleveren - of er staat geen downloadlink in. Liever niets dan het verkeerde bestand.
+    `None` the moment anything is off: the answer is not a page at all (a PNG, say), the page does
+    not name the file that was asked for - then it is about something else and the link would
+    yield the wrong file - or there is no download link on it. Nothing beats the wrong file.
     """
     if page.startswith(PNG_MAGIC):
         return None
@@ -81,7 +81,7 @@ def content_link(page: bytes, url: str) -> Optional[str]:
     links = list(CONTENT_HREF.finditer(text))
     if not links:
         return None
-    # Eén pagina draagt in de praktijk één bestand; staan er meer, dan wint de link die het dichtst
-    # bij de gevraagde naam staat - in de JSON van de pagina horen link en naam bij hetzelfde object.
+    # One page carries one file in practice; where there are more, the link nearest the name that
+    # was asked for wins - in the page's JSON a link and a name belong to the same object.
     best = min(links, key=lambda m: min(abs(m.start() - pos) for pos in names))
     return best.group(0)
