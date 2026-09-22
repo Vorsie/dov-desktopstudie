@@ -1,0 +1,57 @@
+name: Nieuwe kaart of verbetering
+description: Een kaart die er nog niet is, of iets dat beter kan in de studie.
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Kort mag. Wat het meeste helpt: welk probleem het oplost voor de studie, en - als het om
+        een nieuwe bron gaat - waar die bron staat.
+
+  - type: textarea
+    id: probleem
+    attributes:
+      label: Welk probleem lost dit op voor de studie?
+      description: Wat mist er nu, of wat moet je er vandaag zelf bij zoeken?
+      placeholder: >
+        De studie zegt niets over de afstand tot het dichtstbijzijnde oppervlaktewater, en dat
+        bepaalt mee of een bemaling vergunbaar is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: voorstel
+    attributes:
+      label: Wat stel je voor?
+      placeholder: "Een kaartblad met de VHA-waterlopen, en in de feitentabel de afstand tot de dichtstbije."
+    validations:
+      required: true
+
+  - type: input
+    id: bron
+    attributes:
+      label: Welke kaart of bron heeft het nodig?
+      description: De naam zoals DOV of geopunt ze noemt.
+      placeholder: "VHA-waterlopen (Vlaamse Hydrografische Atlas)"
+
+  - type: input
+    id: service
+    attributes:
+      label: Service-URL, als het om een nieuwe bron gaat
+      description: >
+        De WMS-, WFS- of WCS-URL (gerust met GetCapabilities erbij). Elke bron wordt live
+        geverifieerd - laagnaam, stijlnaam, veldnamen - voor ze in de catalogus komt; met de URL
+        erbij is dat een kwestie van minuten.
+      placeholder: "https://geo.api.vlaanderen.be/VHA/wms?request=GetCapabilities&service=WMS"
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Bevestiging
+      options:
+        - label: >
+            Ik weet dat de plugin niets uitrekent en niets interpreteert (geen draagkracht, geen
+            zettingen, geen funderingsadvies) en dat de bronnen beperkt blijven tot de open data
+            van DOV en geopunt.
+          required: true
