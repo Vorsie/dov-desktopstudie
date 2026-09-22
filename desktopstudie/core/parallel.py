@@ -20,6 +20,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Optional, Sequence, Union
 
 DEFAULT_WORKERS = 4
+# The one sentence a stopped run says, everywhere. It reaches the user (the message bar, the log
+# panel, a script's exit line), so it is written once rather than retyped in every phase.
+CANCELLED_MESSAGE = "afgebroken door de gebruiker"
 
 
 class Cancelled(Exception):
@@ -28,6 +31,17 @@ class Cancelled(Exception):
     Not a source failure: it is never recorded as one and never swallowed by an isolating
     handler. `study.StudyCancelled` is this same class under the name the rest of the code knows.
     """
+
+
+def stop_if(should_cancel: Optional[Callable[[], bool]]) -> None:
+    """Raise `Cancelled` when the caller asked to stop, and do nothing when nobody is asking.
+
+    Every phase that can run for minutes polls this - between stages, before each WMS layer,
+    between sheets of the layout, between runs of the exporter - so the check and its sentence
+    live in one place. `None` is a run nobody can cancel (a script, a test), not an error.
+    """
+    if should_cancel is not None and should_cancel():
+        raise Cancelled(CANCELLED_MESSAGE)
 
 
 Label = Union[str, Callable[[Any], str]]
@@ -52,11 +66,9 @@ def load_each(items: Sequence[Any], load_one: Callable[[Any], None], label: Labe
     """
     if not items:
         return 0
-    stop = should_cancel or (lambda: False)
 
     def check() -> None:
-        if stop():
-            raise Cancelled("afgebroken door de gebruiker")
+        stop_if(should_cancel)
 
     failed = 0
     # Not a `with`: its __exit__ is shutdown(wait=True), which joins the items the pool handed out
