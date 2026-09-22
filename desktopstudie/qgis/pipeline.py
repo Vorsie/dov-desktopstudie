@@ -564,7 +564,10 @@ class Prepared:
     field is plain Python or a file on disk, so it crosses from the worker thread to the main
     thread as data."""
     legend_images: Dict[str, Path]  # map id -> legend PNG
-    zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
+    # Every picture that is report content rather than a legend sheet - the quartair
+    # drawings, the colour strips, the class keys - as `build_report` wants them,
+    # relative to out_dir. Not "legend images": `legend_images` above is the other thing.
+    report_images: Dict[str, str]
     unpublished: Set[str]  # profile types the portal says it publishes no drawing for
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
@@ -627,7 +630,7 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         client = client or make_client(out_dir, log, cache_mode)
         legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
 
-    zone_legend_images: Dict[str, str] = {}
+    report_images: Dict[str, str] = {}
     unpublished: Set[str] = set()
     targets = prefetch.zone_legend_targets(result)
     # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
@@ -637,7 +640,7 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         stop_if(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
+        report_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
                                                               log, should_cancel)
 
     ramp_entries = _ramp_entries(result)
@@ -645,13 +648,13 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         stop_if(should_cancel)
         clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
+        report_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
 
     key_entries = _class_key_entries(result)
     if key_entries:
         stop_if(should_cancel)
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
+        report_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
 
     stop_if(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
@@ -659,14 +662,14 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
     # zone - not from the signaleringen. So the tree is built once here to be read, and once in
     # `finish` to be printed, with every source of this study in it. Building it is pure Python.
-    planned = build_report(result, meta, zone_legend_images)
+    planned = build_report(result, meta, report_images)
     requests = prefetch.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
     map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
     unavailable = _pages_without_an_image(planned, result, map_images, no_coverage)
     if unavailable and log:
         log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
     clock.close()
-    return Prepared(legend_images, zone_legend_images, unpublished, map_images, no_coverage,
+    return Prepared(legend_images, report_images, unpublished, map_images, no_coverage,
                     requests, unavailable, clock.timings)
 
 
@@ -741,7 +744,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # The pages of maps that have no picture are left out: the sources chapter says per map that
     # it was tried and what came back, which is where a reader looks for that - not a sheet with
     # an empty frame and a line under it.
-    report = build_report(result, meta, prepared.zone_legend_images, prepared.unavailable)
+    report = build_report(result, meta, prepared.report_images, prepared.unavailable)
 
     report_progress(0.33, "GeoPackage en projectbestand")
     gpkg = out_dir / DATA_DIR / GPKG_NAME
