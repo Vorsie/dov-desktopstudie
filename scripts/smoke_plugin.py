@@ -11,17 +11,31 @@ Everything here is event-driven (QTimer): under
 `--code` the script runs before the event loop, so it may only schedule work. The status lands in
 uitvoer/plugin_gent/smoke_status.json, a log next to it; both are what a reader checks afterwards,
 because the QGIS window closes itself at the end.
+
+Two environment variables, both optional:
+
+  DESKTOPSTUDIE_FRAMES   folder to capture the window into while the study runs (one PNG per
+                         frame; `scripts/demo_gif.py` turns them into the README demo). Unset:
+                         capture nothing, which is how the smoke run normally goes.
+  DESKTOPSTUDIE_PROJECT  the study name (default "Smoke Gent").
+
+The frames come from `QWidget.grab()`, not from a screenshot: that yields the window itself,
+without whatever happens to sit on top of it. The dialog is a window of its own and is therefore
+not in that grab; it is painted onto the frame at its own offset, with a thin border so it still
+reads as a separate window.
 """
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import traceback
 from pathlib import Path
 
 from qgis.core import QgsApplication, QgsProject, QgsSettings
-from qgis.PyQt.QtCore import QTimer
+from qgis.PyQt.QtCore import QPoint, QTimer
+from qgis.PyQt.QtGui import QColor, QPainter
 from qgis.utils import active_plugins, iface, loadPlugin, plugins, startPlugin
 
 PLUGIN = "desktopstudie"
@@ -31,6 +45,12 @@ POLL_MS = 500
 GEOCODE_TIMEOUT_S = 60.0
 STUDY_TIMEOUT_S = 40 * 60.0
 QUIT_DELAY_MS = 1500
+PROJECT = os.environ.get("DESKTOPSTUDIE_PROJECT") or "Smoke Gent"
+FRAMES = Path(os.environ["DESKTOPSTUDIE_FRAMES"]) if os.environ.get("DESKTOPSTUDIE_FRAMES") else None
+FRAME_MS = 1500          # one frame per second and a half: enough to see a phase begin
+FRAME_MAX = 400          # a brake, so a wedged run does not leave a folder full of frames
+FRAME_WINDOW = (1600, 1000)
+FRAME_QUIT_MS = 9000     # while capturing the window stays open longer: the canvas still draws
 
 
 def _root() -> Path:
@@ -50,7 +70,7 @@ OUT = ROOT / "uitvoer" / "plugin_gent"
 STATUS = OUT / "smoke_status.json"
 LOG = OUT / "smoke_log.txt"
 T0 = time.monotonic()
-state = {"done": False}
+state = {"done": False, "frames": 0}
 
 
 def note(message: str) -> None:
@@ -67,9 +87,37 @@ def write_status(**fields) -> None:
     STATUS.write_text(json.dumps(fields, indent=2, ensure_ascii=False, default=str), encoding="utf-8")
 
 
+def grab(tag: str) -> None:
+    """One frame of the main window, with the dialog drawn on top where it stands."""
+    if FRAMES is None or state["frames"] >= FRAME_MAX:
+        return
+    window = iface.mainWindow()
+    shot = window.grab()
+    dialog = getattr(plugins.get(PLUGIN), "dialog", None)
+    if dialog is not None and dialog.isVisible():
+        offset = dialog.mapToGlobal(QPoint(0, 0)) - window.mapToGlobal(QPoint(0, 0))
+        painter = QPainter(shot)
+        painter.drawPixmap(offset, dialog.grab())
+        painter.setPen(QColor(90, 90, 90))
+        painter.drawRect(offset.x() - 1, offset.y() - 1, dialog.width() + 1, dialog.height() + 1)
+        painter.end()
+    state["frames"] += 1
+    FRAMES.mkdir(parents=True, exist_ok=True)
+    shot.save(str(FRAMES / f"frame_{state['frames']:03d}_{tag}.png"))
+
+
+def grab_loop() -> None:
+    if FRAMES is None or state.get("no_frames"):
+        return
+    grab("loop")
+    QTimer.singleShot(FRAME_MS, grab_loop)
+
+
 def quit_qgis() -> None:
     QgsProject.instance().setDirty(False)  # no "save project?" prompt on the way out
-    QTimer.singleShot(QUIT_DELAY_MS, iface.mainWindow().close)
+    delay = FRAME_QUIT_MS if FRAMES is not None else QUIT_DELAY_MS
+    QTimer.singleShot(delay - 500, lambda: state.__setitem__("no_frames", True))
+    QTimer.singleShot(delay, iface.mainWindow().close)
 
 
 def fail(message: str) -> None:
@@ -122,11 +170,18 @@ def step_enable():
     dialog = plugin.dialog
     dialog.address_edit.setText(ADDRESS)
     dialog.buffer_spin.setValue(BUFFER_M)
-    dialog.project_edit.setText("Smoke Gent")
+    dialog.project_edit.setText(PROJECT)
     dialog.author_edit.setText("smoke_plugin.py")
     dialog.company_edit.setText("DOV Desktopstudie")
     dialog.output_edit.setText(str(OUT))
     dialog.legends_check.setChecked(True)
+    if FRAMES is not None:
+        window = iface.mainWindow()
+        window.showNormal()  # a maximised window ignores resize()
+        window.resize(*FRAME_WINDOW)
+        dialog.move(window.x() + window.width() - dialog.width() - 60, window.y() + 140)
+        grab("dialoog")
+        QTimer.singleShot(FRAME_MS, grab_loop)
     dialog.search_address()
     note(f"adres gezocht: {ADDRESS}")
     wait_for(lambda: dialog.search_button.isEnabled(), GEOCODE_TIMEOUT_S, lambda: step_start(plugin, dialog),
@@ -159,6 +214,7 @@ def step_start(plugin, dialog):
     if not runner.running:
         fail("de studie is niet gestart (zie de berichtenbalk / het logpaneel)")
         return
+    grab("start")
     note(f"studie gestart, uitvoer {runner.request.out_dir}")
     QTimer.singleShot(2000, log_progress)
     wait_for(lambda: state["done"], STUDY_TIMEOUT_S, lambda: None, "studie")
@@ -183,6 +239,10 @@ def step_finished(runner, dialog, result):
                      failures=result.failures, failed_sources=failed, timings=result.timings,
                      groups=groups, layouts=layouts, start_enabled=dialog.start_button.isEnabled(),
                      canvas_renders=state.get("renders", 0), profile=QgsApplication.qgisSettingsDirPath())
+    if FRAMES is not None:
+        for group in project.layerTreeRoot().findGroups():
+            if group.name().startswith("DOV Desktopstudie"):
+                group.setExpanded(True)  # the study's layer tree open in the last frames, not collapsed
     quit_qgis()
 
 
