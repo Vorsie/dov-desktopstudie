@@ -24,7 +24,8 @@ schil) en de orchestrator `study.py`.
 het ophalen (`prefetch.py`: legenda's, profieltypetekeningen en kaartbeelden; dit is wat de
 werkthread draait), layout (`layout.py`: papier, kadrering en de bouwer), export (`export.py`),
 versieshims (`compat.py`), de pijplijn (`pipeline.py`:
-`run_core` / `prepare` / `finish`, `run_pipeline` als alles-in-één) en de plugin zelf - `plugin.py`
+`run_core` / `prepare` / `finish`; er is geen alles-in-een, elke oproeper drijft de helften zelf
+aan) en de plugin zelf - `plugin.py`
 (actie en menu), `dialog.py` (het formulier, in code gebouwd), `zone_input.py` (pure functies:
 adres, X/Y, getekende ring of geselecteerd object -> `StudyZone` in Lambert 72; doorsnedelijn;
 uitvoermap per run), `map_tools.py` (polygoon/lijn tekenen), `task.py` (`StudyTask`, `StudyRunner`,
