@@ -2,6 +2,22 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [Niet uitgebracht]
+
+### Gewijzigd
+- **De Franse beschrijvingen worden geklasseerd zoals de Nederlandse.** Een kwart van de gemeten
+  lagen (874 van 3630) staat in het Frans - de oude records vooral - en daar vlagden 615 van de
+  893 woorden, tegen 140 nu. De kleuren en alles wat erop gebouwd is, schelpen en plantenresten
+  als bijmenging, de gewone matrix met haar modificatoren en de vertelling van een handgeschreven
+  boorstaat zijn gewone grond; cailloux, tourbe, grès, silex, gypse, schiste, marne en de bank
+  blijven vlaggen. Een opmerkingsregel onder een Franse boring telt daardoor drie termen in plaats
+  van negentien, en negen van de 145 getelde boringen houden er geen meer over. **Er wordt niets
+  vertaald**: een gevlagde term blijft het Franse woord zelf.
+  Accenten tellen niet meer mee bij de vergelijking (DOV heeft "vegetale" naast "végétale" en
+  "gres" naast "grès"), en de vrouwelijke, de meervouds- en de "-âtre"-vorm zijn uitgangen die er
+  vóór de opzoeking afgaan in plaats van losse woorden. De richting van de regel blijft staan: de
+  lijst zegt alleen wat GEWOON is, al de rest vlagt.
+
 ## [0.3.0] - 2026-09-22
 
 Tweede gebruikersronde. De Locatie-tab zegt wat ze ziet, de lagenboom zet het eigen werk bovenaan,
