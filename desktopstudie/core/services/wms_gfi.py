@@ -7,15 +7,14 @@ from typing import Any, Dict, List, Optional
 from ..geometry import CRS
 from ..logging_util import Log
 
-GRID = 101  # beeldpunten over de doos; oneven, zodat het gevraagde punt het middelste is
+GRID = 101  # pixels across the box; odd, so that the point asked about is the middle one
 MIN_GRID = 3
 
 
 def _grid(half_size_m: float, m_per_pixel: float) -> int:
-    """Hoeveel beeldpunten over de doos, zodat een beeldpunt minstens `m_per_pixel` breed is.
+    """How many pixels across the box, so that one pixel is at least `m_per_pixel` wide.
 
-    Altijd oneven: het gevraagde punt moet het MIDDELSTE beeldpunt zijn, en een even rooster heeft
-    geen midden.
+    Always odd: the point asked about has to be the MIDDLE pixel, and an even grid has no middle.
     """
     if m_per_pixel <= 0:
         return GRID
