@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
-from .model import StudyResult, plain_reason
+from .model import StudyResult, facts_of, plain_reason
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
@@ -199,12 +199,6 @@ def _map_pages(chapter: str, only: Optional[List[str]] = None, **kw) -> List[Pag
             for entry in catalogue.entries(chapter, only=only)]
 
 
-def _fact_rows(entry: catalogue.MapEntry, result: StudyResult) -> Optional[List[Dict[str, Any]]]:
-    """The rows the study found for this map: `[]` when the zone holds none, None when the source
-    never answered. Telling those two apart is the whole point of keeping it Optional."""
-    return next((mf.rows for mf in result.map_facts if mf.map_id == entry.id), None)
-
-
 # A sentence in a reading guide that describes the table under it. When there is no table, such a
 # sentence promises the reader something the sheet does not hold, so it is left out.
 TABLE_SENTENCE = re.compile(r"(?:De|Deze) (?:tabel|kolom|kolommen) ")
@@ -351,7 +345,7 @@ def _quartair_zone_legend(entry: catalogue.MapEntry, result: StudyResult,
     line of description - says what the URL was for. The raw URL stays in `MapFact.rows` and in
     studie.json.
     """
-    rows_src = _fact_rows(entry, result)
+    rows_src = facts_of(result, entry.id)
     entries: List[LegendEntry] = []
     for row in rows_src or []:
         code = _s(row.get(QUARTAIR_CODE))
@@ -442,7 +436,7 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
     """
     if entry.id == QUARTAIR_ID:
         return _quartair_zone_legend(entry, result, images)
-    rows_src = _fact_rows(entry, result)
+    rows_src = facts_of(result, entry.id)
     if entry.id == ISOPACH_ID:
         # No table at all: the thickness is printed on the lines by the service's own style, and a
         # column of distances to lines the reader can see is furniture, not an answer. Decided
@@ -478,7 +472,7 @@ def _zone_legend_figures(entry: catalogue.MapEntry, result: StudyResult,
         return []
     pages: List[Page] = []
     seen = set()
-    for row in _fact_rows(entry, result) or []:
+    for row in facts_of(result, entry.id) or []:
         sheet = quartair_sheet(_s(row.get(QUARTAIR_CODE)))
         units = images.get(sheet_image_key(sheet))
         if units is None or sheet in seen:
@@ -570,7 +564,7 @@ def _gxg_ramp(entry: catalogue.MapEntry, result: StudyResult, images: Dict[str, 
     steps = len(ticks) - 1
     path = images.get(ramp_image_key(entry.id), "")
     level = _gxg_level(entry)
-    row = next(iter(_fact_rows(entry, result) or []), None)
+    row = next(iter(facts_of(result, entry.id) or []), None)
     depth = row.get(entry.fact_fields[0]) if row else None
     if depth is None:
         summary = f"{level}: geen waarde op dit punt (zie hoofdstuk Bronnen)."
