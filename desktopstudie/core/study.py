@@ -224,11 +224,7 @@ class _Runner:
 
     def boreholes(self) -> None:
         feats = self.wfs.within_distance("dov-pub:Boringen", self.zone.wkt, self.s.radius_m, self.s.max_features)
-        interp = {}
-        for typename in ("interpretaties:lithologische_beschrijvingen", "interpretaties:gecodeerde_lithologie"):
-            for f in self.wfs.within_distance(typename, self.zone.wkt, self.s.radius_m, self.s.max_features):
-                p = f["properties"]
-                interp.setdefault(p.get("Proeffiche"), p.get("Interpretatiefiche"))
+        interp = self.wfs.interpretation_urls(self.zone.wkt, self.s.radius_m, self.s.max_features)
         out: List[Borehole] = []
         for f in feats:
             p = f["properties"]
