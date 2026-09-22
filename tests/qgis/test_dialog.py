@@ -49,6 +49,36 @@ def _clicks(tool, canvas, pixels):
     return [(p.x(), p.y()) for p in seen]
 
 
+def _press(widget, key):
+    """Een echte toetsaanslag op dat widget. Enter in het adresveld is een `returnPressed`, Enter
+    in de kandidatenlijst een `itemActivated`: door de toets te sturen in plaats van het signaal
+    wordt getest wat de gebruiker indrukt."""
+    from qgis.PyQt.QtCore import QEvent, Qt
+    from qgis.PyQt.QtGui import QKeyEvent
+    from qgis.PyQt.QtWidgets import QApplication
+
+    for kind in (QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+        QApplication.sendEvent(widget, QKeyEvent(kind, key, Qt.KeyboardModifier.NoModifier))
+
+
+def _searched(dialog, query="Kortrijksesteenweg 100 Gent"):
+    """Een zoekopdracht die al geantwoord heeft, zonder de geocoder aan te raken: de gezochte tekst
+    staat in het veld, twee kandidaten staan in de lijst en rij 0 is gekozen. Geeft de gestarte
+    zoekopdrachten terug, zodat een test kan zien dat er geen tweede bij komt."""
+    from desktopstudie.core.services.geocoder import GeocodeHit
+
+    started = []
+    dialog._start_geocode = lambda text, token: started.append((text, token))
+    dialog.address_edit.setText(query)
+    dialog.search_address()
+    dialog._address_found(started[0][1], None,
+                          [GeocodeHit("Kortrijksesteenweg 100, 9000 Gent", GENT[0], GENT[1], "Gent",
+                                      "9000", "basisregisters_huisnummer"),
+                           GeocodeHit("Kortrijksesteenweg, 9000 Gent", 104000.0, 192000.0, "Gent",
+                                      "9000", "basisregisters_straat")])
+    return started
+
+
 class _StubRunner:
     """Neemt aanvragen aan zonder ooit een taak te starten."""
 
@@ -168,6 +198,107 @@ def test_address_mode_needs_a_chosen_candidate(qgs_app, tmp_path):
     assert request.zone.centroid == pytest.approx((104326.0, 192506.0), abs=0.01)
 
 
+def test_enter_on_a_candidate_chooses_that_address(qgs_app, tmp_path):
+    """"als ik enter druk in de dropdown op adres, dan selecteert die het adres niet".
+
+    Enter op een kandidaat kiest dat adres: die rij blijft de gekozen rij, het adresveld toont het
+    gekozen adres zodat de lezer ziet welke kandidaat hij heeft, en de aanvraag draait erom. Een
+    dubbelklik doet hetzelfde - Qt stuurt voor allebei `itemActivated`.
+    """
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    dialog.output_edit.setText(str(tmp_path))
+    started = _searched(dialog)
+    dialog.hits_list.setCurrentRow(1)
+
+    _press(dialog.hits_list, Qt.Key.Key_Return)
+
+    assert dialog.hits_list.currentRow() == 1, "de gekozen rij blijft de gekozen rij"
+    assert dialog.address_edit.text() == "Kortrijksesteenweg, 9000 Gent"
+    assert dialog.build_request().zone.address == "Kortrijksesteenweg, 9000 Gent"
+    # Kiezen is kiezen: die Enter reist niet door naar de knop Zoek van de dialoog.
+    assert [text for text, _token in started] == ["Kortrijksesteenweg 100 Gent"]
+
+
+def test_enter_in_the_address_field_does_not_search_again_when_candidates_are_standing(qgs_app, tmp_path):
+    """Enter in het adresveld zoekt niet opnieuw als er al kandidaten staan: dezelfde tekst is
+    dezelfde vraag, dus die Enter is voor de lijst en de focus gaat erheen. Een gewijzigde tekst is
+    een nieuwe vraag en zoekt wel - ook als ze op het gekozen adres lijkt."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    started = _searched(dialog)
+
+    _press(dialog.address_edit, Qt.Key.Key_Return)
+
+    assert [text for text, _token in started] == ["Kortrijksesteenweg 100 Gent"]
+    assert dialog.focusWidget() is dialog.hits_list
+    assert dialog.hits_list.currentRow() == 0
+
+    dialog.address_edit.setText("Kortrijksesteenweg 101 Gent")
+    _press(dialog.address_edit, Qt.Key.Key_Return)
+
+    assert [text for text, _token in started] == ["Kortrijksesteenweg 100 Gent",
+                                                  "Kortrijksesteenweg 101 Gent"]
+
+
+def test_a_second_enter_starts_the_study(qgs_app, tmp_path):
+    """Een tweede Enter start de studie: kiezen zet de focus op Start, dus de Enter erna drukt die
+    knop in. Waar de focus landt is hier de vraag - dat Start een studie begint staat elders."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    _fill_xy(dialog, tmp_path)
+    _searched(dialog)
+
+    _press(dialog.hits_list, Qt.Key.Key_Return)
+
+    assert dialog.mode_address.isChecked()
+    assert dialog.focusWidget() is dialog.start_button
+
+
+def test_enter_on_nothing_found_chooses_no_address(qgs_app, tmp_path):
+    """Enter op "Geen kandidaat gevonden." kiest geen adres: die regel is geen kandidaat (er zijn
+    er geen), dus het adresveld houdt de tekst van de gebruiker, de focus blijft waar ze was en
+    Start weigert met de reden."""
+    from qgis.PyQt.QtCore import Qt
+
+    from desktopstudie.qgis.dialog import NO_HITS
+
+    dialog = _dialog(tmp_path)
+    dialog.output_edit.setText(str(tmp_path))
+    started = []
+    dialog._start_geocode = lambda text, token: started.append((text, token))
+    dialog.address_edit.setText("Nergensstraat 1, Nergens")
+    dialog.search_address()
+    dialog._address_found(started[0][1], None, [])
+
+    assert [dialog.hits_list.item(i).text() for i in range(dialog.hits_list.count())] == [NO_HITS]
+    dialog.hits_list.setCurrentRow(0)
+    _press(dialog.hits_list, Qt.Key.Key_Return)
+
+    assert dialog.address_edit.text() == "Nergensstraat 1, Nergens"
+    assert dialog.focusWidget() is not dialog.start_button
+    assert [text for text, _token in started] == ["Nergensstraat 1, Nergens"], "en zoekt niet opnieuw"
+    with pytest.raises(ValueError, match="Zoek eerst een adres"):
+        dialog.build_request()
+
+
+def test_the_down_arrow_steps_from_the_address_field_into_the_candidates(qgs_app, tmp_path):
+    """Pijltje omlaag is wat een lezer na een zoekopdracht probeert: het zet de focus in de
+    kandidatenlijst, waar de pijltjes de rijen aflopen en Enter er een kiest."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    started = _searched(dialog)
+
+    _press(dialog.address_edit, Qt.Key.Key_Down)
+
+    assert dialog.focusWidget() is dialog.hits_list
+    assert len(started) == 1, "een pijltje is geen zoekopdracht"
+
+
 def test_start_with_an_incomplete_form_warns_and_starts_nothing(qgs_app, tmp_path):
     """Een formulier dat niet af is geeft een waarschuwing in de berichtenbalk die zegt wat er
     ontbreekt; er start geen taak en de knop blijft bruikbaar."""
@@ -230,6 +361,7 @@ def test_one_geocode_at_a_time_and_a_stale_answer_is_ignored(qgs_app, tmp_path):
     assert [hit.address for hit in dialog.hits] == [fresh.address]
     assert dialog.search_button.isEnabled()
 
+    dialog.address_edit.setText("Kortrijksesteenweg 101 Gent")  # een andere tekst is een nieuwe vraag
     dialog.search_address()
 
     assert len(started) == 2, "na een antwoord mag er weer gezocht worden"
