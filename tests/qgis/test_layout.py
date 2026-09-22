@@ -527,7 +527,7 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
     assert list(images) == ["tertiair"]
     assert missing == []
     assert len(asked) == 1 and "tertiair_50k" in asked[0][0]
-    # Een legenda is één plaatje van veertien: een korte adem, net als een fiche. Drie keer een
+    # Een legenda is één plaatje uit een reeks: een korte adem, net als een fiche. Drie keer een
     # volle minuut wachten op een dienst die plat ligt, kost het rapport zijn legendapagina's.
     assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
 
