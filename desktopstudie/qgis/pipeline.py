@@ -55,6 +55,7 @@ from ..core.report_content import (
     ReportMeta,
     build_report,
     class_key_image_key,
+    legend_shows_rows,
     map_page_key,
     profile_image_key,
     quartair_sheet,
@@ -593,8 +594,7 @@ def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[st
             if not isinstance(page, MapPage):
                 continue
             _extent, key = layout_mod.page_image(page, result.zone.ring, boxes)
-            legend = page.zone_legend
-            shows = getattr(legend, "rows", None) or getattr(legend, "entries", None)
+            shows = legend_shows_rows(page.zone_legend)
             if key not in images or (key in no_coverage and not shows):
                 missing.add(map_page_key(page))
     return missing
