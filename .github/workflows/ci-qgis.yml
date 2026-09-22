@@ -1,8 +1,39 @@
 name: ci-qgis
-on: [push, pull_request]
+# Two container images of several gigabytes each, so this is the expensive half and the triggers
+# matter. Same rule as ci.yml: `push` only on the branches that carry no pull request of their
+# own, `pull_request` for everything else, and one run instead of two for a commit that has both.
+# See the comments there for why `paths-ignore` is on push only and why `README.md` is not in it.
+#
+# The schedule exists for `headless-live` and for nothing else. A whole study against the live DOV
+# services on every commit is container time for a job that is already `continue-on-error` and
+# whose failures are usually DOV being down; once a week says the same thing, and
+# `workflow_dispatch` says it on demand. It is not a required check and must not become one.
+# `shell` is what protects the plugin - it caught the 3.34 segfault, the Qt6 labelling difference
+# and the info-box slack that Windows hid - so it keeps running on every commit, both images, the
+# whole matrix. It skips the weekly run: the live study drives the same newest image through a
+# real pipeline, so a broken image shows up there too.
+on:
+  push:
+    branches: [main, dev]
+    paths-ignore:
+      - 'docs/**'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+  pull_request:
+  schedule:
+    - cron: '23 5 * * 1'  # Monday, off the hour: the top of the hour is queued the world over
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   shell:
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     # The shell tests need a Python that has qgis, so they run inside the QGIS images: the oldest
     # version the plugin claims (3.34) and the newest, which is where a 4.x API break shows up
     # first. In the plain venv tests/qgis skips itself.
@@ -33,7 +64,10 @@ jobs:
     container: qgis/qgis:latest
     # A smoke test against the live services on the newest image only: it says whether a real study
     # still comes out whole, and its sheets can be looked at in the artefact. Allowed to fail -
-    # DOV being down is not this repository being broken.
+    # DOV being down is not this repository being broken. And exactly because it is allowed to
+    # fail, it does not belong on every commit: weekly, or by hand before a release or after a
+    # change to a service URL, a parser or the catalogue.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
