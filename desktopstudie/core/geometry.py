@@ -54,7 +54,8 @@ def bbox(ring: Sequence[Point]) -> BBox:
     return (min(xs), min(ys), max(xs), max(ys))
 
 
-# Reserved for the QGIS shell (plan 2): the map pages pad the zone bbox before setting an extent.
+# Used by the shell: `layout.overlay_boxes` pads the zone bbox by the search radius, and the
+# plugin's task zooms the canvas to a padded zone (`task.py`).
 def expand_bbox(b: BBox, margin: float) -> BBox:
     return (b[0] - margin, b[1] - margin, b[2] + margin, b[3] + margin)
 
