@@ -158,3 +158,8 @@ def test_the_run_folder_carries_the_project_and_the_moment(qgs_app):
 
     assert folder == Path("C:/uit") / "Project_X_Y_Gent_20260916_1405"
     assert run_folder(Path("C:/uit"), "   ", dt.datetime(2026, 9, 16, 14, 5)).name == "Desktopstudie_20260916_1405"
+    # Een projectnaam die alleen uit scheidingstekens bestaat is geen naam. ".." al helemaal niet:
+    # dat noemt een map, en een runmap hoort onder de uitvoermap te blijven staan.
+    for hopeless in ("..", ".", "///", "___"):
+        assert run_folder(Path("C:/uit"), hopeless,
+                          dt.datetime(2026, 9, 16, 14, 5)).name == "Desktopstudie_20260916_1405", hopeless
