@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "desktopstudie"
-version = "0.3.0"
+version = "0.4.0"
 description = "QGIS-plugin: geotechnische desktopstudie uit open data van DOV en geopunt"
 readme = "README.md"
 license = { text = "GPL-2.0-or-later" }
