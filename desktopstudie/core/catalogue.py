@@ -530,9 +530,10 @@ CATALOGUE: List[MapEntry] = [
     # Het dikteveld heet `Dikte_Quartair_m` en de geometrie `geom` (DescribeFeatureType, idem).
     _dov("quartair_dikte", "Dikte van het Quartair (isopachen)",
          "quartair:qisopachen_quartair_50k",
+         # Geen field_labels: dit blad drukt geen tabel af (zie `report_content._zone_legend_for`),
+         # dus een kolomkop zou nergens terechtkomen. De velden zelf reizen wel mee naar
+         # studie.json en voeden de regel onder de kaart.
          ("Dikte_Quartair_m", DISTANCE_FIELD), wfs="quartair:qisopachen_quartair_50k", legend=False,
-         field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
-                       DISTANCE_FIELD: "Afstand tot de zone (m)"},
          guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
          sld_body=ISOPACH_SLD,
          empty_meaning="De isopachenkartering 1/50 000 dekt deze locatie niet; er ligt geen "
