@@ -38,7 +38,7 @@ from ..core.logging_util import Log
 from ..core.model import StudyZone
 from ..core.report_content import ReportMeta
 from ..core.services.geocoder import GeocodeHit, geocode
-from ..core.services.http import CACHE_MODES, HttpClient
+from ..core.services.http import CACHE_DIR, CACHE_MODES, HttpClient
 from ..core.study import Settings
 from . import map_tools, zone_input
 from .layers import CRS_AUTHID
@@ -91,7 +91,6 @@ LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter
 COMPACT_TIP = ("Zet zoveel korte tabellen en figuren op een blad als erop passen. Uit levert de "
                "voorspelbare opmaak: hoogstens twee stukken per blad, en kaartbladen blijven "
                "altijd alleen.")
-CACHE_DIR_NAME = "cache"  # under the output folder, shared by every run written there
 # A user is waiting at the address box: one try, and not the client's minute.
 GEOCODE_TIMEOUT_S = 15.0
 
@@ -491,9 +490,11 @@ class StudyDialog(QDialog):
         base = self.output_edit.text().strip()
         if not base:
             raise ValueError("Geef een uitvoermap op.")
+        # The cache sits BESIDE the run folders, not in one: a cache inside a run folder is never
+        # hit twice. Same folder name as `http.cache_dir_for` uses inside a run, one spelling.
         return StudyRequest(zone, settings, meta, zone_input.run_folder(Path(base), meta.project),
                             self.cache_combo.currentData(), self.legends_check.isChecked(),
-                            cache_dir=Path(base) / CACHE_DIR_NAME)
+                            cache_dir=Path(base) / CACHE_DIR)
 
     def save_settings(self) -> None:
         settings = self.settings
