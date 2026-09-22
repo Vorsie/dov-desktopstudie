@@ -23,9 +23,21 @@ region turns out noisy, and widen ORDINARY from its frequency table.
 
 Four things that count, and not convention, settled.
 
-*Half the old descriptions are in French.* "sable", "gris", "argile", "avec" are among the most
-frequent words in the whole corpus. Without them every pre-war borehole would flag on every layer,
-so the French matrix, colours and modifiers are ordinary too.
+*A quarter of the descriptions are in French, and they are classified, not translated.* 874 of
+the 3630 counted layers are French - "sable" 590, "gris" 342, "avec" 277, "argile" 230 - so
+without them every pre-war borehole flags on every layer. The French side got the same treatment
+the Dutch side had: the matrix and its modifiers, the colours and everything built on them, the
+shells and the plant debris, and the narrative filler of a hand-written 1900s record are ordinary;
+the materials stay flagged. What a flagged term is NOT is translated - "cailloux" reaches the
+reader as "cailloux", never as "keien" - because the report quotes the description and does not
+speak for it.
+
+Two things the French corpus taught that the Dutch one could not. The same word is spelled with
+and without its accents ("vegetale" beside "végétale", "gres" beside "grès", "debris"/"dèbris"
+beside "débris"), so the comparison strips diacritics instead of listing both (`_plain`). And
+French inflects where Dutch compounds - grise/grises, terre/terres, grisâtre for grijsachtig - so
+the feminine, the plural and the "-âtre" family are ENDINGS taken off before the lookup
+(`FRENCH_ENDINGS`), not thirty extra words.
 
 *A coded description holds no words.* A layer of the gecodeerde lithologie reads
 "FZ (groenbruin) bijmenging: SI/M, GL/N" - machine codes, not observations - and scanning it only
@@ -47,97 +59,164 @@ if it named one, so a word preceded by a denial is skipped (`DENIALS`).
 from __future__ import annotations
 
 import re
+import unicodedata
 from dataclasses import dataclass
-from typing import Iterable, List, Sequence
+from typing import Iterable, Iterator, List, Sequence
 
 from .model import LithologyLayer
+
+
+def _plain(word: str) -> str:
+    """The word with its diacritics taken off, for comparison only.
+
+    The old records spell the same word both ways and DOV keeps what the clerk typed: "vegetale"
+    beside "végétale", "gres" beside "grès", "tres"/"trés" beside "très", "debris"/"dèbris"
+    beside "débris". Listing every spelling means guessing which accents a 1904 hand happened to
+    set, and the guess is wrong the moment a new borehole is digitised. So the comparison runs on
+    the accent-free form and one entry covers them all.
+
+    Only the COMPARISON. The word that reaches the report keeps the spelling the description used
+    - nothing here translates a French term or respells it.
+    """
+    return "".join(c for c in unicodedata.normalize("NFD", word)
+                   if unicodedata.category(c) != "Mn")
+
+
+def _folded(words: str) -> frozenset:
+    """One of the word lists below, accent-free, so `_plain` can be looked up straight in it."""
+    return frozenset(_plain(word) for word in words.split())
+
 
 # The plain matrix, its modifiers, and everything a description says about how the sample looked,
 # felt and was taken - in Dutch and in the French of the older records. Extend THIS list to quieten
 # a word that turns out to be ordinary after all; that is the knob, never the flagging rule.
-ORDINARY = frozenset("""
-aalter aan aangevuld aangevulde aantal abondants af affleure affleurement afgerond afw afwisselend
-afwisselende afwisseling ale alluviaal alluvial alluviale als alsmede altéré amas analogue andere
-aquifère argile argiles argileuse argileuses argileux argilo arm asse assez au aux avec bas base
-basis basisklei beaucoup beetje beige bepaalde berm beschrijving bevatten bewaarde bien bigarré
-bij bijna bijzonder blanc blanche blanchâtre blauw blauwachtige blauwe blauwgrijs blauwgrijze
-blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze
-bleke blekere bleu bleue bleuâtre blijft blokken boom boorbeschrijving boormeester boring bouwlaag bouwvoor
-bouwzand boven bovenaan bovengrond bovenste brede breed brisées brokje brokjes brokkelig brokkelige brokken brokstukken
-brosse bruin bruinachtig bruinachtige bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig
-bruingrijze bruingroen bruingroenachtig brun brune brunâtre calcaires calcarifère ce cette chemin
-chocolaté citadel clair claire cm coherent coherente cohérent comme compact compacte complex
-concentratie concentraties contact contient coquillages coquille coquilles coquillier couche
-couches coupe cremebruin daaronder dan dans dat de deels delen demi des dessus determineerbare
-detritus devenant devient diameter dicht die diepte dik dikke divers dm doch donker donkerblauw
-donkerbruin donkerbruine donkerder donkere donkergrijs donkergrijze donkergroen donkergroene door
-doorheen doorschijnend droog du duidelijk dun dunne dunner dur dure débris eau ech edelmanboor een
-eenige einde elementen elle en enigszins enigzins enkele entre environ er est et exemplaren
-extreem facies fijn fijne fijner fijnste fijnzand fijnzandhoudende fin fine finement flandriaan
-flandrien foncé foncée fond formatie fragmenten fragmentjes fragments friable gauche geboord
+ORDINARY = _folded("""
+aalter aan aangevuld aangevulde aantal abondamment abondantes abondants accident af affleure
+affleurement afgerond afw afwisselend afwisselende afwisseling ailleurs ale allure alluviaal
+alluvial alluviale alluvion alluvions als alsmede altéré alternance alternances alternant alterne
+amas amorphe analogue ancienne andere apparaît apparence apparentes apparents après aquifère argile
+argiles argileuse argileuses argileux argilo arguleux arm arrêtée arrondis aspect asse assez assze
+atteindre au autour autre autres aux avais avec avex bande bas base basis basisklei beaucoup beetje
+beige belle bepaalde berm beschrijving bevatten bewaarde bien bifurcation bigarré bigarrée
+bigarrées bij bijna bijzonder bistre bistres bistrés blanc blanchâtre blanche blauw blauwachtige
+blauwe blauwgrijs blauwgrijze blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs
+bleekgrijsgroen bleekgrijze bleke blekere bleu bleuâtre bleue blijft blokken bombée boom
+boorbeschrijving boormeester boring bosse bouleversé bouleversée bouleversées bouleversés bouwlaag
+bouwvoor bouwzand boven bovenaan bovengrond bovenste brede breed brillants brisées brokje brokjes
+brokkelig brokkelige brokken brokstukken brosse broyée bruin bruinachtig bruinachtige bruine
+bruingeel bruingeelachtig bruingrijs bruingrijsachtig bruingrijze bruingroen bruingroenachtig brun
+brunâtre brune brusquement buntsandstein caché calcaires calcareuse calcareuses calcareux
+calcarifère caractéristiques carrière cas ce celle celui cependent certains ces cette ceux champ
+chargé château chemin chocolat chocolaté citadel clacareuses clair claire clairement clairs cm
+coherent cohérent coherente coin colen colline comme commence commencement compact compacte complex
+composé composés concentratie concentraties constaté contact contenant contient coquiles
+coquillages coquille coquilles coquillier coquillières coquilliers cotés couche couches couleur
+coupe couronné créées cremebruin crétacé curage curieux daaronder dan dans dat de débris déchire
+deels delen demi déposée dépôt dépression dernière des descend descendant descendu descendue
+descendus desous dessous dessus determineerbare detritus deux développe devenant devenu devient
+diameter dicht die diepte difficile diffues dik dikke diluvien diluviens diluvium dimensions
+distance dit divers diverses dizaine dm doch doit donc donker donkerblauw donkerbruin donkerbruine
+donkerder donkere donkergrijs donkergrijze donkergroen donkergroene donnant dont door doorheen
+doorschijnend doute droite droog du duidelijk dun dunne dunner dur durcie durcies durcissement dure
+dures dus eau éboulés ébouleux ech echantillon echantillons éclats edelmanboor een één eenige
+effondrements einde elementen elle empêche employé en encavée encore englobée englobés enigszins
+enigzins enkele ensuite entendu entre entrée environ épais épaisseur épars éparses er est et était
+étangs état etc été être excavations excessivement exemplaren exploité exploitée extreem
+extrêmement facies fait ferrugineuse ferrugineuses ferrugineux feuilleté fibreuse fibreux fijn
+fijne fijner fijnste fijnzand fijnzandhoudende filets fin fine finement finit fins flammes
+flandriaan flandrien fluide fluviatile fluvio focné fois foncé foncée fond fonds formatie forme
+former fort fortement fouille fragmentaire fragmenten fragmentjes fragments friable gauche geboord
 gebroken gedeelte gedeeltelijk gedeelten gedraaid geel geelachtig geelbruin geelbruinachtig
 geelgrijs geelgroen geelgroenachtig geellichtgroen geelrode geen gegolfd gegolfde gehele gelaagd
-gelaagdheid gele geleidelijk gelijke gemarmerd gemengd gemiddeld geoprobe gepakt geroerd gerold
-gerolde gesorteerd gespikkeld gestippeld gevlekt gewassen gijze glad glaise glaiseuse glauconie
-glimmer glimmerachtig glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed grains grand
-grandes gras grens grenzen grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin
-grijsbruine grijsgeel grijsgroen grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere
-grind grindboring grindje gris grise grisâtre groen groenachtig groenachtige groenblauw groenbruin
-groene groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand grond groot gros
-grosse grosses grossier grossière grote grotere grove grover grovere gruis half halffijn
-halfstijve hard harde haut hebben heeft heel helft het heterogeen heterogene heteromorf hoekig
-hoeveelheden hoger homogeen homogène hoofdzakelijk horizontaal houdend hsc humeus humeuze humide
-humiques humus hétérogène ici idem ieper ieperiaan iets in inf inférieur inférieure insluitsel
-insluitsels intercalaties is jaune jaunâtre jusqu kakikleurig kalk kalkarm kalkhoudend
-kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern kernboor kist klei kleiachtig kleiachtige
-kleibrokjes kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiige kleiiger kleiigere
-kleilaagje kleilaagjes kleilagen kleilensjes kleilenzen klein kleine kleiner kleirijk kleiïg kleur
-komen korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartszand la laag laagje
-laagjes laagsgewijs lagen lang le lediaan leem leemachtig leemhoudend leemrijke lemig lemige
-lengte lensjes lentilles lenzen les licht lichtbeige lichtbruin lichte lichtgrijs lichtgroen
-lichtjes lid lijkt limon limoneuse limoneuses limoneux linéoles lit lithotheek lits lokaal lokale
-loodrecht los losse losser lossere légèrement maar mais maldegem massa massief materiaal matig matières
-medium meer meerdere meestal met meter meters meuble micacé micacée micacées middelfijn middelgrof
-middelmatig middelmatige min mince minder mm moderne modernes moins molle monster monsters mooi
-mooie morceaux mou même na naar nat nesten neutraal normaal normale neutraalbruin neutraalgrijs niet niveau
-niveau_onbekend nog nogal noir noire noirs noirâtre nombreuses nombreux non nu of om omstreeks
-onbekend onder onderaan onderste ongeveer onregelmatig onregmatig ontbreekt ook ookpaniseliaan op
+gelaagdheid gele geleidelijk gelijke gelinden gemarmerd gemengd gemiddeld général geoprobe gepakt
+geroerd gerold gerolde gesorteerd gespikkeld gestippeld gevlekt gewassen gijze gîte glad glaise
+glaiseuse glauconie glimmer glimmerachtig glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed
+grains grand grande grandes gras graveleuse graveleuses graveleux gravir grens grenu grenue grenzen
+grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin grijsbruine grijsgeel grijsgroen
+grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere grind grindboring grindje gris
+grisâte grisâtre grisclair grise groen groenachtig groenachtige groenblauw groenbruin groene
+groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand grond groot gros grosse
+grosses grossier grossière grote grotere grove grover grovere gruis half halffijn halfstijve hard
+harde hauptmuschelkalk haut hebben heeft heel helft henis hénis hesbayen het heterogeen heterogene
+hétérogène heteromorf hettangien hier hoekig hoeveelheden hoger homogeen homogène hoofdzakelijk
+horizontaal horizontale horizontalement horizontales hors houdend hsc humeus humeuze humide humique
+humiques humus ici idem ieper ieperiaan iets immédiatement impossible impur impuretés in
+inclinaison inclinaisons incliné inclinés indéterminables indiqué inf inférieur inférieure
+insluitsel insluitsels intercalaties intercalation intercalations irrégulière is isolés jaunâtre
+jaune jurassique jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk
+kalkrijke keitjes kern kernboor kerniel keupérien kist klei kleiachtig kleiachtige kleibrokjes
+kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiïg kleiige kleiiger kleiigere
+kleilaagje kleilaagjes kleilagen kleilensjes kleilenzen klein kleine kleiner kleirijk kleur komen
+korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartszand la laag laagje
+laagjes laagsgewijs labours lagen lamellaire landenien landenienne lang latérales lavage le lediaan
+leem leemachtig leemhoudend leemrijke légende légère légèrement lemig lemige lengte lensjes
+lentille lentilles lenzen les lesquelles lesquels licht lichtbeige lichtbruin lichte lichtgrijs
+lichtgroen lichtjes lid ligne lijkt limon limoneuse limoneuses limoneux limoniteux linéole linéoles
+lit lithotheek lits locaux loin lokaal lokale long loodrecht lorsqu los losse losser lossere lui
+luisants maar mais maldegem marbré marbrée mare marin marmoréen marmoréens massa masse massief
+massive mate materiaal matières matig medium meer meerdere meestal mélange mélangé mêlé même met
+meter meters mètres meuble mica micacé micacée micacées middelfijn middelgrof middelmatig
+middelmatige min mince minces minder mm moderne modernes modifiée moins mois molle monster monsters
+montée montre montrent mooi mooie morceaux mou mouches moucheté moulage mouvant moyen moyenne na
+naar nat neerepen neerrepenien nesten nettement neutraal neutraalbruin neutraalgrijs niet niveau
+niveau_onbekend nog nogal noir noirâtre noire noirs nombreuses nombreux non normaal normale
+nouvelle nu nulle oblique ocreuse ocreuses ocreux of om omstreeks onbekend onder onderaan onderste
+ondulé ondulée ondulées ongeveer ongle onregelmatig onregmatig ontbreekt ook ookpaniseliaan op
 opnieuw oranje oranjebruin organisch organische over overgaat overgang overvloed overwegend paar
-paillettes pailletée paillété paniseliaan par parfois partie parties pas passant percé percés
-petit petite petites petits peu plaats plaatselijk plaatselijke plaatsen place plant plantaardig
-plantaardige planten plantje plastique plastisch plastische plastischer plat platte plus pointillé
-pointillée polders pour profondeur puis pulsboring pur pure pâle quartair quarts quartseux
-quartzeux quaternaire que quelques qui ramkernsondering rares recent recente reeds resten rijk
-rode roestbruin roetzwart rond ronde rood roodachtig roodbruin rouge rougeâtre roulé roulés route
-roux rude rupeliaan sable sables sableuse sableuses sableux sablière sablonneux sale samenhangend
-sans saturé schelp schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend schelpjes
-schelpstukken scherp scherpe schijn schilferachtig schilferig schilferige schuin sec semblable
-silt silteus silteuse silteux silteuze silthoudend silthoudende siltig siltrijk situ situé slap
-slappe slecht smalle sol sommet sommige soms sont sous spikkels spoelboring sporadisch sporadische
-sporen staal stabilisatiezand stalen steeds steekboor steen steentjes stenen sterk stevig stevige
-stijf stijgt stijve stippels stippen stoffen stratification stratifié stuk stukje stukjes stukken
-substraat suite sup supérieur supérieure sur taai taaie taches talrijk talrijke tamelijk te
-teelaarde teeltaarde terre tertiair
-terug toch toe top tot tout traces tres très trés tussen type typisch uit uiterst un une van vanaf
-vase vast vaste veel vegetale vele verbrijzeld verbrijzelde verdieping verdâtre verdâtres
-vergruisde verhard verkleurend verkleurende verkleuring vermengd vermoedelijk vers verschillende
-verspreid verspreide vert verte verticaal verweerd verweerde verwering verzadigd vet vette vettig
-visible vlekjes vlekken vochtig vol volgens volledig voor vooral voorkomen voornamelijk voorwerk
-vormen vrij végétale waaronder waarschijnlijk was wat water waterzand weer weinig weke wemmeliaan
-werd wit witachtig witachtige witgeel witgrijs witgrijze witte wordt wortel wortels worteltjes
-zacht zachte zand zandachtig zandachtige zanden zandhoudend zandhoudende zandig zandige zandiger
-zandigere zandlaagjes zandlagen zandleem zavel zavelgrond zeer zelfde zijn zoet zoetwater zoetwaterschelpen
-zonder zone zones zwak zwakke zware zwart zwartbruin zwartdonkergroene zwarte zwartgrijs één
-""".split())
+pailleté paillété pailletée paillettes pâle panaché paniseliaan paquet paquets par paraissant
+paraît parfois parmi partie parties partout pas passant peine pense pente percé percer percés petit
+petite petites petits peu peut peux pied pieds plaats plaatselijk plaatselijke plaatsen place
+places plant plantaardig plantaardige planten plantje plaque plaques plasticité plastique plastisch
+plastische plastischer plat plateau platte pleine pleistocène pliocène pliocènes plis plus poche
+poches point pointillé pointillée points polder polderienne poldérienne polders polis polit pont
+poreuse position pour pouvoir précédent premier première prendre près présentant presque prmière
+produites profondeur prouve provenant provoqué puis puissance puits pulsboring pur pure quartair
+quarts quartseux quartzeux quaternaire quaternaires que quelques qui quitté quoi racine racines
+radicelle radicelles ramène ramkernsondering rapidement rare rarement rares ravinement rayant
+recent recente recherches recueilli recueillir redevenir reeds remonte remplissage repose resten
+restent retrouvent rijk rivières rode roestbruin roetzwart rond ronde rood roodachtig roodbruin
+rose rosé röth rouge rougeâtre roulé roulées roulés route roux rude ruines rupeliaan rupélien sable
+sables sableuse sableuses sableux sablière sablonneuse sablonneux sale samenhangend sans saturé
+scaldisien scaldisiennes schelp schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend
+schelpjes schelpstukken scherp scherpe schijn schilferachtig schilferig schilferige schuin sec sein
+semblable sens sensiblement séparées serait seulement siliceuse siliceux sillonnés silt silteus
+silteuse silteux silteuze silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht
+smalle sol somme sommet sommige soms sondage sonde sondé sont sort sous souterraines souvent
+spikkels spoelboring sporadisch sporadische sporen staal stabilisatiezand stalen steeds steekboor
+steen steentjes stenen sterk stevig stevige stijf stijgt stijve stippels stippen stoffen
+stratification stratifié stratifiés striée striés stuk stukje stukjes stukken substraat successifs
+suite sup supérieur supérieure sur surfaces surmonté surmontée surtout taai taaie taches tacheté
+talrijk talrijke tamelijk tapissées te teelaarde teeltaarde teinte teintes tendre tendres terrain
+terrains terrasse terre terres tertiair tertiaire terug tiers toch toe tongres tongrien top tot
+tournant tous tout toutefois toutes trace traces tranche tranchée traversé traversée traverser tres
+très trés triturées trous tubulations tussen type typisch uit uiterst un une unes uns van vanaf
+varient vase vaseuse vaseux vast vaste veel vegetale végétale végétales végétaux veine veinée
+veines veinules vele verbrijzeld verbrijzelde verdâtre verdâtres verdieping vergruisde verhard
+véritable véritables verkleurend verkleurende verkleuring vermengd vermiculations vermiculées
+vermoedelijk vers verschillende verspreid verspreide vert verte verticaal verticale verweerd
+verweerde verwering verzadigd vet vette vettig vient violacé visible visibles vite vlekjes vlekken
+vochtig voici voisin voit vol volgens volledig voor vooral voorkomen voornamelijk voorwerk vormen
+vrij waaronder waarschijnlijk was wat water waterzand weer weinig weke wellenkalk wemmeliaan werd
+wit witachtig witachtige witgeel witgrijs witgrijze witte wordt wortel wortels worteltjes zacht
+zachte zand zandachtig zandachtige zanden zandhoudend zandhoudende zandig zandige zandiger
+zandigere zandlaagjes zandlagen zandleem zavel zavelgrond zeer zelfde zijn zoet zoetwater
+zoetwaterschelpen zonaire zonder zone zoné zonée zones zônes zwak zwakke zware zwart zwartbruin
+zwartdonkergroene zwarte zwartgrijs
+""")
 
 # Words that surface whatever else the sentence says, because a geotechnician asked for them by
 # name: a concretion of any kind, sandstone, glauconite, peat and man-made debris. They live here
 # rather than merely outside ORDINARY so that widening ORDINARY can never silence them. Matched as
 # a stem, so "glauconiethoudend" and "glauconietrijk" both count.
-ALWAYS_NOTABLE = ("concreti", "konkreti", "zandsteen", "glauconiet", "glauconif", "veen", "turf",
-                  "tourbe", "ligniet", "baksteen", "beton", "asfalt", "puin", "houtskool",
+# The French names stand beside the Dutch ones rather than being translated into them: a flagged
+# term is quoted from the description, so "cailloux" reaches the reader as "cailloux". `grès` is
+# NOT here - as a stem it also sits inside "tongres" and "progrès" - it flags the ordinary way, by
+# not being on the list of plain words.
+ALWAYS_NOTABLE = ("concreti", "konkreti", "zandsteen", "glauconi", "veen", "turf",
+                  "tourbe", "lignit", "baksteen", "briqu", "beton", "asfalt", "puin", "houtskool",
                   "kolengruis", "koolas", "keramiek", "metaal", "glashoudend", "kassei",
-                  "straatsteen", "geremanieerd", "talus", "slak", "sintel")
+                  "straatsteen", "geremanieerd", "remani", "talus", "slak", "sintel",
+                  "caillou", "silex", "gravier")
 # Fossil, genus and species names, and the words for what a fossil is. SUPPRESSED, exactly like
 # ORDINARY: a species name says which formation you are standing in, not that you will hit
 # anything, and a geotechnician asked for it to disappear from the remarks ("nummulites planulatus
@@ -151,20 +230,24 @@ ALWAYS_NOTABLE = ("concreti", "konkreti", "zandsteen", "glauconiet", "glauconif"
 #
 # Harvested from the same frequency count as ORDINARY (nummulites 31, cardium 22, ditrupa 15,
 # ostrea 13, planulatus 12 ...); extend it here.
-FOSSILS = frozenset("""
-ammonites annelides annélides anoplo arca astarte belemnieten bivalve bivalves bryozoa bryozoaires
-bryozoen buccinum cardita cardium cerithes cerithium coquiller coquillière coquillières corbula
-corbules corneus crinoiden cymbula dentalium ditrupa echinodermen edita edule elegans foraminifera
-foraminiferen fossiel fossielen fossielenen fossielfragmenten fossielhoudend fossielhoudende
-fossielrijk fossilifère gastropoden gebrokenschelpjes glycimeris haaietand haaietanden hispida
-laevigatus lingula lucina macrofossielen meerfossielhoudend myabivalves mytilus natica nucula
-nummulieten nummulites nummulitesplanulatus orbignyi ostrea pecten phora planicosta planulata
-planulatus porulosum roggetanden schelpbrokjes schelpdelen schelpenbrokjes schelpenbrokken
+FOSSILS = _folded("""
+ammonites angulatus annelides annélides anoplo arca astarte belemnieten bivalve bivalves bryozoa
+bryozoaires bryozoen buccinum cardita cardium cerithes cerithium charmassei concho coquiller
+coquillière coquillières corbicula corbula corbules corbulla corneus crino crinoiden cymbula
+cyprina cyprines cyrène cyrènes cythère cythérées dentalium dents ditrupa donax ecaille écaille
+ecailles écailles echinodermen edita edule elegans foraminifera foraminiferen fossiel fossielen
+fossielenen fossielfragmenten fossielhoudend fossielhoudende fossielrijk fossiles fossilifère
+gastropoden gastropodes gebrokenschelpjes gibba glycimeris haaietand haaietanden helix hispida
+huspida incrassata laevigatus lingula lucina macrofossielen mactra meerfossielhoudend moll
+myabivalves mytilus natica nucula nucules nummulieten nummulites nummulitesplanulatus orbignyi
+ossements ostrea pecten pectunculus petoncles phora pilosus planicosta planulata planulatus poisson
+poissons porulosum roggetanden rustica schelpbrokjes schelpdelen schelpenbrokjes schelpenbrokken
 schelpenfragmenten schelpenhoudend schelpenpuin schelpenresten schelpenrijke schelpensporen
-schelpfragmentjes schelprestjes schelpresten schelpstukjes serpula stukkenfossielen tenuissima
-terebratula turbinolia turritella variolaria variolarius venericardia vijverschelpen vistanden
-wemmelensis zoetwaterschelpjes
-""".split())
+schelpfragmentjes schelpresten schelprestjes schelpstukjes schlottheimia serpula striata
+stukkenfossielen subtroncata tellina tenuissima terebratula turbinolia turbonilla turitella
+turritella variolaria variolarius venericardia vijverschelpen vistanden weissenbachi wemmelensis
+zoetwaterschelpjes
+""")
 # A denial in front of a word: "geen kalk" reports no kalk at all.
 DENIALS = ("geen", "zonder", "sans", "vrij van")
 # The same denial carried as a suffix: "zandsteenvrij", "kalkloos", "glauconietarm". Without this
@@ -175,14 +258,28 @@ DENYING_SUFFIXES = ("vrij", "loos", "arm")
 # and the class is productive: lichtbruine, bruinzwarte, roestkleurige, geelgroen. Matched as a
 # stem, so the inflections (-e, -en, -ig, -achtig) come along for free.
 COLOUR_STEMS = ("bruin", "geel", "grijs", "grijze", "zwart", "groen", "rood", "rode", "blauw",
-                "wit", "beige", "oranje", "paars", "roest", "oker", "creme", "crème", "kaki",
+                "wit", "beige", "oranje", "paars", "roest", "oker", "creme", "kaki",
                 "bleek", "donker", "licht", "kleurig", "kleurige", "gevlekt", "gespikkeld",
                 "gemarmerd")
+# The same class in French, where the colours are a closed set and the spellings are not: French
+# INFLECTS (grise, grises, bruns, vertes) where Dutch compounds, and "-âtre" is French's
+# "-achtig" - grisâtre is grijsachtig, verdâtre groenachtig. Both are ENDINGS, so they are taken
+# off the word before the stem is looked up instead of being written out as thirty spellings.
+#
+# Two details the corpus settled. "-âtre" clips the stem it hangs on (vert -> verd, roux -> rouss,
+# blanc -> blanch, jaune -> jaun), so those shortened forms stand beside the plain ones. And the
+# lookup is an exact one on the stem, not the substring match the Dutch stems use: French words
+# are short enough that "bleu" sits inside "sableuse" and "vert" inside "couvert", and a colour
+# rule that swallowed those would be saying something untrue about why they are plain.
+FRENCH_ENDINGS = ("atres", "atre", "es", "s", "e")
+FRENCH_COLOUR_STEMS = frozenset("""
+beige bistre blanc blanch bleu brun gris jaun jaune noir ocre roug rouge rouss roux verd vert
+""".split())
 # Plain stems a modifier may be built on. Deliberately NOT "steen": steenbrokken and silexkeien
 # are exactly what a geotechnician wants to see.
 ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "kwarts", "schelp",
                   "schelpen", "plant", "planten", "wortel", "wortels", "glimmer", "mica",
-                  "humus", "zavel", "loess", "löss", "slib", "detritus",
+                  "humus", "zavel", "loess", "loss", "slib", "detritus",
                   "oxidatie", "verwering", "gley")
 # Suffixes that turn a plain stem into a plain description: an admixture, not a material.
 MODIFIER_SUFFIXES = ("houdend", "houdende", "rijk", "rijke", "achtig", "achtige", "ig", "ige",
@@ -243,9 +340,28 @@ def _denied(text: str, start: int) -> bool:
                for denial in DENIALS)
 
 
+def _french_stems(word: str) -> Iterator[str]:
+    """The word itself, and what is left of it when one French ending comes off.
+
+    One ending, never two: the endings overlap ("grises" gives back both "grise" and "gris") and
+    peeling further would start eating stems.
+
+    Nothing shorter than four letters comes back. A three-letter stem is as likely to be a short
+    Dutch word as a French base, and the corpus proved it: "löss" folds to "loss", which is "los"
+    plus an -s, and "los" is on the list of plain words - so loess quietly stopped being a
+    material. The cost of the floor is one word ("fins"), and that one is on the list by name.
+    """
+    yield word
+    for ending in FRENCH_ENDINGS:
+        if word.endswith(ending) and len(word) - len(ending) > MIN_LENGTH:
+            yield word[:-len(ending)]
+
+
 def _is_colour(word: str) -> bool:
-    """A colour, or anything built out of one."""
-    return any(stem in word for stem in COLOUR_STEMS)
+    """A colour, or anything built out of one, in either language."""
+    if any(stem in word for stem in COLOUR_STEMS):
+        return True
+    return any(stem in FRENCH_COLOUR_STEMS for stem in _french_stems(word))
 
 
 def _is_modified_ordinary(word: str) -> bool:
@@ -290,7 +406,9 @@ def is_ordinary(word: str) -> bool:
     adjectives ("kleuren niet vermelden, plantenresten ook niet roestkleurig ook niet").
     `ALWAYS_NOTABLE` is checked before all of it, so nothing he asked to see can be widened away.
     """
-    lowered = word.lower()
+    # Accent-free from here on: every list below is folded the same way, so "végétale" and
+    # "vegetale" are one word and "grès" and "gres" are one word. See `_plain`.
+    lowered = _plain(word.lower())
     # A denial first of all: "zandsteenvrij" reports no sandstone, so it must not be caught by the
     # sandstone stem on the line below.
     if any(lowered.endswith(suffix) for suffix in DENYING_SUFFIXES):
@@ -303,7 +421,14 @@ def is_ordinary(word: str) -> bool:
         return True
     if _is_compound_ordinary(lowered):
         return True
-    return len(lowered) < MIN_LENGTH or lowered in ORDINARY
+    # The plain word, or the plain word with one French ending on it. French inflects where Dutch
+    # compounds - terre/terres, grossier/grossiers, ancienne/anciennes, altéré/altérée - and
+    # listing both halves of every pair is the same losing game as listing both spellings of an
+    # accent. The base has to be ordinary ALREADY, so this can only ever add an inflection to the
+    # ordinary side and never turn a material into one: "graviers" is not "gravier" plus an
+    # ending, because "gravier" is not a plain word, and neither is "dolomie" or "bancs".
+    return len(lowered) < MIN_LENGTH or any(stem in ORDINARY
+                                            for stem in _french_stems(lowered))
 
 
 def notable_terms(layers: Sequence[LithologyLayer]) -> List[NotableTerm]:
