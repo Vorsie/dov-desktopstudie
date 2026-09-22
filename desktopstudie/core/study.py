@@ -25,6 +25,7 @@ from .model import (
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
 from .services.dov_wfs import DovWfs, feature_xy
+from .services.http import DATA_DIR
 from .services.virtuele_boring import fetch_virtual_borehole
 
 Progress = Callable[[float, str], None]
@@ -36,9 +37,11 @@ GFI_WORKERS = 2  # inside the pool over the maps, so this multiplies with Settin
 # cost the whole study its time, while the WFS query that fills a table keeps the patient default.
 ITEM_TIMEOUT_S = 15.0
 ITEM_RETRIES = 1
-# The path the provenance records for the JSON: relative, so the sources chapter does not print
-# the folder structure of whoever ran the study.
-JSON_RELATIVE = "data/studie.json"
+# The machine-readable product of a study, and the path the provenance records for it: relative,
+# so the sources chapter does not print the folder structure of whoever ran the study. Spelled
+# here and nowhere else - the shell writes the very same file after its own phases.
+JSON_NAME = "studie.json"
+JSON_RELATIVE = f"{DATA_DIR}/{JSON_NAME}"
 # The two signals that come from the run itself rather than from `checks`: nothing in the result
 # still says a WFS list was cut off or that doorprik points failed, so a second pass of the rules
 # (the shell runs one once the relief is in) cannot rebuild them - it has to carry them over.
@@ -478,7 +481,7 @@ class _Runner:
         self.log.info(f"{len(self.result.figures)} figuren geschreven in {fig_dir}")
 
     def write_json(self) -> None:
-        path = self.out / "data" / "studie.json"
+        path = self.out / DATA_DIR / JSON_NAME
         path.parent.mkdir(parents=True, exist_ok=True)
         self.result.write_json(path)
 
@@ -505,7 +508,7 @@ class _Runner:
         self._step(0.92, "Signaleringen")
         all_signals = checks.run_all(self.result) + self._truncation_signals() + self._section_signals()
         self.result.signaleringen = checks.validate(all_signals)
-        self.guarded("studie.json", JSON_RELATIVE, self.write_json)
+        self.guarded(JSON_NAME, JSON_RELATIVE, self.write_json)
         self._step(1.0, "Klaar")
         self.log.info(f"klaar: {self.result.summary()}")
         return self.result
