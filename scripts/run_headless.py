@@ -88,8 +88,8 @@ def run(args: argparse.Namespace, log: Log) -> int:
         log.warning("--geen-legendas is verouderd en doet niets: legendapagina's staan standaard "
                     "uit; gebruik --legendas om ze wel te maken")
 
-    # The two halves are run separately rather than through `run_pipeline` for one reason: the
-    # summary can then say where the time went. They share one client, so also one disk cache.
+    # The two halves, clocked separately so the summary can say where the time went. They share
+    # one client, so also one disk cache: the shell re-uses what the core already fetched.
     started = time.monotonic()
     result = pipeline.run_core(zone, settings, out, log,
                                progress=pipeline.part_of(_print_progress, 0.0, pipeline.CORE_SHARE),
