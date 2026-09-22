@@ -504,7 +504,8 @@ def test_a_map_with_one_failed_image_is_a_failed_source(qgs_app, core_result, ge
 
     monkeypatch.setattr(prefetch, "prepare_map_images", only_the_second)
 
-    pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None)
+    pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None,
+                               pipeline._maps_with_more_to_show(report))
 
     images = [p for p in core_result.provenance if p.source.startswith(pipeline.MAP_IMAGE_SOURCE)]
     assert images and not any(p.ok for p in images), [(p.source, p.ok, p.message) for p in images]
