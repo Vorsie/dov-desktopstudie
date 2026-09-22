@@ -421,6 +421,17 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     return " ".join(parts)
 
 
+def legend_shows_rows(legend) -> bool:
+    """Whether a map page's zone legend actually shows something.
+
+    A `LegendPage` carries `entries`, a `TablePage` carries `rows`, and `None` carries neither;
+    the three callers that ask this question (the guide sentence, the bundled page of empty
+    legends, and the shell's check for a sheet with nothing on it) must agree, and two of them
+    stand on either side of the core/shell boundary.
+    """
+    return bool(getattr(legend, "rows", None) or getattr(legend, "entries", None))
+
+
 def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
                      images: Dict[str, str]) -> Union[TablePage, LegendPage]:
     """The classes that lie inside the zone, once each.
@@ -655,11 +666,9 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
             page.class_key = zone_legend_images.get(class_key_image_key(entry.id), "")
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
-        # A LegendPage carries `entries`, a TablePage `rows`; either way an empty one means the
-        # sheet holds no table for the guide to describe.
-        legend = page.zone_legend
-        shown = getattr(legend, "rows", None) or getattr(legend, "entries", None)
-        page.guide = _guide_text(entry, bool(shown) or entry.fact_mode is None)
+        # An empty zone legend means the sheet holds no table for the guide to describe.
+        page.guide = _guide_text(entry, legend_shows_rows(page.zone_legend)
+                                 or entry.fact_mode is None)
         geo.pages.append(page)
         geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
     return geo
@@ -871,7 +880,7 @@ def _empty_answer(page: MapPage) -> Optional[Tuple[str, str]]:
     modelled value) is content, not an exception, and must never be swept up with these.
     """
     legend = page.zone_legend
-    if legend is None or getattr(legend, "rows", None) or getattr(legend, "entries", None):
+    if legend is None or legend_shows_rows(legend):
         return None
     entry = catalogue.by_id(page.map_id)
     note = getattr(legend, "note", "")
