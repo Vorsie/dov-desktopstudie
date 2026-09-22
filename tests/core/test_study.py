@@ -529,3 +529,24 @@ def _run_each(items, load):
         except Exception:  # noqa: BLE001
             failed += 1
     return failed
+
+
+def test_a_source_guarded_twice_leaves_one_row_and_it_is_the_last(gent_ring):
+    """Dezelfde regel als in de schil: een bron die twee keer geraadpleegd wordt laat EEN regel na.
+    `guarded` hing er tot nu toe een tweede achteraan, dus een tweede poging die wel lukte liet de
+    mislukking van de eerste gewoon staan - twee tegenstrijdige regels over dezelfde bron."""
+    from desktopstudie.core.model import StudyResult
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="2026-09-22")
+    runner.log = Log("test", sink=lambda _line: None)
+
+    runner.guarded("Sonderingen", "https://dov", _boom)
+    runner.guarded("Sonderingen", "https://dov", lambda: None)
+
+    rows = [p for p in runner.result.provenance if p.source == "Sonderingen"]
+    assert len(rows) == 1 and rows[0].ok, runner.result.provenance
+
+
+def _boom() -> None:
+    raise RuntimeError("502")
