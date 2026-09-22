@@ -25,10 +25,9 @@ from qgis.core import (
 )
 
 from ..core import geometry
-from ..core.geometry import Point
+from ..core.geometry import CRS, Point
 from ..core.model import StudyZone, point_name
 from ..core.services.geocoder import GeocodeHit
-from .layers import CRS_AUTHID
 
 DEFAULT_PROJECT_NAME = "Desktopstudie"
 MIN_RING_POINTS = 3
@@ -48,7 +47,7 @@ def to_lambert72(points: Sequence[Point], crs: Crs,
     """`points` given in `crs`, in Lambert 72. Points already in Lambert 72 pass through untouched,
     so a ring the user typed in metres stays the ring the user typed. `context` is the project's
     choice of datum transforms; without one the default transform applies."""
-    source, target = _crs(crs), QgsCoordinateReferenceSystem(CRS_AUTHID)
+    source, target = _crs(crs), QgsCoordinateReferenceSystem(CRS)
     if source == target:
         return [(float(x), float(y)) for x, y in points]
     transform = QgsCoordinateTransform(source, target, context or QgsCoordinateTransformContext())
