@@ -370,6 +370,28 @@ def _floor_width(heading: str, cells: Sequence[str], available: float, size: flo
     return min(longest, available * MAX_COLUMN_SHARE)
 
 
+def _column_demand(columns: Sequence[str], rows: Sequence[Sequence[str]], cap: float,
+                   size: float = TABLE_FONT_PT) -> Tuple[List[float], List[float]]:
+    """Per column: what it WANTS (its widest cell, its header counting as one) and its FLOOR (its
+    longest unbreakable word, capped so one greedy column cannot swallow the sheet).
+
+    One measurement for the two sides that have to agree. `column_widths` shares out the frame on
+    these numbers and `_fits_portrait` decides the orientation on the very same ones; measured
+    apart, a table can be laid on its side by one sum and squeezed by the other. `cap` is what a
+    greedy column is held against - the frame for a table being laid out, `UNBOUNDED_WIDTH` when
+    the question is only how narrow the columns could honestly get.
+    """
+    # A row with one cell too few is a bug in whoever built the table, but not one that may take
+    # the whole report down here: the missing cell is simply empty.
+    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
+             for index in range(len(columns))]
+    wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
+              for column, column_cells in zip(columns, cells)]
+    floor = [_floor_width(column, column_cells, cap, size)
+             for column, column_cells in zip(columns, cells)]
+    return wanted, floor
+
+
 def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], available: float,
                   size: float = TABLE_FONT_PT) -> List[float]:
     """A width in mm per column, together no wider than `available`.
@@ -383,16 +405,9 @@ def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], availab
     """
     if not columns:
         return []
-    # A row with one cell too few is a bug in whoever built the table, but not one that may take
-    # the whole report down here: the missing cell is simply empty.
-    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
-             for index in range(len(columns))]
-    wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
-              for column, column_cells in zip(columns, cells)]
+    wanted, floor = _column_demand(columns, rows, available, size)
     if sum(wanted) <= available:
         return wanted
-    floor = [_floor_width(column, column_cells, available, size)
-             for column, column_cells in zip(columns, cells)]
     if sum(floor) >= available:
         return [width * available / sum(floor) for width in floor]
     extra = [want - base for want, base in zip(wanted, floor)]
@@ -1242,16 +1257,10 @@ def _fits_portrait(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> boo
     """
     count = len(columns)
     budget = CONTENT_W - 2 * TABLE_CELL_MARGIN * count - (count + 1) * TABLE_GRID_WIDTH
-    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
-             for index in range(count)]
-    wanted = sum(max(_text_width_mm([column], TABLE_FONT_PT, bold=True),
-                     _text_width_mm(column_cells, TABLE_FONT_PT))
-                 for column, column_cells in zip(columns, cells))
-    if wanted <= budget:
+    wanted, floor = _column_demand(columns, rows, UNBOUNDED_WIDTH)
+    if sum(wanted) <= budget:
         return True
-    floor = sum(_floor_width(column, column_cells, UNBOUNDED_WIDTH, TABLE_FONT_PT)
-                for column, column_cells in zip(columns, cells))
-    return floor <= budget * TABLE_MAX_SQUEEZE
+    return sum(floor) <= budget * TABLE_MAX_SQUEEZE
 
 
 def _is_empty(image: QImage) -> bool:
