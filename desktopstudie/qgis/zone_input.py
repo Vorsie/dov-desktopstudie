@@ -9,7 +9,6 @@ in; the caller says which CRS its points came in, because a canvas can stand in 
 from __future__ import annotations
 
 import datetime as dt
-import re
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -27,6 +26,7 @@ from qgis.core import (
 from ..core import geometry
 from ..core.geometry import CRS, Point
 from ..core.model import StudyZone, point_name
+from ..core.paths import safe_segment
 from ..core.services.geocoder import GeocodeHit
 
 DEFAULT_PROJECT_NAME = "Desktopstudie"
@@ -128,9 +128,12 @@ def section_from_feature(feature: QgsFeature, crs: Crs, context=None) -> Line:
 
 
 def safe_name(text: str) -> str:
-    """`text` as a folder name: anything a file system may refuse becomes an underscore."""
-    cleaned = re.sub(r"[^\w.-]+", "_", text.strip()).strip("_")
-    return cleaned or DEFAULT_PROJECT_NAME
+    """`text` as a folder name; see `core.paths.safe_segment` for what survives.
+
+    With a fallback rather than an error, because this text is typed by a human: a project called
+    "///" is a slip, and the dialog may not fall over on it.
+    """
+    return safe_segment(text, fallback=DEFAULT_PROJECT_NAME)
 
 
 def run_folder(base: Path, project: str, now: Optional[dt.datetime] = None) -> Path:
