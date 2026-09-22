@@ -1,5 +1,35 @@
 name: ci
-on: [push, pull_request]
+# When this runs, and why not more often than that.
+#
+# `push` used to be unrestricted, so every commit on a branch with an open pull request built
+# TWICE - once for the push, once for the pull request: same commit, same answer. The push trigger
+# is now only the branches that carry no pull request of their own, `main` (the merge, and the
+# stamp that says main is green) and `dev`; everything on a feature branch is covered by
+# `pull_request`. Tags fall out with it, which is right - the release zip comes from
+# `scripts/build_zip.py` and never from here.
+on:
+  push:
+    branches: [main, dev]
+    # On push only. A workflow that a path filter SKIPS never reports its checks, and `core (3.9)`,
+    # `core (3.12)` and both `shell` jobs are required checks on main: a docs-only pull request
+    # would sit waiting for a run that is never coming. `README.md` is deliberately not in the list
+    # either - it goes into the plugin zip and `tests/scripts/test_build_zip.py` asserts it is in
+    # there. And never add `.github/workflows/**`: `tests/scripts/test_ci_containers.py` reads
+    # `ci-qgis.yml` and goes red when it drifts away from the helper script.
+    paths-ignore:
+      - 'docs/**'
+      - 'CLAUDE.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'SECURITY.md'
+  pull_request:
+
+# A second push to the same branch makes the run that is still going pointless. Only for a pull
+# request: a run on `main` is what says main is green, and killing that one halfway says nothing.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   core:
     runs-on: ubuntu-latest
