@@ -9,6 +9,16 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import (
+    dhmv_legend,
+    drawn_png,
+    inset_legend,
+    pixels,
+    profile_drawing,
+    solid_png,
+    striped_png,
+    tile,
+)
 from tests.qgis.conftest import report_meta as _meta
 from tests.qgis.conftest import write_png as _png
 
@@ -388,22 +398,6 @@ def test_a_legend_taller_than_a_page_is_cut_into_page_sized_strips(make_layout, 
         assert prop.expressionString() == "@legendas = 0", f"blad {index} volgt de schakelaar niet"
 
 
-def _striped_png(path, width=200, blocks=100, block_h=30, gap_h=6):
-    """Een legenda zoals een GeoServer ze tekent: gekleurde regels van 30 px, telkens gescheiden
-    door een witte tussenruimte van 6 px. Elke gekleurde regel is een legenda-item."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, blocks * (block_h + gap_h), QImage.Format.Format_ARGB32)
-    image.fill(QColor(255, 255, 255))
-    painter = QPainter(image)
-    for number in range(blocks):
-        painter.fillRect(0, number * (block_h + gap_h), width, block_h, QColor(20, 90 + number % 150, 160))
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def _row_is_white(image, y):
     from qgis.PyQt.QtGui import QColor
 
@@ -417,7 +411,7 @@ def test_a_strip_boundary_never_runs_through_a_legend_item(qgs_app, tmp_path):
 
     from desktopstudie.qgis import layout
 
-    source = _striped_png(tmp_path / "legendas" / "gxg_ghg.png")
+    source = striped_png(tmp_path / "legendas" / "gxg_ghg.png")
     strips = layout._legend_strips(source, "gxg_ghg")
 
     assert len(strips) >= 2, "een strook van 3600 px hoort niet op een blad te passen"
@@ -437,7 +431,7 @@ def test_a_legend_without_any_blank_row_is_still_cut(qgs_app, tmp_path):
 
     from desktopstudie.qgis import layout
 
-    solid = _striped_png(tmp_path / "legendas" / "vol.png", blocks=1, block_h=3600, gap_h=0)
+    solid = striped_png(tmp_path / "legendas" / "vol.png", blocks=1, block_h=3600, gap_h=0)
     strips = layout._legend_strips(solid, "vol")
 
     assert len(strips) >= 2
@@ -556,23 +550,6 @@ def _quartair_result(gent_zone, codes):
     return result
 
 
-def _profile_drawing(path, width=980, header_h=103, gap_h=14, body_h=586):
-    """Een profieltypetekening zoals DOV ze levert: bovenaan het profieltype zelf (kleurvlak, code
-    en een regel uitleg), dan een witte tussenruimte, dan de eenhedentabel van het kaartblad."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, header_h + gap_h + body_h, QImage.Format.Format_ARGB32)
-    image.fill(QColor(255, 255, 255))
-    painter = QPainter(image)
-    painter.fillRect(0, 0, 120, 24, QColor(0, 0, 0))            # "Profieltype"
-    painter.fillRect(0, 34, 130, header_h - 34, QColor(200, 198, 170))  # kleurvlak + omschrijving
-    painter.fillRect(0, header_h + gap_h, width, body_h, QColor(40, 40, 40))  # eenhedentabel
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, gent_zone):
     """De echte legenda van de Quartairkaart is een tekening per profieltype. Twee kaartvlakken van
     hetzelfde type vragen om een tekening, en een tekening die de dienst niet levert, levert geen
@@ -582,7 +559,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     from desktopstudie.core.services.http import HttpClient, HttpError
     from desktopstudie.qgis import prefetch
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
     asked = []
 
     class _Client(HttpClient):
@@ -625,7 +602,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
@@ -652,7 +629,7 @@ def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
@@ -678,7 +655,7 @@ def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_p
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
     asked = []
 
     class _Client(HttpClient):
@@ -1237,31 +1214,6 @@ def test_the_title_page_keeps_a_zone_line_that_says_something_else(project, gent
 
 # --- dekking: levert de dienst hier wel een kaartbeeld? ---------------------------------------
 
-def _solid_png(path, width=64, height=64, rgba=(255, 255, 255, 0)):
-    """Een tegel zonder tekening: één kleur, of volledig doorzichtig."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(width, height, QImage.Format.Format_ARGB32)
-    image.fill(QColor(*rgba))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
-def _drawn_png(path, width=64, height=64):
-    """Een tegel met iets erop: twee kleuren, zoals elke kaart die hier wel dekking heeft."""
-    from qgis.PyQt.QtGui import QColor, QImage, QPainter
-
-    image = QImage(width, height, QImage.Format.Format_ARGB32)
-    image.fill(QColor(240, 240, 230))
-    painter = QPainter(image)
-    painter.fillRect(4, 4, width // 2, height // 2, QColor(120, 40, 40))
-    painter.end()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def test_a_map_without_coverage_says_so_and_keeps_no_legend_page(make_layout, gent_zone):
     """De kaart blijft staan - de zonecirkel hoort zichtbaar te zijn - maar het blad zegt dat de
     bron hier geen beeld levert, en een legenda bij een leeg beeld is een belofte te veel."""
@@ -1327,7 +1279,7 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
     from desktopstudie.qgis import prefetch
     from tests import quartair
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
@@ -1368,7 +1320,7 @@ def test_a_drawing_without_a_white_band_falls_back_to_a_fixed_strip(qgs_app, tmp
 
     from desktopstudie.qgis import images
 
-    vol = _drawn_png(tmp_path / "vol.png", 980, 703)
+    vol = drawn_png(tmp_path / "vol.png", 980, 703)
 
     assert images.header_rows(QImage(str(vol))) == images.HEADER_FALLBACK_ROWS
 
@@ -1379,7 +1331,7 @@ def test_a_drawing_shorter_than_the_fallback_keeps_its_own_height(qgs_app, tmp_p
 
     from desktopstudie.qgis import images
 
-    klein = _drawn_png(tmp_path / "klein.png", 200, 40)
+    klein = drawn_png(tmp_path / "klein.png", 200, 40)
 
     assert images.header_rows(QImage(str(klein))) == 40
 
@@ -1428,7 +1380,7 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    blob = _drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
+    blob = drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
     asked = []
 
     class _Client(HttpClient):
@@ -1465,7 +1417,7 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    leeg = _solid_png(tmp_path / "leeg.png", 64, 64).read_bytes()
+    leeg = solid_png(tmp_path / "leeg.png", 64, 64).read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
@@ -1494,7 +1446,7 @@ def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import layout, prefetch
 
-    blob = _drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
+    blob = drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
@@ -1661,7 +1613,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
     from desktopstudie.core.services.http import HttpClient
     from desktopstudie.qgis import prefetch
 
-    blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
     link = ("https://datasets-services.omgeving.vlaanderen.be/server/api/core/bitstreams/"
             "0082d459-f86d-4a5b-9508-bbb98ae38e88/content")
     page = ('<html>' + link + '"_name":"DOV_Quartair_50000_22026.png"</html>').encode()
@@ -1799,27 +1751,6 @@ def test_the_quartair_zone_legend_draws_its_strips_under_the_map(make_layout, tm
 
 # --- de kleurschaal van het hoogtemodel ---------------------------------------------------------
 
-def _dhmv_legend(path):
-    """Een GetLegendGraphic zoals de DHMV-dienst hem levert: een titelregel, daaronder een
-    verticale kleurverloop-balk van 16 px breed met het bereik ernaast (live 2026-09-17)."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(102, 68, QImage.Format.Format_RGB32)
-    image.fill(QColor(255, 255, 255))
-    for x in range(20, 90):  # de titeltekst
-        image.setPixelColor(x, 6, QColor(0, 0, 0))
-    for y in range(18, 66):  # de kleurbalk zelf: bruin bovenaan, groen onderaan
-        share = (y - 18) / 47.0
-        colour = QColor(int(184 - 140 * share), int(79 + 131 * share), int(22 + 118 * share))
-        for x in range(16):
-            image.setPixelColor(x, y, colour)
-    for x in range(40, 80):  # het bereik "300 - -50" naast de balk
-        image.setPixelColor(x, 40, QColor(0, 0, 0))
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def test_the_colour_bar_of_a_legend_graphic_is_cut_out_and_laid_on_its_side(qgs_app, tmp_path):
     """Het strookje onder de kaart draagt de kleuren van de dienst zelf: het verloop wordt uit de
     GetLegendGraphic geknipt en een kwartslag gedraaid, met de laagste waarde links."""
@@ -1827,7 +1758,7 @@ def test_the_colour_bar_of_a_legend_graphic_is_cut_out_and_laid_on_its_side(qgs_
 
     from desktopstudie.qgis import images
 
-    source = _dhmv_legend(tmp_path / "legendas" / "dhmv_dtm.png")
+    source = dhmv_legend(tmp_path / "legendas" / "dhmv_dtm.png")
 
     strip = images.ramp_strip(source, tmp_path / "legendas" / "dhmv_dtm_schaal.png")
 
@@ -2178,20 +2109,6 @@ def test_a_zone_label_near_the_right_end_stays_on_the_sheet(make_layout, tmp_pat
 
 # --- een thema krijgt de basiskaart eronder -----------------------------------------------------
 
-def _tile(colour, size=40, alpha=255):
-    """Een GetMap-antwoord: een effen tegel, desnoods volledig doorzichtig."""
-    from qgis.PyQt.QtCore import QBuffer, QByteArray
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(size, size, QImage.Format.Format_ARGB32)
-    image.fill(QColor(*colour, alpha))
-    store = QByteArray()
-    buffer = QBuffer(store)
-    buffer.open(QBuffer.OpenModeFlag.WriteOnly)
-    assert image.save(buffer, "PNG")
-    return bytes(store)
-
-
 class _TileClient:
     """Een client die per laagnaam een vaste tegel teruggeeft en de opgevraagde lagen onthoudt."""
 
@@ -2217,14 +2134,6 @@ def _one_request(map_id, gent_zone):
     return prefetch.MapRequest(layout.map_image_key(map_id, extent), map_id, extent, 40, 40)
 
 
-def _pixels(path):
-    from qgis.PyQt.QtGui import QImage
-
-    image = QImage(str(path))
-    assert not image.isNull()
-    return image
-
-
 def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_path):
     """Een thema dat bijna niets tekent, levert op wit papier een leeg blad. Het beeld dat de
     pagina afdrukt draagt daarom de basiskaart eronder: straten en gebouwen onder het thema."""
@@ -2232,15 +2141,15 @@ def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_pat
     from desktopstudie.qgis import prefetch
 
     theme_id = "grondverschuiving_gekarteerd"
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0), alpha=0),
-             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
+    tiles = {catalogue.by_id(theme_id).wms_layer: tile((255, 0, 0), alpha=0),
+             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: tile((0, 0, 255))}
     request = _one_request(theme_id, gent_zone)
 
     images, _empty, backdrops = prefetch.prepare_map_images([request], tmp_path,
                                                           _TileClient(tiles))
 
     assert backdrops == {theme_id: ""}, "de ondergrond hoort als eigen bron gemeld te worden"
-    drawn = _pixels(images[request.key]).pixelColor(20, 20)
+    drawn = pixels(images[request.key]).pixelColor(20, 20)
     assert (drawn.red(), drawn.green(), drawn.blue()) == (0, 0, 255), (
         "waar het thema niets tekent, hoort de basiskaart te staan")
 
@@ -2250,7 +2159,7 @@ def test_a_map_that_fills_the_sheet_itself_asks_for_no_base_map(qgs_app, gent_zo
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import prefetch
 
-    tiles = {catalogue.by_id("bodemkaart").wms_layer: _tile((0, 200, 0))}
+    tiles = {catalogue.by_id("bodemkaart").wms_layer: tile((0, 200, 0))}
     request = _one_request("bodemkaart", gent_zone)
     client = _TileClient(tiles)
 
@@ -2271,7 +2180,7 @@ def test_a_backdrop_that_fails_costs_the_theme_its_background_not_its_page(qgs_a
 
     theme_id = "watertoets_pluviaal"
     base = catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)), base: b""}
+    tiles = {catalogue.by_id(theme_id).wms_layer: tile((255, 0, 0)), base: b""}
     request = _one_request(theme_id, gent_zone)
     lines = []
 
@@ -2291,44 +2200,27 @@ def test_the_theme_keeps_its_own_colours_over_the_backdrop(qgs_app, gent_zone, t
     from desktopstudie.qgis import prefetch
 
     theme_id = "grondverschuiving_gekarteerd"
-    tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)),
-             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
+    tiles = {catalogue.by_id(theme_id).wms_layer: tile((255, 0, 0)),
+             catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: tile((0, 0, 255))}
     request = _one_request(theme_id, gent_zone)
 
     images, _empty, _backdrops = prefetch.prepare_map_images([request], tmp_path, _TileClient(tiles))
 
-    drawn = _pixels(images[request.key]).pixelColor(20, 20)
+    drawn = pixels(images[request.key]).pixelColor(20, 20)
     assert drawn.red() > drawn.blue(), "het thema hoort bovenop te liggen"
     assert drawn.blue() > 0, "en de basiskaart hoort er doorheen te schemeren"
 
 
 # --- een balk die niet tegen de rand begint, en haar klassegrenzen ------------------------------
 
-def _inset_legend(path, margin=1):
-    """De GxG-legenda: een kleurloop met een witte rand van een pixel ernaast, met de labels
-    rechts (live 2026-09-17: 38 x 272 px, band van x=1 tot x=20)."""
-    from qgis.PyQt.QtGui import QColor, QImage
-
-    image = QImage(38, 100, QImage.Format.Format_RGB32)
-    image.fill(QColor(255, 255, 255))
-    for y in range(1, 99):
-        share = (y - 1) / 97.0
-        colour = QColor(int(240 - 220 * share), int(250 - 230 * share), 255)
-        for x in range(margin, margin + 20):
-            image.setPixelColor(x, y, colour)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    assert image.save(str(path))
-    return path
-
-
 def test_a_colour_bar_that_does_not_touch_the_edge_is_still_found(qgs_app, tmp_path):
     """De GxG-legenda zet haar balk een pixel van de rand. Een zoeker die alleen naar kolom nul
     kijkt, vindt hem niet en het rapport zou de kaart zonder legenda laten."""
     from desktopstudie.qgis import images
 
-    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
+    source = inset_legend(tmp_path / "legendas" / "gxg.png")
 
-    rect = images.ramp_rect(_pixels(source))
+    rect = images.ramp_rect(pixels(source))
 
     assert rect is not None
     x, _y, width, height = rect
@@ -2340,13 +2232,13 @@ def test_a_bar_whose_smallest_value_is_on_top_is_turned_the_other_way(qgs_app, t
     horen op papier van klein links naar groot rechts te lopen, dus draait de ene andersom."""
     from desktopstudie.qgis import images
 
-    source = _inset_legend(tmp_path / "legendas" / "gxg.png")
+    source = inset_legend(tmp_path / "legendas" / "gxg.png")
 
     plain = images.ramp_strip(source, tmp_path / "legendas" / "plain.png")
     flipped = images.ramp_strip(source, tmp_path / "legendas" / "flip.png", flip=True)
 
-    left_plain = _pixels(plain).pixelColor(0, 2)
-    left_flipped = _pixels(flipped).pixelColor(0, 2)
+    left_plain = pixels(plain).pixelColor(0, 2)
+    left_flipped = pixels(flipped).pixelColor(0, 2)
     assert left_plain.blue() == left_flipped.blue()
     assert left_plain.red() < left_flipped.red(), "gedraaid staat de bovenkant van de bron links"
 
