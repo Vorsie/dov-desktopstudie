@@ -114,8 +114,8 @@ def test_service_urls_carry_their_template_placeholders():
     assert "{model}" in c.VB_PROFILE_URL and c.VB_PROFILE_URL.endswith("/profielbevraging/lagen")
     assert "{kind}" in c.WATERINFO_WMS_URL
     assert all(url.startswith("https://") for url in
-               (c.DOV_WFS_URL, c.DOV_WMS_URL, c.GEOCODER_URL, c.VB_DOORPRIK_URL, c.VB_PROFILE_URL,
-                c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
+               (c.DOV_WFS_URL, c.DOV_WORKSPACE_WMS_URL, c.GEOCODER_URL, c.VB_DOORPRIK_URL,
+                c.VB_PROFILE_URL, c.WATERINFO_WMS_URL, c.DHMV_WCS_URL))
 
 
 def test_every_dov_map_asks_the_service_of_its_own_workspace_by_the_layers_own_name():
