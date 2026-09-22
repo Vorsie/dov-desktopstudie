@@ -405,7 +405,8 @@ def test_a_section_line_from_a_selected_line_layer(qgs_app, tmp_path):
 
 
 def test_the_legend_pages_start_unticked_and_the_compact_layout_too(qgs_app, tmp_path):
-    """De aparte legendapagina's staan standaard UIT - veertien kaarten leveren er tientallen -
+    """De aparte legendapagina's staan standaard UIT - de kaarten met een legenda leveren er
+    tientallen -
     en de compacte opmaak ook, want de standaardopmaak hoort voorspelbaar te zijn. Wie ze wil,
     vinkt ze aan, en die keuze wordt onthouden."""
     dialog = _dialog(tmp_path)
