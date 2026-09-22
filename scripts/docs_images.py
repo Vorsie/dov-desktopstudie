@@ -102,7 +102,13 @@ def gif(folder: Path, target: Path, count: int = GIF_FRAMES, ms: int = GIF_MS) -
     # finished study, and those two are the whole point of the demo.
     step = max(1, (len(frames) - 1) / max(1, count - 1))
     picked = sorted({round(i * step) for i in range(count)} | {0, len(frames) - 1})
-    images = [_scaled(Image.open(frames[i]), GIF_WIDTH) for i in picked if i < len(frames)]
+    raw = [Image.open(frames[i]) for i in picked if i < len(frames)]
+    # All frames to one size first. A window that is still settling into the size the script asked
+    # for yields one frame that is bigger than the rest, and a GIF whose frames differ in size
+    # shows the edges of the previous frame around the smaller ones - a second status bar under
+    # the status bar. Cropping from the top left keeps the same viewport.
+    box = (0, 0, min(image.width for image in raw), min(image.height for image in raw))
+    images = [_scaled(image.crop(box), GIF_WIDTH) for image in raw]
     palette = images[-1].quantize(colors=GIF_COLOURS, method=Image.MEDIANCUT)
     quantised = [image.quantize(palette=palette, dither=Image.NONE) for image in images]
     durations = [ms] * len(quantised)
