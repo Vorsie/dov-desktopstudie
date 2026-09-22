@@ -226,12 +226,13 @@ def _shrink_swell_class(row) -> int:
 
 
 def check_shrink_swell(result: StudyResult) -> List[Signalering]:
-    """De klasse die de kaart zelf tekent, niet het aantal rijen.
+    """The class the map itself draws, not the number of rows.
 
-    Zolang de feiten van `IndexPlastisch` kwamen - een index van de beoordeelde G3Dv3-eenheden -
-    telde alleen of er een rij was: Brugge, waar de kaart klasse 4 (hoog) tekent, leverde geen rij
-    en dus geen enkele regel, terwijl klasse 2 elders "krimp-zwelgevoelige gronden" heette zonder
-    te zeggen hoe gevoelig. De klasse staat nu in de regel en bepaalt of er een regel is.
+    While the facts came from `IndexPlastisch` - an index of the assessed G3Dv3 units - only the
+    presence of a row counted: Brugge, where the map draws class 4 (high), yielded no row and
+    therefore no line at all, while class 2 elsewhere was called "krimp-zwelgevoelige gronden"
+    without saying how sensitive. The class is in the line now, and it decides whether there is
+    a line.
     """
     graded = [_shrink_swell_class(row) for row in _facts(result, "krimp_zwel")]
     worst = max(graded) if graded else 0
@@ -350,10 +351,10 @@ DRAWING_PREFIXES = ("Legenda profieltype", "Eenhedentabel kaartblad")
 
 
 def _chapter_of(source: str) -> str:
-    """Het hoofdstuk dat deze bron draagt, of "" als het er geen enkel is.
+    """The chapter this source belongs to, or "" when it belongs to none.
 
-    De lezer vroeg zich af WELK hoofdstuk iets mist: "Hoofdstuk onvolledig" zonder naam laat hem
-    het bronnenhoofdstuk achterin uitpluizen om dat zelf uit te zoeken.
+    The reader wondered WHICH chapter is missing something: "Hoofdstuk onvolledig" without a name
+    leaves him to comb through the sources chapter at the back and work it out for himself.
     """
     if source.startswith(DRAWING_PREFIXES):
         return CHAPTER_TITLES["geologie"]
