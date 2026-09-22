@@ -41,12 +41,12 @@ from qgis.PyQt.QtGui import QDesktopServices
 from qgis.PyQt.QtWidgets import QProgressBar, QPushButton
 
 from ..core import geometry
+from ..core.geometry import CRS
 from ..core.logging_util import Log
 from ..core.model import StudyResult, StudyZone
 from ..core.report_content import ReportMeta
 from ..core.study import Settings, StudyCancelled
 from . import pipeline
-from .layers import CRS_AUTHID
 from .pipeline import CORE_SHARE, PipelineResult, Prepared, part_of
 
 PLUGIN_NAME = "DOV Desktopstudie"
@@ -333,7 +333,7 @@ class StudyRunner(QObject):
         minx, miny, maxx, maxy = zone.bbox
         margin = max(maxx - minx, maxy - miny) * ZOOM_MARGIN
         extent = QgsRectangle(*geometry.expand_bbox(zone.bbox, margin))
-        lambert = QgsCoordinateReferenceSystem(CRS_AUTHID)
+        lambert = QgsCoordinateReferenceSystem(CRS)
         target = canvas.mapSettings().destinationCrs()
         if target.isValid() and target != lambert:
             extent = QgsCoordinateTransform(lambert, target, QgsProject.instance()).transformBoundingBox(extent)
