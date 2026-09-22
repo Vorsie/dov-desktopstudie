@@ -46,6 +46,7 @@ from qgis.core import (
     QgsProperty,
 )
 
+from ..core.parallel import CANCELLED_MESSAGE
 from ..core.study import StudyCancelled
 from .compat import enum_name
 
@@ -252,7 +253,7 @@ def export_pdf(layout: QgsPrintLayout, path,
     if runs.cancelled:
         if path.exists():
             path.unlink()
-        raise StudyCancelled("afgebroken door de gebruiker")
+        raise StudyCancelled(CANCELLED_MESSAGE)
     _check(result, "PDF-export", path)
     return path
 
