@@ -602,6 +602,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
   `main` draagt de releases (tag `vX.Y.Z`, de zip uit `build_zip.py` als release-asset).
+- **De gemeenschapsbestanden zeggen dezelfde regels tegen wie van buiten komt.**
+  `CONTRIBUTING.md` (omgeving, huisregels, de vier suites, commits, bug melden, PR openen),
+  `SECURITY.md` (privé meldpunt en het echte aanvalsoppervlak), `.github/ISSUE_TEMPLATE/`
+  (twee formulieren in het Nederlands; het bugformulier vraagt de coördinaat, want een groot
+  deel van de fouten bestond maar op één plek), `.github/PULL_REQUEST_TEMPLATE.md` en
+  `.github/dependabot.yml` (alleen de actions en het dev-extra - de plugin heeft geen
+  runtime-afhankelijkheden). Wijzigt een huisregel, dan wijzigt `CONTRIBUTING.md` mee.
 
 ## Ontwikkelomgeving
 
@@ -685,6 +692,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   en meldt dat als `removed_from_sys_path`), en een relatief `--code`-pad liep onder Git Bash
   niet (QGIS sloot normaal af zonder één logregel) - geef het absoluut op. Geverifieerd
   2026-09-16: `installFromZipFile` in 4,0 s, plugin geladen uit het profiel, dialoog open.
+- **De beelden in de README komen uit een echte run.** `smoke_plugin.py` legt met
+  `DESKTOPSTUDIE_FRAMES=<map>` onderweg zijn eigen venster vast - `QWidget.grab()`, dus het
+  venster zelf en niet het scherm; de dialoog is een eigen venster en wordt er met haar offset
+  op getekend - en `DESKTOPSTUDIE_PROJECT` zet de studienaam. `scripts/docs_images.py` maakt
+  daar de demo-GIF (één gedeeld palet voor alle beelden, anders is het verschil tussen twee
+  beelden niet meer klein) en de twee schermafdrukken van, en schaalt de bladen uit een
+  `--paginas`-run tot de rapportbeelden in `docs/afbeeldingen/`: een kaartblad als JPEG, een
+  blad vol tekst als PNG, want ringing rond letters kost meer dan de compressie opbrengt.
 - **Een exception in een Qt-slot breekt het testproces af (0xC0000409).** Onder pytest staat de
   standaard `sys.excepthook`, en dan roept PyQt bij een onafgevangen exception in een slot `qFatal`
   aan - geen traceback, alleen een dode proces. In QGIS zelf vangt de eigen excepthook het op. Dus:
