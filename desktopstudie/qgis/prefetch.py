@@ -33,6 +33,7 @@ from qgis.PyQt.QtGui import QImage
 
 from ..core import catalogue, parallel
 from ..core.catalogue import BASE_MAP_ID, MapEntry
+from ..core.geometry import CRS
 from ..core.model import StudyResult
 from ..core.report_content import (
     QUARTAIR_CODE,
@@ -56,7 +57,6 @@ from .images import (
     over_backdrop,
     ramp_strip,
 )
-from .layers import CRS_AUTHID
 from .layout import MAP_H, MAP_W, page_image
 
 # Where the fetched pictures land, under the study's output folder.
@@ -348,7 +348,7 @@ def wms_map_url(entry: MapEntry, extent: QgsRectangle, width: int, height: int) 
     live 2026-09-16 on geopunt, DOV, waterinfo and NGI).
     """
     params = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap", "LAYERS": entry.wms_layer,
-              "STYLES": entry.wms_style, "SRS": CRS_AUTHID, "FORMAT": entry.image_format,
+              "STYLES": entry.wms_style, "SRS": CRS, "FORMAT": entry.image_format,
               "TRANSPARENT": "TRUE", "WIDTH": width, "HEIGHT": height,
               "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
                       f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
