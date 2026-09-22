@@ -1,0 +1,30 @@
+# The plugin itself deliberately has no runtime dependencies beyond what QGIS ships (numpy,
+# matplotlib, urllib - see "Geen extra packages" in CLAUDE.md), so nothing here can reach a user's
+# installation. This only guards the tooling: the actions the two workflows pin, and the dev extra
+# in pyproject.toml (pytest, ruff) that the core tests run on.
+#
+# Weekly and grouped: one pull request per ecosystem instead of one per package, because every
+# bump still costs a full CI run in two QGIS containers.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      dev:
+        patterns: ["*"]
+    commit-message:
+      prefix: "chore"
+    open-pull-requests-limit: 3
