@@ -48,6 +48,7 @@ from ..core import catalogue, checks
 from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import StudyResult, StudyZone, record_source
+from ..core.parallel import stop_if
 from ..core.report_content import (
     MapPage,
     MapPageKey,
@@ -193,11 +194,6 @@ class PhaseClock:
         self._log.info(f"fase totaal: {total:.1f} s; traagste fase {slowest} ({worst:.1f} s)")
 
 
-def _stop_if_cancelled(should_cancel: Optional[Callable[[], bool]]) -> None:
-    if should_cancel is not None and should_cancel():
-        raise StudyCancelled("afgebroken door de gebruiker")
-
-
 def _measure_relief(result: StudyResult, zone_layer: QgsMapLayer, log: Log, should_cancel) -> None:
     """Sample the DTM over the zone, and record the DHMV as a source either way.
 
@@ -211,7 +207,7 @@ def _measure_relief(result: StudyResult, zone_layer: QgsMapLayer, log: Log, shou
     pressed cancel must not find "DHMV niet beschikbaar" in a later report.
     """
     result.relief = dem.relief_of_zone(zone_layer, log.child("dem"), should_cancel)
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     ok = result.relief is not None
     record_source(result, RELIEF_SOURCE, DHMV_WCS_URL, ok,
                   "" if ok else "geen hoogtewaarden voor de zone (dienst of dekking)")
@@ -305,7 +301,7 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
         group_layers: List[QgsMapLayer] = []
         entries = catalogue.entries(chapter, only=result.map_ids)
         for entry in entries:
-            _stop_if_cancelled(should_cancel)
+            stop_if(should_cancel)
             layer = layers.wms_layer(entry)
             if not layer.isValid():
                 log.warning(f"WMS-laag niet geldig: {entry.id} ({entry.wms_url})")
@@ -620,7 +616,7 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
 
     legend_images: Dict[str, Path] = {}
     if legends:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         clock.begin(0.02, "Legendas")
         client = client or make_client(out_dir, log, cache_mode)
         legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
@@ -632,7 +628,7 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
     # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
     if targets or layout_mod.codes_without_a_drawing(result, targets):
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
@@ -640,18 +636,18 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
 
     ramp_entries = _ramp_entries(result)
     if ramp_entries:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
 
     key_entries = _class_key_entries(result)
     if key_entries:
-        _stop_if_cancelled(should_cancel)
+        stop_if(should_cancel)
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
     client = client or make_client(out_dir, log, cache_mode)
     # Which boxes to fetch follows from the map pages, and those follow from the catalogue and the
@@ -707,13 +703,13 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                            legends)
     clock.timings.extend(prepared.timings)
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.28, "Relief uit DHMV")
     # The study's own layers first: the zone polygon among them is what the relief is measured on.
     overlays = _study_overlays(result)
     _measure_relief(result, overlays["zone"][0], log, should_cancel)
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.30, "Lagen")
     # One group per study, named after it; adding it replaces the previous run of THIS study,
     # layers and all, and leaves any other study in the project alone.
@@ -728,7 +724,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     map_images = _snapshot_layers(project, prepared.requests, prepared.map_images, owner)
 
     # From cheap to expensive, so that whatever falls over, what came before it is on disk.
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.31, "Signaleringen en rapport")
     # Every source the shell consulted is recorded by now, so the rules see the whole study.
     result.signaleringen = checks.validate(checks.run_all(result) + orchestrator_signals(result))
@@ -750,7 +746,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         project.transformContext()) or gpkg)
     project_file = None
     if written is not None:
-        _stop_if_cancelled(should_cancel)  # fifteen clones and a write: seconds, and stoppable
+        stop_if(should_cancel)  # fifteen clones and a write: seconds, and stoppable
         standalone, dropped = layers.standalone_project(
             gpkg, CHAPTER_GROUPS, log,
             {map_id: group[0] for map_id, group in layers_by_map.items()}, only=result.map_ids)
@@ -765,7 +761,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     log.info(f"Rapport: {len(report.chapters)} hoofdstukken, "
              f"{sum(len(chapter.pages) for chapter in report.chapters)} pagina's")
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     report_progress(0.38, "Layout")
     # Everything THIS run has already put in the project - the styled copies and the map images -
     # is spared; they were made minutes ago and the layout below is about to draw with them.
@@ -784,7 +780,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     sheets = lay.pageCollection().pageCount()
     log.info(f"Layout: {sheets} bladen")
 
-    _stop_if_cancelled(should_cancel)
+    stop_if(should_cancel)
     # Stoppable between two runs of the exporter, never inside one: QgsLayoutExporter takes no
     # feedback object. A run is ten sheets, a few seconds.
     report_progress(PDF_START, "PDF-export")
