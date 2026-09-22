@@ -94,9 +94,17 @@ def test_by_id_unknown_raises_key_error():
         c.by_id("does_not_exist")
 
 
-def test_every_fact_field_has_a_readable_label():
+def test_every_fact_field_that_reaches_a_table_has_a_readable_label():
+    """Een kolomkop is wat de lezer ziet, en een rauwe WFS-veldnaam is geen kolomkop.
+
+    Uitzondering: de isopachenkaart drukt geen tabel af - de dienst zet de dikte op de lijnen
+    zelf, dus `report_content._zone_legend_for` keert terug voor er ook maar een cel gevormd is.
+    Haar velden reizen nog wel mee naar studie.json, onder hun eigen naam.
+    """
+    from desktopstudie.core.report_content import ISOPACH_ID
+
     for e in c.CATALOGUE:
-        if e.fact_mode is None:
+        if e.fact_mode is None or e.id == ISOPACH_ID:
             continue
         missing = [f for f in e.fact_fields if f not in e.field_labels]
         assert not missing, f"{e.id} missing labels for {missing}"
