@@ -1507,8 +1507,7 @@ class LayoutBuilder:
     def _raise_if_cancelled(self) -> None:
         """Between two pages is where a build can stop. Ninety-five sheets take half a minute to
         lay out, and a user who pressed cancel should not wait for the other half."""
-        if self.should_cancel():
-            raise parallel.Cancelled("afgebroken door de gebruiker")
+        parallel.stop_if(self.should_cancel)
 
     def label(self, text: str, x: float, y: float, w: float, h: float, page: int, size: float = 9,
               html: bool = False, frame: bool = False, bold: bool = False) -> QgsLayoutItemLabel:
