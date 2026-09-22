@@ -70,9 +70,9 @@ MAP_IMAGE_WORKERS = 8
 # One legend out of a batch, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
-# Een profieltypetekening is geen GetLegendGraphic-stempel maar een bestand uit een documentportaal
-# - 168 kB is normaal - en op een trage dag haalt dat de vijftien seconden hierboven niet. Ruimer,
-# maar begrensd: twee pogingen van dertig seconden is de bovengrens die een run nog draaglijk houdt.
+# A profieltype drawing is not a GetLegendGraphic stamp but a file out of a document portal -
+# 168 kB is normal - and on a slow day that does not make the fifteen seconds above. Roomier, but
+# bounded: two attempts of thirty seconds is the ceiling that keeps a run bearable.
 DRAWING_TIMEOUT_S = 30.0
 LEGEND_RETRIES = 1
 # How often a drawing is asked for. The download links of the dataset portal answer with HTTP 200
@@ -196,10 +196,10 @@ def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
 
 
 class NoDrawingPublished(Exception):
-    """Het portaal antwoordt met een niet-gevonden-pagina: DOV publiceert hier geen tekening.
+    """The portal answers with a not-found page: DOV publishes no drawing for this one.
 
-    Een eigen fout en geen `HttpError`, want het is geen storing. De lezer krijgt er een andere
-    zin bij: een feit over de bron in plaats van een uitnodiging om het nog eens te proberen.
+    An error of its own and not an `HttpError`, because it is not a fault. The reader gets a
+    different sentence for it: a fact about the source instead of an invitation to try again.
     """
 
 
@@ -208,8 +208,8 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
 
     The URL ends in "_png" but is a download link into a document portal, and that portal answers
     with its own web page - HTTP 200, text/html - often enough that one answer proves nothing. The
-    bytes are therefore checked here. Een pagina wordt niet bewaard en niet klakkeloos herhaald:
-    ze draagt de directe link naar het bestand in zich, en die wordt gevolgd.
+    bytes are therefore checked here. A page is neither kept nor blindly asked for again: it
+    carries the direct link to the file inside it, and that link is followed.
     """
     # The first try may come straight from the disk cache - which is the point: a web page cached
     # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
@@ -219,12 +219,12 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
                           cache_mode="refresh" if attempt else None)
         if data.startswith(PNG_MAGIC):
             return data
-        # Geen bestand, dus niets om te bewaren: anders dient de cache deze pagina bij elke
-        # volgende run zonder netwerk weer op.
+        # Not a file, so nothing to keep: otherwise the cache would serve this page again on
+        # every later run that has no network.
         client.forget(url)
         if says_not_found(data):
-            # Niet nog eens proberen: deze pagina zegt dat het document niet bestaat, en een
-            # tweede poging levert dezelfde pagina op.
+            # No second attempt: this page says the document does not exist, and asking again
+            # yields the same page.
             if log:
                 log.info(f"Profieltype {code}: het portaal publiceert hiervoor geen tekening")
             raise NoDrawingPublished(code)
@@ -283,9 +283,9 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     """
     targets = zone_legend_targets(result)
     drawings: Dict[str, Path] = {}
-    # De codes waarvoor er niets te halen valt: het portaal zegt dat er niets bestaat, of de WFS
-    # gaf geen enkele link. Apart van "niet opgehaald": de bron publiceert hier niets, en dat is
-    # een feit en geen storing.
+    # The codes there is nothing to fetch for: the portal says nothing exists, or the WFS gave no
+    # link at all. Kept apart from "niet opgehaald": the source publishes nothing here, and that
+    # is a fact rather than a fault.
     unpublished: Set[str] = codes_without_a_drawing(result, targets, log)
     out_dir = Path(out_dir)
 
