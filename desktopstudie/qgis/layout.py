@@ -175,7 +175,6 @@ TABLE_FONT_PT = 7.0
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
 LEGEND_WORKERS = 4
-DEFAULT_EXTENT_FACTOR = 3.0
 # What a map page keeps for its map, and what it gives to the legend under it. There were already
 # four centimetres of white paper under every map frame (the frame ends at 230 mm, the band at
 # 275), so a short zone legend costs the map nothing; a longer one shortens the frame, and never
