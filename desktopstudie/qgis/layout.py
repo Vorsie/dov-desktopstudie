@@ -246,7 +246,9 @@ LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
 # Two different sentences for two different things. "Niet opgehaald" invites another attempt;
 # where DOV publishes nothing there is nothing to attempt, and that is a fact about the source.
-# The portal answers HTTP 200 in both cases, so the page itself decides which it is.
+# The portal answers HTTP 200 in both cases, so the page itself decides which it is. The second
+# sentence is also what the sources chapter records for such a type (`pipeline` imports it), and
+# the sheet and the sources table saying it differently would read as two different findings.
 NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 
 
