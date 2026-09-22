@@ -28,7 +28,8 @@ WATERINFO_WMS_URL = (
     "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
     "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
 )
-# Reserved for the QGIS shell (plan 2): it loads the DTM as a WCS coverage to fill StudyResult.relief.
+# Used by the shell: `dem.relief_of_zone` loads the DTM as a WCS coverage to fill
+# `StudyResult.relief`, and `pipeline` records that fetch as a source under this URL.
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 # What the two ends of the DTM's colour ramp mean, in mTAW. Read off the service's own
