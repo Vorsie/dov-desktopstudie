@@ -440,8 +440,25 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
+def _maps_with_more_to_show(report: Report) -> Set[str]:
+    """The maps whose sheet holds something besides the picture: a zone legend with rows in it.
+
+    The same question `_pages_without_an_image` asks per page, asked per MAP, because the sources
+    table records one line per map. A map that keeps its sheet must never be called "geen dekking"
+    there: the reader would have a table of units in front of him under a line that says the
+    source covers nothing here.
+    """
+    shows: Set[str] = set()
+    for chapter in report.chapters:
+        for page in chapter.pages:
+            if isinstance(page, MapPage) and legend_shows_rows(page.zone_legend):
+                shows.add(page.map_id)
+    return shows
+
+
 def _fetch_map_images(result: StudyResult, requests: List[prefetch.MapRequest], out_dir: Path,
-                      client: HttpClient, log: Log, should_cancel) -> Tuple[Dict[str, Path], Set[str]]:
+                      client: HttpClient, log: Log, should_cancel,
+                      shows: Set[str]) -> Tuple[Dict[str, Path], Set[str]]:
     """Every map page's background, fetched up front: {key -> PNG on disk}, and the maps that
     drew nothing here.
 
@@ -456,6 +473,9 @@ def _fetch_map_images(result: StudyResult, requests: List[prefetch.MapRequest], 
     did not come back. `record_source` replaces by name, so a line per request would let a framing
     that succeeded overwrite the one that failed with "ok" - while the sheet that lost its image
     prints "Kaartbeeld van deze bron niet opgehaald" all the same.
+
+    `shows` are the maps that keep their sheet whatever the tile says (`_maps_with_more_to_show`),
+    and those are never recorded as uncovered: the message follows the sheet, not the pixels.
     """
     images, empty, backdrops = prefetch.prepare_map_images(
         requests, out_dir, client, log.child("kaarten"), should_cancel)
@@ -466,8 +486,10 @@ def _fetch_map_images(result: StudyResult, requests: List[prefetch.MapRequest], 
         told = failed[0] if failed else group[0]  # the URL that explains the line
         if failed:
             message = "kaartbeeld niet opgehaald; kaartpagina zonder ondergrond"
+        elif all(r.key in empty for r in group) and map_id not in shows:
+            message = NO_COVERAGE_MESSAGE
         else:
-            message = NO_COVERAGE_MESSAGE if all(r.key in empty for r in group) else ""
+            message = ""
         record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
                       prefetch.wms_map_url(entry, told.extent, told.width, told.height),
                       not failed, message)
@@ -660,7 +682,8 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     # `finish` to be printed, with every source of this study in it. Building it is pure Python.
     planned = build_report(result, meta, report_images)
     requests = prefetch.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
-    map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
+    map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log,
+                                                should_cancel, _maps_with_more_to_show(planned))
     unavailable = _pages_without_an_image(planned, result, map_images, no_coverage)
     if unavailable and log:
         log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
