@@ -393,6 +393,19 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   update-modus en zegt dat per blad op stderr. Het beeld is wel geschreven. `export._quiet_gdal()`
   zet de GDAL-foutafhandelaar stil rond een export; een echte mislukking komt nog steeds terug in
   de ExportResult, die sowieso gecontroleerd wordt.
+- **Tekst van een dienst wordt nooit zelf een pad.** Een permkey is het laatste stuk van een
+  DOV-URL, een profieltypecode en een kaartbladnummer komen uit een WFS-rij, en alle drie worden
+  ze een stuk van een bestandsnaam. Een antwoord met scheidingstekens erin bepaalt dan WAAR de
+  plugin schrijft: gemeten met `permkey="../../../x"` landde de figuur in de runmap in plaats van
+  in `figuren/`, en `quartair_sheet("../../x")` geeft `".."`, waarmee `Path.with_name` in de
+  bovenliggende map schrijft. Elke externe string gaat daarom door `core/paths.safe_segment`
+  vóór ze aan een map geplakt wordt: letters, cijfers, punt, streepje en liggend streepje blijven,
+  de rest wordt een liggend streepje, en wat niets overhoudt wordt geweigerd in plaats van geraden.
+  De SLEUTEL waaronder het rapport zo'n figuur of tekening opzoekt houdt de rauwe waarde - alleen
+  de bestandsnaam wordt opgeschoond - want `pipeline._figured` vergelijkt die sleutel met de
+  permkey uit DOV. Wie een nieuw bestand schrijft waarvan de naam uit een antwoord komt, doet
+  hetzelfde; twee tests bewaken de bekende gevallen (`tests/core/test_paths.py`, en de twee die het
+  pad oplossen in plaats van naar de string te kijken).
 - **Geen extra packages.** Alleen wat QGIS meelevert. Geen pydov, geen pyproj, geen requests
   (gebruik `urllib`). Alles rekent in EPSG:31370.
 - **Bronnen live verifiëren.** Een laagnaam, veldnaam of URL komt pas in de catalogus of een parser
