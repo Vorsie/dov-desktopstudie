@@ -139,8 +139,7 @@ class _Runner:
 
     # --- plumbing -----------------------------------------------------------------------
     def _raise_if_cancelled(self) -> None:
-        if self.should_cancel():
-            raise StudyCancelled("afgebroken door de gebruiker")
+        parallel.stop_if(self.should_cancel)
 
     def _step(self, fraction: float, message: str) -> None:
         """A stage boundary: the chance to stop, then the progress report."""
