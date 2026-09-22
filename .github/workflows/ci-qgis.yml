@@ -12,7 +12,7 @@ jobs:
         image: [qgis/qgis:release-3_34, qgis/qgis:latest]
     container: ${{ matrix.image }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The images ship a system Python that pip refuses to write into without the flag (PEP 668);
       # the older image predates that refusal and does not know the flag.
       - name: Install pytest
@@ -36,7 +36,7 @@ jobs:
     # DOV being down is not this repository being broken.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Run one study for Gent
         env:
           QT_QPA_PLATFORM: offscreen
@@ -44,7 +44,7 @@ jobs:
         run: >
           python3 scripts/run_headless.py --x 104326 --y 192506 --buffer 50
           --out uitvoer/ci --paginas
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: desktopstudie-gent

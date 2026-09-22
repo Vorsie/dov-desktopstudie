@@ -10,8 +10,8 @@ jobs:
         # Windows. Nothing is pinned: pip resolves the last numpy/matplotlib that supports 3.9.
         python-version: ["3.9", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip  # keyed on pyproject.toml, which is where the dev extra lives
