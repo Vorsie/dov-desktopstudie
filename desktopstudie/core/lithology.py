@@ -93,94 +93,94 @@ def _folded(words: str) -> frozenset:
 ORDINARY = _folded("""
 aalter aan aangevuld aangevulde aantal abondamment abondantes abondants accident af affleure
 affleurement afgerond afw afwisselend afwisselende afwisseling ailleurs ale allure alluviaal
-alluvial alluviale alluvion alluvions als alsmede altéré alternance alternances alternant alterne
-amas amorphe analogue ancienne andere apparaît apparence apparentes apparents après aquifère argile
-argiles argileuse argileuses argileux argilo arguleux arm arrêtée arrondis aspect asse assez assze
-atteindre au autour autre autres aux avais avec avex bande bas base basis basisklei beaucoup beetje
-belle bepaalde berm beschrijving bevatten bewaarde bien bifurcation bigarré bigarrée bigarrées bij
-bijna bijzonder blauw blauwachtige blauwe blauwgrijs blauwgrijze blauwgroen blauwgroenwit bleek
-bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze bleke blekere blijft blokken bombée
-boom boorbeschrijving boormeester boring bosse bouleversé bouleversée bouleversées bouleversés
-bouwlaag bouwvoor bouwzand boven bovenaan bovengrond bovenste brede breed brillants brisées brokje
-brokjes brokkelig brokkelige brokken brokstukken brosse broyée bruin bruinachtig bruinachtige
-bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig bruingrijze bruingroen
-bruingroenachtig brusquement buntsandstein caché calcaires calcareuse calcareuses calcareux
-calcarifère caractéristiques carrière cas ce celle celui cependent certains ces cette ceux champ
-chargé château chemin chocolat chocolaté citadel clacareuses clair claire clairement clairs cm
-coherent cohérent coherente coin colen colline comme commence commencement compact compacte complex
-composé composés concentratie concentraties constaté contact contenant contient coquiles
-coquillages coquille coquilles coquillier coquillières coquilliers cotés couche couches couleur
-coupe couronné créées cremebruin crétacé curage curieux daaronder dan dans dat de débris déchire
-deels delen demi déposée dépôt dépression dernière des descend descendant descendu descendue
-descendus desous dessous dessus determineerbare detritus deux développe devenant devenu devient
-diameter dicht die diepte difficile diffues dik dikke diluvien diluviens diluvium dimensions
-distance dit divers diverses dizaine dm doch doit donc donker donkerblauw donkerbruin donkerbruine
-donkerder donkere donkergrijs donkergrijze donkergroen donkergroene donnant dont door doorheen
-doorschijnend doute droite droog du duidelijk dun dunne dunner dur durcie durcies durcissement dure
-dures dus eau éboulés ébouleux ech echantillon echantillons éclats edelmanboor een één eenige
-effondrements einde elementen elle empêche employé en encavée encore englobée englobés enigszins
-enigzins enkele ensuite entendu entre entrée environ épais épaisseur épars éparses er est et était
-étangs état etc été être excavations excessivement exemplaren exploité exploitée extreem
-extrêmement facies fait ferrugineuse ferrugineuses ferrugineux feuilleté fibreuse fibreux fijn
-fijne fijner fijnste fijnzand fijnzandhoudende filets fin fine finement finit fins flammes
-flandriaan flandrien fluide fluviatile fluvio focné fois foncé foncée fond fonds formatie forme
-former fort fortement fouille fragmentaire fragmenten fragmentjes fragments friable gauche geboord
-gebroken gedeelte gedeeltelijk gedeelten gedraaid geel geelachtig geelbruin geelbruinachtig
-geelgrijs geelgroen geelgroenachtig geellichtgroen geelrode geen gegolfd gegolfde gehele gelaagd
-gelaagdheid gele geleidelijk gelijke gelinden gemarmerd gemengd gemiddeld général geoprobe gepakt
-geroerd gerold gerolde gesorteerd gespikkeld gestippeld gevlekt gewassen gijze gîte glad glaise
-glaiseuse glauconie glimmer glimmerachtig glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed
-grains grand grande grandes gras graveleuse graveleuses graveleux gravir grens grenu grenue grenzen
-grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin grijsbruine grijsgeel grijsgroen
-grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere grind grindboring grindje grisâte
-grisclair groen groenachtig groenachtige groenblauw groenbruin groene groengeel groengrijs
-groengrijsachtig groengrijze groenig grof grofzand grond groot gros grosse grosses grossier
-grossière grote grotere grove grover grovere gruis half halffijn halfstijve hard harde
-hauptmuschelkalk haut hebben heeft heel helft henis hénis hesbayen het heterogeen heterogene
-hétérogène heteromorf hettangien hier hoekig hoeveelheden hoger homogeen homogène hoofdzakelijk
-horizontaal horizontale horizontalement horizontales hors houdend hsc humeus humeuze humide humique
-humiques humus ici idem ieper ieperiaan iets immédiatement impossible impur impuretés in
-inclinaison inclinaisons incliné inclinés indéterminables indiqué inf inférieur inférieure
-insluitsel insluitsels intercalaties intercalation intercalations irrégulière is isolés jurassique
-jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern
-kernboor kerniel keupérien kist klei kleiachtig kleiachtige kleibrokjes kleibrokken kleigehalte
-kleihoudend kleihoudende kleiig kleiïg kleiige kleiiger kleiigere kleilaagje kleilaagjes kleilagen
-kleilensjes kleilenzen klein kleine kleiner kleirijk kleur komen korrel korrelgrootte korrelig
-korrels kwartair kwarts kwartsachtig kwartszand la laag laagje laagjes laagsgewijs labours lagen
-lamellaire landenien landenienne lang latérales lavage le lediaan leem leemachtig leemhoudend
-leemrijke légende légère légèrement lemig lemige lengte lensjes lentille lentilles lenzen les
-lesquelles lesquels licht lichtbeige lichtbruin lichte lichtgrijs lichtgroen lichtjes lid ligne
-lijkt limon limoneuse limoneuses limoneux limoniteux linéole linéoles lit lithotheek lits locaux
-loin lokaal lokale long loodrecht lorsqu los losse losser lossere lui luisants maar mais maldegem
-marbré marbrée mare marin marmoréen marmoréens massa masse massief massive mate materiaal matières
-matig medium meer meerdere meestal mélange mélangé mêlé même met meter meters mètres meuble mica
-micacé micacée micacées middelfijn middelgrof middelmatig middelmatige min mince minces minder mm
-moderne modernes modifiée moins mois molle monster monsters montée montre montrent mooi mooie
-morceaux mou mouches moucheté moulage mouvant moyen moyenne na naar nat neerepen neerrepenien
-nesten nettement neutraal neutraalbruin neutraalgrijs niet niveau niveau_onbekend nog nogal
-nombreuses nombreux non normaal normale nouvelle nu nulle oblique ocreuse ocreuses ocreux of om
-omstreeks onbekend onder onderaan onderste ondulé ondulée ondulées ongeveer ongle onregelmatig
-onregmatig ontbreekt ook ookpaniseliaan op opnieuw oranje oranjebruin organisch organische over
-overgaat overgang overvloed overwegend paar pailleté paillété pailletée paillettes pâle panaché
-paniseliaan paquet paquets par paraissant paraît parfois parmi partie parties partout pas passant
-peine pense pente percé percer percés petit petite petites petits peu peut peux pied pieds plaats
-plaatselijk plaatselijke plaatsen place places plant plantaardig plantaardige planten plantje
-plaque plaques plasticité plastique plastisch plastische plastischer plat plateau platte pleine
-pleistocène pliocène pliocènes plis plus poche poches point pointillé pointillée points polder
-polderienne poldérienne polders polis polit pont poreuse position pour pouvoir précédent premier
-première prendre près présentant presque prmière produites profondeur prouve provenant provoqué
-puis puissance puits pulsboring pur pure quartair quarts quartseux quartzeux quaternaire
-quaternaires que quelques qui quitté quoi racine racines radicelle radicelles ramène
-ramkernsondering rapidement rare rarement rares ravinement rayant recent recente recherches
-recueilli recueillir redevenir reeds remonte remplissage repose resten restent retrouvent rijk
-rivières rode roestbruin roetzwart rond ronde rood roodachtig roodbruin rose rosé röth roulé
-roulées roulés route rude ruines rupeliaan rupélien sable sables sableuse sableuses sableux
-sablière sablonneuse sablonneux sale samenhangend sans saturé scaldisien scaldisiennes schelp
-schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend schelpjes schelpstukken scherp
-scherpe schijn schilferachtig schilferig schilferige schuin sec sein semblable sens sensiblement
-séparées serait seulement siliceuse siliceux sillonnés silt silteus silteuse silteux silteuze
-silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht smalle sol somme sommet
-sommige soms sondage sonde sondé sont sort sous souterraines souvent spikkels spoelboring
+alluvial alluviale alluvion alluvions als alsmede altération altérations altéré alternance
+alternances alternant alterne amas amorphe analogue ancienne andere apparaît apparence apparentes
+apparents après aquifère argile argiles argileuse argileuses argileux argilo arguleux arm arrêtée
+arrondis aspect asse assez assze atteindre au autour autre autres aux avais avec avex bande bas
+base basis basisklei beaucoup beetje belle bepaalde berm beschrijving bevatten bewaarde bien
+bifurcation bigarré bigarrée bigarrées bij bijna bijzonder blauw blauwachtige blauwe blauwgrijs
+blauwgrijze blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen
+bleekgrijze bleke blekere blijft blokken bombée boom boorbeschrijving boormeester boring bosse
+bouleversé bouleversée bouleversées bouleversés bouwlaag bouwvoor bouwzand boven bovenaan
+bovengrond bovenste brede breed brillants brisées brokje brokjes brokkelig brokkelige brokken
+brokstukken brosse broyée bruin bruinachtig bruinachtige bruine bruingeel bruingeelachtig
+bruingrijs bruingrijsachtig bruingrijze bruingroen bruingroenachtig brusquement buntsandstein caché
+calcaires calcareuse calcareuses calcareux calcarifère caractéristiques carrière cas ce celle celui
+cependent certains ces cette ceux champ chargé château chemin chocolat chocolaté citadel
+clacareuses clair claire clairement clairs cm coherent cohérent coherente coin colen colline comme
+commence commencement compact compacte complex composé composés concentratie concentraties constaté
+contact contenant contient coquiles coquillages coquille coquilles coquillier coquillières
+coquilliers cotés couche couches couleur coupe couronné créées cremebruin crétacé curage curieux
+daaronder dan dans dat de débris déchire deels delen demi déposée dépôt dépression dérivé dérivée
+dernière des descend descendant descendu descendue descendus desous dessous dessus determineerbare
+detritus deux développe devenant devenu devient diameter dicht die diepte difficile diffues dik
+dikke diluvien diluviens diluvium dimensions distance dit divers diverses dizaine dm doch doit donc
+donker donkerblauw donkerbruin donkerbruine donkerder donkere donkergrijs donkergrijze donkergroen
+donkergroene donnant dont door doorheen doorschijnend doute droite droog du duidelijk dun dunne
+dunner dur durcie durcies durcissement dure dures dus eau éboulés ébouleux ech echantillon
+echantillons éclats edelmanboor een één eenige effondrements einde elementen elle empêche employé
+en encavée encore englobée englobés enigszins enigzins enkele ensuite entendu entre entrée environ
+épais épaisseur épars éparses er est et était étangs état etc été être excavations excessivement
+exemplaren exploité exploitée extreem extrêmement facies fait ferrugineuse ferrugineuses
+ferrugineux feuilleté fibreuse fibreux fijn fijne fijner fijnste fijnzand fijnzandhoudende filets
+fin fine finement finit fins flammes flandriaan flandrien fluide fluviatile fluvio focné fois foncé
+foncée fond fonds formatie forme former fort fortement fossé fouille fragmentaire fragmenten
+fragmentjes fragments friable gauche geboord gebroken gedeelte gedeeltelijk gedeelten gedraaid geel
+geelachtig geelbruin geelbruinachtig geelgrijs geelgroen geelgroenachtig geellichtgroen geelrode
+geen gegolfd gegolfde gehele gelaagd gelaagdheid gele geleidelijk gelijke gelinden gemarmerd
+gemengd gemiddeld général geoprobe gepakt geroerd gerold gerolde gesorteerd gespikkeld gestippeld
+gevlekt gewassen gijze gîte glad glaise glaiseuse glauconie glimmer glimmerachtig glimmerhoudend
+glimmerplaatjes glimmerrijk glimmers goed grains grand grande grandes gras graveleuse graveleuses
+graveleux gravir grens grenu grenue grenzen grijs grijsachtig grijsachtige grijsbeige grijsblauw
+grijsbruin grijsbruine grijsgeel grijsgroen grijsgroenachtig grijsgroene grijswit grijze grijzer
+grijzere grind grindboring grindje grisâte grisclair groen groenachtig groenachtige groenblauw
+groenbruin groene groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand grond
+groot gros grosse grosses grossier grossière grote grotere grove grover grovere gruis half halffijn
+halfstijve hard harde hauptmuschelkalk haut hebben heeft heel helft henis hénis hesbayen het
+heterogeen heterogene hétérogène heteromorf hettangien hier hoekig hoeveelheden hoger homogeen
+homogène hoofdzakelijk horizontaal horizontale horizontalement horizontales hors houdend hsc humeus
+humeuze humide humique humiques humus ici idem ieper ieperiaan iets immédiatement impossible impur
+impuretés in inclinaison inclinaisons incliné inclinés indéterminables indiqué inf inférieur
+inférieure insluitsel insluitsels intercalaties intercalation intercalations irrégulière is isolés
+jacent jacente jurassique jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk
+kalkrijke keitjes kern kernboor kerniel keupérien kist klei kleiachtig kleiachtige kleibrokjes
+kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiïg kleiige kleiiger kleiigere
+kleilaagje kleilaagjes kleilagen kleilensjes kleilenzen klein kleine kleiner kleirijk kleur komen
+korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartszand la laag laagje
+laagjes laagsgewijs labours lagen lamellaire landenien landenienne lang latérales lavage le lediaan
+leem leemachtig leemhoudend leemrijke légende légère légèrement lemig lemige lengte lensjes
+lentille lentilles lenzen les lesquelles lesquels licht lichtbeige lichtbruin lichte lichtgrijs
+lichtgroen lichtjes lid ligne lijkt limon limoneuse limoneuses limoneux limoniteux linéole linéoles
+lit lithotheek lits locaux loin lokaal lokale long loodrecht lorsqu los losse losser lossere lui
+luisants maar mais maldegem marbré marbrée mare marin marmoréen marmoréens massa masse massief
+massive mate materiaal matières matig medium meer meerdere meestal mélange mélangé mêlé même met
+meter meters mètres meuble mica micacé micacée micacées middelfijn middelgrof middelmatig
+middelmatige min mince minces minder mm moderne modernes modifiée moins mois molle monster monsters
+montée montre montrent mooi mooie morceaux mou mouches moucheté moulage mouvant moyen moyenne na
+naar nat neerepen neerrepenien nesten nettement neutraal neutraalbruin neutraalgrijs niet niveau
+niveau_onbekend nog nogal nombreuses nombreux non normaal normale nouvelle nu nulle oblique ocreuse
+ocreuses ocreux of om omstreeks onbekend onder onderaan onderste ondulé ondulée ondulées ongeveer
+ongle onregelmatig onregmatig ontbreekt ook ookpaniseliaan op opnieuw oranje oranjebruin organisch
+organische over overgaat overgang overvloed overwegend paar pailleté paillété pailletée paillettes
+pâle panaché paniseliaan paniselien paniselienne paquet paquets par paraissant paraît parfois parmi
+partie parties partout pas passant peine pense pente percé percer percés petit petite petites
+petits peu peut peux pied pieds plaats plaatselijk plaatselijke plaatsen place places plant
+plantaardig plantaardige planten plantje plaque plaques plasticité plastique plastisch plastische
+plastischer plat plateau platte pleine pleistocène pliocène pliocènes plis plus poche poches point
+pointillé pointillée points polder polderienne poldérienne polders polis polit pont poreuse
+position pour pouvoir précédent premier première prendre près présentant presque prmière produites
+profondeur prouve provenant provoqué puis puissance puits pulsboring pur pure quartair quarts
+quartseux quartzeux quaternaire quaternaires que quelques qui quitté quoi racine racines radicelle
+radicelles ramène ramkernsondering rapidement rare rarement rares ravinement rayant recent recente
+recherches recueilli recueillir redevenir reeds remonte remplissage repose resten restent
+retrouvent rijk rivières rode roestbruin roetzwart rond ronde rood roodachtig roodbruin rose rosé
+röth roulé roulées roulés route rude ruines rupeliaan rupélien sable sables sableuse sableuses
+sableux sablière sablonneuse sablonneux sale samenhangend sans saturé scaldisien scaldisiennes
+schelp schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend schelpjes schelpstukken
+scherp scherpe schijn schilferachtig schilferig schilferige schuin sec sein semblable sens
+sensiblement séparées serait seulement siliceuse siliceux sillonnés silt silteus silteuse silteux
+silteuze silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht smalle sol somme
+sommet sommige soms sondage sonde sondé sont sort sous souterraines souvent spikkels spoelboring
 sporadisch sporadische sporen staal stabilisatiezand stalen steeds steekboor steen steentjes stenen
 sterk stevig stevige stijf stijgt stijve stippels stippen stoffen stratification stratifié
 stratifiés striée striés stuk stukje stukjes stukken substraat successifs suite sup supérieur
