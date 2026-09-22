@@ -34,10 +34,10 @@ from qgis.PyQt.QtGui import QColor
 
 from ..core import catalogue
 from ..core.catalogue import MapEntry
+from ..core.geometry import CRS
 from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
 from .compat import drop_colliding_labels, text_format
 
-CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
 # GeoTIFF / HDF / NetCDF, and "image/tiff" yields an invalid layer ("Cannot get test dataset").
 WCS_FORMAT = "GeoTIFF"
@@ -116,7 +116,7 @@ def snapshot_layer(path, name: str) -> QgsRasterLayer:
     no way to say it and a layer without one lands wherever the project happens to think.
     """
     layer = QgsRasterLayer(str(path), name, "gdal")
-    layer.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    layer.setCrs(QgsCoordinateReferenceSystem(CRS))
     return layer
 
 
@@ -128,7 +128,7 @@ def wms_layer(entry: MapEntry) -> QgsRasterLayer:
     uri.setParam("layers", entry.wms_layer)
     uri.setParam("styles", entry.wms_style)  # "" = the layer default
     uri.setParam("format", entry.image_format)
-    uri.setParam("crs", CRS_AUTHID)
+    uri.setParam("crs", CRS)
     uri.setParam("dpiMode", "7")
     uri.setParam("contextualWMSLegend", "0")
     layer = QgsRasterLayer(uri.encodedUri().data().decode("utf-8"), entry.title, "wms")
@@ -142,7 +142,7 @@ def wcs_layer(url: str, coverage: str, name: str) -> QgsRasterLayer:
     uri = QgsDataSourceUri()
     uri.setParam("url", url)
     uri.setParam("identifier", coverage)
-    uri.setParam("crs", CRS_AUTHID)
+    uri.setParam("crs", CRS)
     uri.setParam("format", WCS_FORMAT)
     uri.setParam("version", WCS_VERSION)
     return QgsRasterLayer(uri.encodedUri().data().decode("utf-8"), name, "wcs")
@@ -151,7 +151,7 @@ def wcs_layer(url: str, coverage: str, name: str) -> QgsRasterLayer:
 # --- memory layers from the model ----------------------------------------------------------------
 
 def _memory(geometry_type: str, name: str, fields: Sequence[Tuple[str, str]]) -> QgsVectorLayer:
-    spec = "&".join([f"{geometry_type}?crs={CRS_AUTHID}"] + [f"field={field}:{kind}" for field, kind in fields])
+    spec = "&".join([f"{geometry_type}?crs={CRS}"] + [f"field={field}:{kind}" for field, kind in fields])
     return QgsVectorLayer(spec, name, "memory")
 
 
@@ -513,7 +513,7 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     ready = dict(wms_layers or {})
     dropped: List[MapEntry] = []
     project = QgsProject()
-    project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    project.setCrs(QgsCoordinateReferenceSystem(CRS))
     # The study's own layers go in FIRST, so the chapter groups of maps append underneath them.
     # The bottom of a layer tree draws first, so a group added after the maps ends up behind them -
     # which hid the zone outline, the section line and every sounding the moment a map was switched
