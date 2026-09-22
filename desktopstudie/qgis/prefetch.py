@@ -35,6 +35,7 @@ from ..core import catalogue, parallel
 from ..core.catalogue import BASE_MAP_ID, MapEntry
 from ..core.geometry import CRS
 from ..core.model import StudyResult
+from ..core.paths import safe_segment
 from ..core.report_content import (
     QUARTAIR_CODE,
     QUARTAIR_ID,
@@ -296,7 +297,10 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
         except NoDrawingPublished:
             unpublished.add(code)
             return
-        path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
+        # The code comes out of a WFS row, so it is not a name until it is made one: a value with
+        # a separator in it would decide WHERE this drawing lands. The dict key below keeps the
+        # code as DOV wrote it, because that is what the report looks the drawing up by.
+        path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{safe_segment(code)}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         drawings[code] = path
