@@ -4,9 +4,9 @@ thread for the rest, and the log that lands in the QGIS log panel.
 Three rules keep the GUI alive while a study of a few minutes runs.
 
 *Nothing in the worker touches a widget or the project.* `StudyTask.run` does `run_core` and
-`prepare` - data, figures, legends, drawings, map images - and reports progress through a signal
-that Qt queues to the main thread. What it hands back is plain Python: a result, a `Prepared`, or
-an exception.
+`prepare`, which between them are the core and the whole of `prefetch` - the import graph says so,
+and that is where to check it rather than here. Progress goes out through a signal that Qt queues
+to the main thread, and what comes back is plain Python: a result, a `Prepared`, or an exception.
 
 *The main thread yields.* `finish` polls `should_cancel` between phases, between pages of the
 layout and between runs of the exporter, and the runner's `should_cancel` pumps the event loop
