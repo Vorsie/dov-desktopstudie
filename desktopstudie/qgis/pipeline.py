@@ -3,7 +3,8 @@
 Split in three on purpose. `run_core` is everything that only needs Python and the network;
 `prepare` is the shell's own share of that - the legend images, the quartair drawings and the map
 images, planned from the study without a single layer - so both run on a worker thread in the
-plugin (its QgsTask); `finish` is everything that touches QGIS map layers, a layout and a project,
+plugin (its QgsTask); it is the whole of `prefetch.py` and none of `layout.py`, which is what
+that split is for; `finish` is everything that touches QGIS map layers, a layout and a project,
 which has to happen on the main thread, and it runs `prepare` itself when nobody did. What stays on
 the main thread yields between phases, between pages of the layout and between runs of the
 exporter, through the `should_cancel` it is handed. `run_pipeline` is all of it in one call; the
@@ -72,7 +73,7 @@ from ..core.study import (
     orchestrator_signals,
 )
 from ..core.study import run as run_study
-from . import compat, dem, export, layers
+from . import compat, dem, export, layers, prefetch
 from . import layout as layout_mod
 
 # chapter in the catalogue -> the group title in the project. These three ARE chapters of the
@@ -329,14 +330,14 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
                    should_cancel) -> Dict[str, Path]:
     """Every legend image of a CHOSEN map, with the misses recorded as failed sources."""
     chosen = catalogue.entries(only=result.map_ids)
-    images, _missing = layout_mod.prepare_legends(chosen, out_dir, client,
+    images, _missing = prefetch.prepare_legends(chosen, out_dir, client,
                                                   log.child("legendas"), should_cancel)
     for entry in chosen:
         if not entry.legend:
             continue
         found = entry.id in images
         record_source(result, f"{LEGEND_SOURCE} {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), found,
+                      prefetch.wms_legend_url(entry, entry.legend_options), found,
                       "" if found else "legenda niet opgehaald; kaart zonder legendapagina")
     return images
 
@@ -349,7 +350,7 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     the layout resolves both the same way. Every drawing is a source of its own: one that did not
     come back is named in the sources chapter rather than quietly missing from the legend.
     """
-    images, unpublished = layout_mod.prepare_zone_legend_images(
+    images, unpublished = prefetch.prepare_zone_legend_images(
         result, out_dir, client, log.child("legendas"), should_cancel)
     for url, code in targets.items():
         found = profile_image_key(code) in images
@@ -411,9 +412,9 @@ def _fetch_class_keys(result: StudyResult, entries, out_dir: Path, client: HttpC
     """
     keys: Dict[str, str] = {}
     for entry in entries:
-        image = layout_mod.fetch_legend(entry, out_dir, client, log.child("legendas"))
+        image = prefetch.fetch_legend(entry, out_dir, client, log.child("legendas"))
         record_source(result, f"{CLASS_KEY_SOURCE} {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), image is not None,
+                      prefetch.wms_legend_url(entry, entry.legend_options), image is not None,
                       "" if image is not None else "klassensleutel niet opgehaald")
         if image is not None:
             keys[class_key_image_key(entry.id)] = Path(image).relative_to(out_dir).as_posix()
@@ -431,9 +432,9 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
     """
     strips: Dict[str, str] = {}
     for entry in entries:
-        strip = layout_mod.fetch_ramp(entry, out_dir, client, log.child("legendas"))
+        strip = prefetch.fetch_ramp(entry, out_dir, client, log.child("legendas"))
         record_source(result, f"{RAMP_SOURCE} {entry.title}",
-                      layout_mod.wms_legend_url(entry, entry.legend_options), strip is not None,
+                      prefetch.wms_legend_url(entry, entry.legend_options), strip is not None,
                       "" if strip is not None else "kleurschaal niet opgehaald of niet herkend")
         if strip is not None:
             strips[ramp_image_key(entry.id)] = Path(strip).relative_to(out_dir).as_posix()
@@ -444,7 +445,7 @@ NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
-def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest], out_dir: Path,
+def _fetch_map_images(result: StudyResult, requests: List[prefetch.MapRequest], out_dir: Path,
                       client: HttpClient, log: Log, should_cancel) -> Tuple[Dict[str, Path], Set[str]]:
     """Every map page's background, fetched up front: {key -> PNG on disk}, and the maps that
     drew nothing here.
@@ -461,7 +462,7 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
     that succeeded overwrite the one that failed with "ok" - while the sheet that lost its image
     prints "Kaartbeeld van deze bron niet opgehaald" all the same.
     """
-    images, empty, backdrops = layout_mod.prepare_map_images(
+    images, empty, backdrops = prefetch.prepare_map_images(
         requests, out_dir, client, log.child("kaarten"), should_cancel)
     _record_backdrops(result, requests, backdrops)
     for map_id, group in _by_map(requests).items():
@@ -473,12 +474,12 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
         else:
             message = NO_COVERAGE_MESSAGE if all(r.key in empty for r in group) else ""
         record_source(result, f"{MAP_IMAGE_SOURCE} {entry.title}",
-                      layout_mod.wms_map_url(entry, told.extent, told.width, told.height),
+                      prefetch.wms_map_url(entry, told.extent, told.width, told.height),
                       not failed, message)
     return images, empty
 
 
-def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest],
+def _record_backdrops(result: StudyResult, requests: List[prefetch.MapRequest],
                       backdrops: Dict[str, str]) -> None:
     """One provenance row per theme that asked for the base map under it.
 
@@ -494,19 +495,19 @@ def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest]
             continue
         told = group[0]
         record_source(result, f"{BACKDROP_SOURCE} {catalogue.by_id(map_id).title}",
-                      layout_mod.wms_map_url(base, told.extent, told.width, told.height),
+                      prefetch.wms_map_url(base, told.extent, told.width, told.height),
                       not reason, reason or "")
 
 
-def _by_map(requests: List[layout_mod.MapRequest]) -> Dict[str, List[layout_mod.MapRequest]]:
+def _by_map(requests: List[prefetch.MapRequest]) -> Dict[str, List[prefetch.MapRequest]]:
     """The requests grouped by map, in the order the report first asked for each map."""
-    grouped: Dict[str, List[layout_mod.MapRequest]] = {}
+    grouped: Dict[str, List[prefetch.MapRequest]] = {}
     for request in requests:
         grouped.setdefault(request.map_id, []).append(request)
     return grouped
 
 
-def _snapshot_layers(project: QgsProject, requests: List[layout_mod.MapRequest],
+def _snapshot_layers(project: QgsProject, requests: List[prefetch.MapRequest],
                      images: Dict[str, Path], owner: str) -> Dict[str, QgsMapLayer]:
     """The fetched images as raster layers the layout draws, registered in `project` without a
     tree node and flagged with the study's name so a later run of that study can clean them up.
@@ -567,7 +568,7 @@ class Prepared:
     unpublished: Set[str]  # profile types the portal says it publishes no drawing for
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
-    requests: List[layout_mod.MapRequest]  # what was asked for, in page order
+    requests: List[prefetch.MapRequest]  # what was asked for, in page order
     # The map pages that have no image at all - no coverage here, or a fetch that failed. Worked
     # out here because the images are fetched BEFORE the report is built for printing, and handed
     # to `build_report` so those sheets are never made. Per framing, not per map.
@@ -628,11 +629,11 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
 
     zone_legend_images: Dict[str, str] = {}
     unpublished: Set[str] = set()
-    targets = layout_mod.zone_legend_targets(result)
+    targets = prefetch.zone_legend_targets(result)
     # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
     # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
     # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
-    if targets or layout_mod.codes_without_a_drawing(result, targets):
+    if targets or prefetch.codes_without_a_drawing(result, targets):
         stop_if(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
@@ -659,7 +660,7 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     # zone - not from the signaleringen. So the tree is built once here to be read, and once in
     # `finish` to be printed, with every source of this study in it. Building it is pure Python.
     planned = build_report(result, meta, zone_legend_images)
-    requests = layout_mod.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
+    requests = prefetch.plan_map_images(planned, result.zone.ring, layout_mod.overlay_boxes(result))
     map_images, no_coverage = _fetch_map_images(result, requests, out_dir, client, log, should_cancel)
     unavailable = _pages_without_an_image(planned, result, map_images, no_coverage)
     if unavailable and log:
