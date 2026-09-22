@@ -75,9 +75,9 @@ CHAPTER_GROUPS = {"ligging": "1 Ligging en topografie", "historisch": "2 Histori
                   "geologie": "3 Geologie en bodem"}
 STUDY_GROUP = "DOV Desktopstudie"
 # The one catalogue map that opens checked in the project: a base map to see the zone on. The
-# other fourteen sit ready but unchecked - fifteen WMS layers rendering at once is a canvas that
-# loads for a minute and a user who cannot tell the zone from the noise. The same map goes UNDER
-# a thematic overlay on paper, so it is named once, in the catalogue.
+# others sit ready but unchecked - every enabled map rendering at once is a canvas that loads for
+# a minute and a user who cannot tell the zone from the noise. The same map goes UNDER a thematic
+# overlay on paper, so it is named once, in the catalogue.
 PDF_NAME = "rapport.pdf"
 PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
@@ -449,8 +449,10 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
 
     One GetMap per distinct box, all of them in flight together, instead of the WMS provider
     pulling tiles while each of ninety sheets renders. Each image is a source of its own, and an
-    image that is empty answers the coverage question for free - for maps without facts, where an
-    empty tile really does mean "no sheet here". Pure HTTP and files: this is worker-thread work.
+    image that is empty answers the coverage question for free - asked of every map, whether it
+    carries facts or not, because what such a tile COSTS is decided in
+    `_pages_without_an_image`, where the legend that would stand under the sheet is known. Pure
+    HTTP and files: this is worker-thread work.
 
     One line per MAP, not per request, and that line fails as soon as ONE of the map's framings
     did not come back. `record_source` replaces by name, so a line per request would let a framing
