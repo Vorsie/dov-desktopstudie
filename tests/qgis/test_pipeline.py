@@ -1024,6 +1024,27 @@ def test_compact_packs_more_sheets_than_the_default(project, core_result, offlin
     assert packed.sheets < plain.sheets
 
 
+def test_a_map_that_keeps_its_sheet_is_never_called_uncovered(project, core_result, offline_shell,
+                                                              tmp_path, monkeypatch, no_pdf):
+    """Een kaart die haar blad HOUDT, mag in de bronnentabel niet "geen dekking" heten.
+
+    De bodemkaart tekent hier een lege tegel maar de WFS vond wel eenheden, dus het blad blijft en
+    de lezer ziet een tabel met rijen. Stond er dan "ok - geen dekking op deze locatie" achter die
+    bron, dan spreekt het rapport zichzelf tegen: de zin voor de bron hoort dezelfde regel te
+    volgen als het blad - geen dekking alleen waar het blad verder niets te tonen heeft.
+    """
+    from desktopstudie.qgis import pipeline
+
+    _empty_map_images(monkeypatch, empty_maps=("bodemkaart",))
+
+    out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    assert "bodemkaart" in _map_ids(out.report), "de WFS vond eenheden, dus het blad blijft"
+    source = next(p for p in out.result.provenance if p.source.startswith("Kaartbeeld Bodemkaart"))
+    assert source.ok
+    assert source.message == "", source.message
+
+
 def test_an_empty_theme_with_an_empty_legend_costs_its_sheet(project, core_result, offline_shell,
                                                              tmp_path, monkeypatch, no_pdf):
     """Een blad dat niets toont. De gekarteerde grondverschuivingen tekenden hier niets, de
