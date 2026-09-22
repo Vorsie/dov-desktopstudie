@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 import matplotlib
 
@@ -149,6 +149,31 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float) -> Tuple[float,
     ax.set_xticks([])
     ax.set_ylabel("diepte [m-mv]")
     return drawn_depth, skipped
+
+
+# One depth column on its own figure. Both column figures - a real borehole and a modelled one -
+# print at this width, and a column shallower than this is drawn as if it were this deep: a 1,2 m
+# borehole on its own scale is a band of colour with no sense of depth beside it.
+COLUMN_WIDTH_IN = 5.0
+MIN_COLUMN_DEPTH_M = 5.0
+COLUMN_TITLE_PT = 9
+
+
+def column_figure(bands: Sequence[Band], drawn_depth: float, title: str):
+    """The drawing both column figures are: the bands, the labels that fit, a note for the labels
+    that did not, and a title.
+
+    What differs between a DOV borehole and a virtual one is where the bands come from and what
+    the title says; everything from here down was the same fifteen lines twice.
+    """
+    fig, ax = new_figure((COLUMN_WIDTH_IN, column_figure_height(drawn_depth)))
+    if not bands:
+        draw_no_data(ax)
+    else:
+        _drawn, skipped = draw_depth_column(ax, list(bands), drawn_depth)
+        note_skipped_labels(ax, skipped)
+    ax.set_title(title, fontsize=COLUMN_TITLE_PT)
+    return fig, ax
 
 
 def note_skipped_labels(ax, skipped: int, what: str = "laaglabels") -> None:
