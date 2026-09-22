@@ -44,8 +44,9 @@ from ..core import geometry
 from ..core.geometry import CRS
 from ..core.logging_util import Log
 from ..core.model import StudyResult, StudyZone
+from ..core.parallel import Cancelled
 from ..core.report_content import ReportMeta
-from ..core.study import Settings, StudyCancelled
+from ..core.study import Settings
 from . import pipeline
 from .pipeline import CORE_SHARE, PipelineResult, Prepared, part_of
 
@@ -123,7 +124,7 @@ class StudyTask(QgsTask):
                                              should_cancel=self.isCanceled, client=client,
                                              cache_mode=request.cache_mode, legends=request.legends)
             return True
-        except StudyCancelled:
+        except Cancelled:
             self.cancelled = True
             self.log.info("studie afgebroken in de werkthread")
             return False
@@ -296,7 +297,7 @@ class StudyRunner(QObject):
                                    legends=request.legends, should_cancel=self._should_cancel,
                                    cache_mode=request.cache_mode, prepared=outcome.prepared,
                                    compact=request.settings.compact)
-        except StudyCancelled:
+        except Cancelled:
             return self._stopped()
         except Exception as exc:  # noqa: BLE001 - reported to the user, never swallowed
             self.log.debug(traceback.format_exc())
