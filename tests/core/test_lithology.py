@@ -352,3 +352,16 @@ def test_an_unknown_french_word_still_flags():
     found = lithology.notable_terms([_layer(1.0, 2.0, "sable fin avec bentonite")])
 
     assert [t.word for t in found] == ["bentonite"]
+
+
+def test_the_seven_terms_under_kb29d84e_B664_are_two():
+    """De willekeurige ronde na de opkuis zette nog zeven termen onder deze Franse boring in
+    Kruisem - een plek die niet bij de twaalf telpunten zit, en dus het soort ruis dat alleen een
+    echte run laat zien. Verwering, "dérivé de", een formatienaam, de helft van "sous-jacente" en
+    een gracht zeggen een machinist niets; de argiliet en de cailloux blijven staan."""
+    laag = ("Limon d'altération argileux jaune rougeâtre, dérivé de l'argilite paniselien "
+            "sous-jacente, se voit dans les champs et dans le fossé. Très rares cailloux.")
+
+    woorden = [t.word for t in lithology.notable_terms([_layer(0.0, 0.0, laag)])]
+
+    assert woorden == ["argilite", "cailloux"]
