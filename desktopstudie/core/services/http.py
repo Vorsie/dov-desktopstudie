@@ -198,18 +198,18 @@ class HttpClient:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
     def forget(self, url: str) -> bool:
-        """Gooi het bewaarde antwoord voor deze URL weg; `True` als er iets weg was.
+        """Throw away the stored answer for this URL; `True` when something was there.
 
-        De cache kan niet zien dat een antwoord verkeerd is - HTTP 200 is HTTP 200 - maar de beller
-        soms wel: een webpagina waar een PNG hoorde te staan bijvoorbeeld. Zonder dit zou die pagina
-        er bij elke volgende run zonder netwerk weer uitkomen en dezelfde fout opleveren.
+        The cache cannot see that an answer is wrong - HTTP 200 is HTTP 200 - but the caller
+        sometimes can: a web page where a PNG belonged, for instance. Without this, that page
+        would come back out of the cache on every later run and produce the same error again.
         """
         path = self._cache_path(build_url(url))
         if not path or not path.exists():
             return False
         try:
             path.unlink()
-        except OSError:  # een cache die niet wil wijken mag de studie niet breken
+        except OSError:  # a cache entry that will not budge may not break the study
             return False
         return True
 
