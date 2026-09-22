@@ -33,7 +33,7 @@ from qgis.PyQt.QtWidgets import (
 )
 
 from ..core import catalogue
-from ..core.geometry import Point
+from ..core.geometry import CRS, Point
 from ..core.logging_util import Log
 from ..core.model import StudyZone
 from ..core.report_content import ReportMeta
@@ -41,7 +41,6 @@ from ..core.services.geocoder import GeocodeHit, geocode
 from ..core.services.http import CACHE_DIR, CACHE_MODES, HttpClient
 from ..core.study import Settings
 from . import map_tools, zone_input
-from .layers import CRS_AUTHID
 from .settings import PluginSettings
 from .task import PLUGIN_NAME, StudyRequest, StudyRunner, plugin_log
 
@@ -380,7 +379,7 @@ class StudyDialog(QDialog):
         if mode == MODE_RING:
             if not self._ring:
                 raise ValueError("Teken eerst een polygoon op de kaart.")
-            return zone_input.zone_from_ring(self._ring, CRS_AUTHID, radius)
+            return zone_input.zone_from_ring(self._ring, CRS, radius)
         layer = self._chosen_layer(self.layer_combo)
         feature = self._chosen_feature(layer, "polygon")
         return zone_input.zone_from_feature(feature, layer.crs(), radius, name=f"{layer.name()} #{feature.id()}",
