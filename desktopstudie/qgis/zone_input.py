@@ -9,7 +9,6 @@ in; the caller says which CRS its points came in, because a canvas can stand in 
 from __future__ import annotations
 
 import datetime as dt
-import re
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple, Union
 
@@ -25,10 +24,10 @@ from qgis.core import (
 )
 
 from ..core import geometry
-from ..core.geometry import Point
+from ..core.geometry import CRS, Point
 from ..core.model import StudyZone, point_name
+from ..core.paths import safe_segment
 from ..core.services.geocoder import GeocodeHit
-from .layers import CRS_AUTHID
 
 DEFAULT_PROJECT_NAME = "Desktopstudie"
 MIN_RING_POINTS = 3
@@ -48,7 +47,7 @@ def to_lambert72(points: Sequence[Point], crs: Crs,
     """`points` given in `crs`, in Lambert 72. Points already in Lambert 72 pass through untouched,
     so a ring the user typed in metres stays the ring the user typed. `context` is the project's
     choice of datum transforms; without one the default transform applies."""
-    source, target = _crs(crs), QgsCoordinateReferenceSystem(CRS_AUTHID)
+    source, target = _crs(crs), QgsCoordinateReferenceSystem(CRS)
     if source == target:
         return [(float(x), float(y)) for x, y in points]
     transform = QgsCoordinateTransform(source, target, context or QgsCoordinateTransformContext())
@@ -129,9 +128,12 @@ def section_from_feature(feature: QgsFeature, crs: Crs, context=None) -> Line:
 
 
 def safe_name(text: str) -> str:
-    """`text` as a folder name: anything a file system may refuse becomes an underscore."""
-    cleaned = re.sub(r"[^\w.-]+", "_", text.strip()).strip("_")
-    return cleaned or DEFAULT_PROJECT_NAME
+    """`text` as a folder name; see `core.paths.safe_segment` for what survives.
+
+    With a fallback rather than an error, because this text is typed by a human: a project called
+    "///" is a slip, and the dialog may not fall over on it.
+    """
+    return safe_segment(text, fallback=DEFAULT_PROJECT_NAME)
 
 
 def run_folder(base: Path, project: str, now: Optional[dt.datetime] = None) -> Path:

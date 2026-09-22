@@ -16,7 +16,7 @@ def test_the_defaults_before_anything_was_saved(qgs_app, tmp_path):
     """Een verse installatie: 500 m zoekstraal, de studies onder Documenten, de schijfcache aan,
     geen aparte legendapagina's en geen compacte opmaak; de velden van het titelblad leeg.
 
-    De legendabladen staan UIT: veertien kaarten leveren er tientallen, en wie ze wil vinkt ze
+    De legendabladen staan UIT: de kaarten met een legenda leveren er tientallen, en wie ze wil vinkt ze
     aan. De compacte opmaak staat uit omdat de standaardopmaak voorspelbaar hoort te zijn."""
     from desktopstudie.qgis.settings import PluginSettings
 

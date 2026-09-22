@@ -6,8 +6,8 @@ package folder - plugins.qgis.org refuses a zip without a licence. The tests liv
 package, so a `tests` folder is skipped only as a safeguard. The version is read from metadata.txt,
 the one place the plugin declares it.
 
-  python scripts/build_zip.py            -> dist/desktopstudie-0.1.0.zip
-  python scripts/build_zip.py --out map  -> map/desktopstudie-0.1.0.zip
+  python scripts/build_zip.py            -> dist/desktopstudie-<versie>.zip
+  python scripts/build_zip.py --out map  -> map/desktopstudie-<versie>.zip
 """
 from __future__ import annotations
 

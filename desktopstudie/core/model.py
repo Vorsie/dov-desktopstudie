@@ -77,18 +77,38 @@ class Provenance:
     message: str = ""
 
 
-# Waarom een Python-foutmelding nooit in het rapport mag: `study.guarded` bewaart de tekst van de
-# uitzondering, met klassenaam en al, zodat het log en studie.json weten wat er precies misging.
-# Diezelfde tekst kwam ongefilterd op papier terecht ("[Errno 11001] getaddrinfo failed"), en wie
-# een geotechnische studie leest komt geen errno tegen. Vertaald wordt er hier, aan de rand naar
-# het rapport: de rauwe tekst blijft staan waar ze thuishoort.
+def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
+                  message: str = "") -> None:
+    """Record (or replace) what was consulted, so `check_sources` can report on it.
+
+    Replacing rather than appending is what keeps a second pass over the same result honest: the
+    plugin can re-run a study after a service comes back up, and two contradicting lines about the
+    same source in the sources chapter would be worse than none. The replaced row keeps its place,
+    so the table stays in the order the study consulted things.
+
+    It lives here, beside `Provenance`, because it is nothing but that rule: the orchestrator
+    stamps its own sources with it and the shell stamps the ones only it can reach.
+    """
+    entry = Provenance(source, url, now_iso(), ok, message)
+    for index, existing in enumerate(result.provenance):
+        if existing.source == source:
+            result.provenance[index] = entry
+            return
+    result.provenance.append(entry)
+
+
+# Why a Python error message may never reach the report: `study.guarded` keeps the text of the
+# exception, class name and all, so that the log and studie.json know exactly what went wrong.
+# That same text ended up on paper unfiltered ("[Errno 11001] getaddrinfo failed"), and nobody
+# reading a geotechnical study meets an errno. The translation happens HERE, at the edge towards
+# the report: the raw text stays where it belongs.
 #
-# Toelaten in plaats van verbieden, net als bij de woordenschat van de boorbeschrijvingen: een
-# bericht ZONDER klassenaam ervoor is door de plugin zelf geschreven, voor de lezer, en gaat
-# ongewijzigd door. Alles met een klassenaam ervoor is ontwikkelaarstaal en krijgt een van de
-# zinnen hieronder - ook een uitzondering die nog niemand heeft gezien.
+# Allow rather than forbid, the same way round as the vocabulary of the borehole descriptions: a
+# message WITHOUT a class name in front of it was written by the plugin itself, for the reader,
+# and passes through unchanged. Anything with a class name in front is developer language and gets
+# one of the sentences below - including an exception nobody has seen yet.
 EXCEPTION_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(Error|Exception|Cancelled|Source):\s")
-# Waaraan een onbereikbare dienst te herkennen is, in de woorden van de uitzondering zelf.
+# How an unreachable service is recognised, in the words of the exception itself.
 UNREACHABLE_MARKS = ("getaddrinfo", "name or service not known", "temporary failure in name",
                      "connection refused", "connection reset", "connection aborted",
                      "timed out", "timeout", "netwerkfout", "unreachable", "ssl", "certificate")
@@ -99,10 +119,10 @@ UNEXPECTED = "de dienst antwoordde niet zoals verwacht"
 
 
 def plain_reason(message: str) -> str:
-    """Wat er in het rapport staat over een bron die niet gelukt is.
+    """What the report says about a source that did not come through.
 
-    De technische tekst blijft in `Provenance.message`, in studie.json en in het log; dit is wat
-    een lezer ervan te zien krijgt.
+    The technical text stays in `Provenance.message`, in studie.json and in the log; this is what
+    a reader gets to see of it.
     """
     text = message.strip()
     if not text or not EXCEPTION_PREFIX.match(text):
@@ -321,6 +341,17 @@ class StudyResult:
     def write_json(self, path: Path) -> None:
         text = json.dumps(self.to_dict(), ensure_ascii=False, indent=1, default=_jsonable)
         Path(path).write_text(text, encoding="utf-8")
+
+
+def facts_of(result: StudyResult, map_id: str) -> Optional[List[Dict[str, Any]]]:
+    """The rows the study found for one catalogue map: `[]` when the zone holds none, `None` when
+    the source never answered.
+
+    Telling those two apart is the whole point of the Optional, and it is why this lookup lives
+    in one place: the report has to say "geen kaarteenheden" for the first and "bron niet
+    beschikbaar" for the second, while the rules only care whether there is a row.
+    """
+    return next((fact.rows for fact in result.map_facts if fact.map_id == map_id), None)
 
 
 def _jsonable(value: Any) -> Any:

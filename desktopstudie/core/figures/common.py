@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Sequence, Tuple
 
 import matplotlib
 
@@ -108,8 +108,12 @@ def lithology_colour(text: str) -> str:
     return FALLBACK_LITHOLOGY_COLOUR
 
 
-def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
-                      label_chars: int = 48) -> Tuple[float, int]:
+# How long a band label may get before it is shortened: wider than this and the label column
+# eats the drawing beside it.
+LABEL_CHARS = 48
+
+
+def draw_depth_column(ax, bands: List[Band], max_depth_m: float) -> Tuple[float, int]:
     """Draws stacked `bands` (top_m, base_m, colour, label) as rectangles in x in [0, 1], with a
     label per band at x=1.05. Labels are placed top to bottom without overlapping and without
     leaving the axes: each one sits at its band's midpoint unless that would collide with the
@@ -137,7 +141,7 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
                 continue
             y = lowest
         prev_y = y
-        ax.text(1.05, y, textwrap.shorten(label, label_chars), va="center", fontsize=7, clip_on=True)
+        ax.text(1.05, y, textwrap.shorten(label, LABEL_CHARS), va="center", fontsize=7, clip_on=True)
         if y != mid:
             ax.plot([1.0, 1.04], [mid, y], color="grey", lw=0.5)
     ax.set_xlim(0, 3.6)
@@ -145,6 +149,31 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
     ax.set_xticks([])
     ax.set_ylabel("diepte [m-mv]")
     return drawn_depth, skipped
+
+
+# One depth column on its own figure. Both column figures - a real borehole and a modelled one -
+# print at this width, and a column shallower than this is drawn as if it were this deep: a 1,2 m
+# borehole on its own scale is a band of colour with no sense of depth beside it.
+COLUMN_WIDTH_IN = 5.0
+MIN_COLUMN_DEPTH_M = 5.0
+COLUMN_TITLE_PT = 9
+
+
+def column_figure(bands: Sequence[Band], drawn_depth: float, title: str):
+    """The drawing both column figures are: the bands, the labels that fit, a note for the labels
+    that did not, and a title.
+
+    What differs between a DOV borehole and a virtual one is where the bands come from and what
+    the title says; everything from here down was the same fifteen lines twice.
+    """
+    fig, ax = new_figure((COLUMN_WIDTH_IN, column_figure_height(drawn_depth)))
+    if not bands:
+        draw_no_data(ax)
+    else:
+        _drawn, skipped = draw_depth_column(ax, list(bands), drawn_depth)
+        note_skipped_labels(ax, skipped)
+    ax.set_title(title, fontsize=COLUMN_TITLE_PT)
+    return fig, ax
 
 
 def note_skipped_labels(ax, skipped: int, what: str = "laaglabels") -> None:

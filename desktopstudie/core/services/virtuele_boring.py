@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 
 from .. import geometry
 from ..catalogue import VB_DOORPRIK_URL, VB_PROFILE_URL
+from ..geometry import CRS
 from ..logging_util import Log
 from ..model import ProfileColumn, SectionProfile, VbLayer, VirtualBorehole
 
@@ -58,7 +59,7 @@ def fetch_virtual_borehole(client, x: float, y: float, model: str,
     so an empty borehole is a normal answer, not an error - it is WARNED about rather than handed
     back silently, because an empty column in the report otherwise reads as ground without
     geology."""
-    params = {"x": f"{x:.2f}", "y": f"{y:.2f}", "crs": "EPSG:31370"}
+    params = {"x": f"{x:.2f}", "y": f"{y:.2f}", "crs": CRS}
     payload = client.get_json(VB_DOORPRIK_URL.format(model=model), params)
     borehole = parse_doorprik(payload, x, y, model)
     if not borehole.layers and log:
@@ -218,12 +219,3 @@ def layers_named(borehole: VirtualBorehole, name: str) -> List[VbLayer]:
     needle = name.strip().lower()
     return [layer for layer in borehole.layers if layer.name.lower().startswith(needle)]
 
-
-def base_of(borehole: VirtualBorehole, name: str) -> Optional[float]:
-    """Base elevation (mTAW) of the deepest layer whose name starts with `name` (see `layers_named`,
-    including its prefix-collision caveat).
-
-    Reserved for the QGIS shell (plan 2): the dialog shows the base of the Quartair beside the
-    virtual borehole; no core caller needs it yet."""
-    matches = layers_named(borehole, name)
-    return min(layer.base_mtaw for layer in matches) if matches else None

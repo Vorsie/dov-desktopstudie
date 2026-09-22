@@ -8,9 +8,16 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..catalogue import DOV_WFS_URL
+from ..geometry import CRS
 from ..logging_util import Log
 
 Feature = Dict[str, Any]
+# The two feature types that describe what a borehole met, and the two fields that tie such a
+# record to its borehole. Live-verified names (see the fixtures' README), spelled once.
+INTERPRETATION_TYPENAMES = ("interpretaties:lithologische_beschrijvingen",
+                            "interpretaties:gecodeerde_lithologie")
+BOREHOLE_FICHE = "Proeffiche"  # the borehole the record belongs to
+INTERPRETATION_FICHE = "Interpretatiefiche"  # where the record itself lives
 
 
 def _first_gml_property(payload: Dict[str, Any]) -> Optional[str]:
@@ -30,9 +37,9 @@ def feature_xy(feature: Feature) -> Tuple[float, float]:
 
 
 class DovWfs:
-    def __init__(self, client, url: str = DOV_WFS_URL, page_size: int = 500, log: Optional[Log] = None):
+    def __init__(self, client, page_size: int = 500, log: Optional[Log] = None):
         self.client = client
-        self.url = url
+        self.url = DOV_WFS_URL
         self.page_size = page_size
         self.log = log
         self._geom_cache: Dict[str, str] = {}
@@ -63,7 +70,7 @@ class DovWfs:
                 break
             payload = self.client.get_json(self.url, {
                 "service": "WFS", "version": "2.0.0", "request": "GetFeature", "typeNames": typename,
-                "outputFormat": "application/json", "srsName": "EPSG:31370", "CQL_FILTER": cql,
+                "outputFormat": "application/json", "srsName": CRS, "CQL_FILTER": cql,
                 "count": count, "startIndex": start})
             feats = payload.get("features", [])
             fetched += len(feats)
@@ -104,6 +111,25 @@ class DovWfs:
                         max_features: Optional[int] = None) -> List[Feature]:
         g = self.geometry_field(typename)
         return self.get_features(typename, f"DWITHIN({g},{zone_wkt},{distance_m:g},meters)", max_features)
+
+    def interpretation_urls(self, zone_wkt: str, distance_m: float,
+                            max_features: Optional[int] = None) -> Dict[str, str]:
+        """borehole fiche -> the interpretation record that describes it, for one zone.
+
+        Two feature types answer this question and both have to be asked: the written
+        descriptions and the coded ones. The first that names a borehole wins, so a borehole
+        carrying both keeps its written description - the one a reader can read.
+
+        The three DOV names it needs (the two type names and the two fiche fields) are spelled
+        HERE and nowhere else; the orchestrator and the vocabulary script both used to carry their
+        own copy, which is two places to update when DOV renames a field.
+        """
+        found: Dict[str, str] = {}
+        for typename in INTERPRETATION_TYPENAMES:
+            for feature in self.within_distance(typename, zone_wkt, distance_m, max_features):
+                props = feature["properties"]
+                found.setdefault(props.get(BOREHOLE_FICHE), props.get(INTERPRETATION_FICHE))
+        return found
 
     def intersecting(self, typename: str, zone_wkt: str, max_features: Optional[int] = None) -> List[Feature]:
         g = self.geometry_field(typename)

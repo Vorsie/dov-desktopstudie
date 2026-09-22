@@ -4,17 +4,17 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ..geometry import CRS
 from ..logging_util import Log
 
-GRID = 101  # beeldpunten over de doos; oneven, zodat het gevraagde punt het middelste is
+GRID = 101  # pixels across the box; odd, so that the point asked about is the middle one
 MIN_GRID = 3
 
 
 def _grid(half_size_m: float, m_per_pixel: float) -> int:
-    """Hoeveel beeldpunten over de doos, zodat een beeldpunt minstens `m_per_pixel` breed is.
+    """How many pixels across the box, so that one pixel is at least `m_per_pixel` wide.
 
-    Altijd oneven: het gevraagde punt moet het MIDDELSTE beeldpunt zijn, en een even rooster heeft
-    geen midden.
+    Always odd: the point asked about has to be the MIDDLE pixel, and an even grid has no middle.
     """
     if m_per_pixel <= 0:
         return GRID
@@ -24,8 +24,13 @@ def _grid(half_size_m: float, m_per_pixel: float) -> int:
     return max(MIN_GRID, size)
 
 
+# Half the side of the box the question is posed in, in metres: the point is its centre and the
+# answer is read from the middle pixel, so this only decides how much ground one pixel covers.
+HALF_SIZE_M = 50.0
+
+
 def feature_info_at_point(client, wms_url: str, layer: str, x: float, y: float,
-                          half_size_m: float = 50.0, info_format: str = "application/geo+json",
+                          info_format: str = "application/geo+json",
                           log: Optional[Log] = None,
                           m_per_pixel: float = 0.0) -> List[Dict[str, Any]]:
     """Zero features is the ordinary answer for a point outside the mapped area - most of the
@@ -40,12 +45,12 @@ def feature_info_at_point(client, wms_url: str, layer: str, x: float, y: float,
     coarsely averages its neighbours in: the same GLG point moves from 3,54 to 3,52 m at nine
     metres per pixel. So the coarse ones say so themselves (`catalogue.MapEntry.gfi_m_per_pixel`).
     """
-    size = _grid(half_size_m, m_per_pixel)
-    bbox = (f"{x - half_size_m:.2f},{y - half_size_m:.2f},"
-            f"{x + half_size_m:.2f},{y + half_size_m:.2f}")
+    size = _grid(HALF_SIZE_M, m_per_pixel)
+    bbox = (f"{x - HALF_SIZE_M:.2f},{y - HALF_SIZE_M:.2f},"
+            f"{x + HALF_SIZE_M:.2f},{y + HALF_SIZE_M:.2f}")
     payload = client.get_json(wms_url, {
         "service": "WMS", "version": "1.3.0", "request": "GetFeatureInfo",
-        "layers": layer, "query_layers": layer, "styles": "", "crs": "EPSG:31370",
+        "layers": layer, "query_layers": layer, "styles": "", "crs": CRS,
         "bbox": bbox, "width": size, "height": size, "i": size // 2, "j": size // 2,
         "format": "image/png", "info_format": info_format, "feature_count": 10})
     rows: List[Dict[str, Any]] = []

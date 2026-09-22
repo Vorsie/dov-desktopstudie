@@ -1,17 +1,21 @@
 """Builds one multi-page QgsPrintLayout from the core's Report tree.
 
-The core decides *what* the report says (chapters -> MapPage / FigurePage / TablePage / TextPage);
-this module decides only where it lands on the paper. A4 portrait, 15 mm margins, one layout page
-per report page, a title page in front, and separate legend pages behind every map that asks for
-one.
+The core decides *what* the report says (chapters -> MapPage / FigurePage / LegendPage /
+TablePage / TextPage); this module decides only where it lands on the paper. A4, 15 mm margins,
+a title page in front, and separate legend sheets behind a map only when the caller asks for them
+- they are off by default. A report page is NOT a sheet: a sheet keeps taking pieces of content
+while they still fit (`_start`), so two short tables share one and a long table runs over three.
+Portrait, except for the pieces that cannot be read that way - a table whose columns will not
+fit (`_fits_portrait`) and a figure wider than it is tall get a landscape sheet.
 
 Two things here are less obvious than they look.
 
-*Legends are pictures, not QgsLayoutItemLegend.* That item asks the WMS for its GetLegendGraphic
-asynchronously, through the network queue of a running QGIS; in a headless export nothing ever
-answers and the page comes out blank. So `prepare_legends` fetches every legend up front with the
-core's HttpClient and `legend_pages` places the PNG. A legend taller than a sheet is sliced into
-page-sized strips rather than shrunk into an unreadable stamp.
+*Nothing here fetches anything.* Every picture a sheet places - a legend graphic, a colour strip,
+a quartair drawing, the background of a map frame - was already fetched by `prefetch.py` on the
+worker thread and handed in as a file. QgsLayoutItemLegend is not used for the same reason: it
+asks the WMS for its GetLegendGraphic asynchronously through the network queue of a running QGIS,
+and headless nothing ever answers. A legend taller than a sheet is sliced into page-sized strips
+here (`_legend_strips`) rather than shrunk into an unreadable stamp.
 
 *The page index always comes from the page collection, never from a counter.* A table with
 `ExtendToNextPage` appends pages of its own while it re-flows, so any count we keep ourselves is
@@ -25,9 +29,7 @@ footer carries "pagina n / N" as text, written when the layout is complete (`_nu
 """
 from __future__ import annotations
 
-import hashlib
 import re
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple
 
@@ -54,25 +56,18 @@ from qgis.core import (
     QgsProject,
     QgsProperty,
     QgsRectangle,
-    QgsTextFormat,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import (
     QColor,
     QFontMetricsF,
     QImage,
-    QPainter,
-    QTransform,
 )
 
 from ..core import catalogue, geometry, parallel
-from ..core.catalogue import BASE_MAP_ID, MapEntry
-from ..core.geometry import BBox
+from ..core.geometry import CRS, BBox
 from ..core.model import StudyResult
 from ..core.report_content import (
-    QUARTAIR_CODE,
-    QUARTAIR_ID,
-    QUARTAIR_IMAGE,
     Chapter,
     ColourRamp,
     FigurePage,
@@ -81,16 +76,14 @@ from ..core.report_content import (
     Report,
     TablePage,
     TextPage,
-    profile_image_key,
-    quartair_sheet,
-    sheet_image_key,
 )
-from ..core.services.dov_portal import PNG_MAGIC, content_link, says_not_found
-from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from . import layers
-from .compat import house_font, point_mm, size_mm
-from .export import PDF_DPI, refresh_data_defined
-from .layers import CRS_AUTHID
+from .compat import house_font, point_mm, size_mm, text_format
+from .export import refresh_data_defined
+from .images import (
+    blank_rows,
+    cut_row,
+)
 
 LAYOUT_NAME = "DOV Desktopstudie"
 
@@ -119,7 +112,6 @@ BOX_SLACK_MM = 1.0
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
-LEGEND_DIR = "legendas"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
 BOX_BACKGROUND = QColor(255, 255, 255)  # opaque: the info boxes sit on top of the map
 SCALE_BAR_STYLE = "Single Box"
@@ -148,10 +140,13 @@ MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, 
 # to 75 mm (0.44), because its columns are sentences that are MEANT to wrap - it stays portrait.
 TABLE_MAX_SQUEEZE = 0.65
 # QGIS' own defaults for a text table, spelled out so the orientation can be decided before a table
-# exists. `_new_table` reads them off the table itself and the two must agree; the check below
-# fails loudly if a QGIS release ever moves them.
+# exists. `_new_table` reads them off the table itself and the two must agree, so they are pinned
+# against a bare QgsLayoutItemTextTable in `test_layout.py`
+# (`test_the_table_furniture_is_exactly_what_qgis_gives_a_bare_table`) rather than by an assert
+# that would only fire halfway through building a report. Measured 0.5 mm on 3.34, 3.40 and 4.x -
+# the 0.3 that stood here gave `_fits_portrait` two millimetres it did not have.
 TABLE_CELL_MARGIN = 1.0
-TABLE_GRID_WIDTH = 0.3
+TABLE_GRID_WIDTH = 0.5
 UNBOUNDED_WIDTH = 10_000.0  # no cap: what the columns WANT, not what they are allowed
 # The shortest a figure may be squeezed to in order to share a sheet. Below this a qc diagram over
 # thirty-five metres is a smudge, and white paper beats an unreadable drawing.
@@ -159,6 +154,8 @@ FIGURE_MIN_H = 120.0
 # The key under the overview map: a swatch of this size and a line of this height per symbol.
 KEY_SWATCH = 3.0
 KEY_ROW_H = 4.2
+# The logo on the title page, in the box it is zoomed into.
+LOGO_W, LOGO_H = 60.0, 30.0
 
 # QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
 # line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
@@ -168,8 +165,6 @@ TABLE_FONT_PT = 7.0
 # No single column may claim more than this of the width, however long its longest word is: a URL
 # of ninety characters would otherwise leave the other columns a few millimetres each.
 MAX_COLUMN_SHARE = 0.4
-LEGEND_WORKERS = 4
-DEFAULT_EXTENT_FACTOR = 3.0
 # What a map page keeps for its map, and what it gives to the legend under it. There were already
 # four centimetres of white paper under every map frame (the frame ends at 230 mm, the band at
 # 275), so a short zone legend costs the map nothing; a longer one shortens the frame, and never
@@ -213,12 +208,6 @@ RAMP_MARK_H = RAMP_TICK_H + 0.5
 RAMP_MARK_LABEL_W = 48.0
 RAMP_TICK_LABEL_W = 10.0
 RULE_COLOUR = "#000000"
-RAMP_SUFFIX = "_schaal"
-# A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
-# swatch, not a ramp, and then no strip is cut at all - see `ramp_rect`.
-RAMP_MIN_ROWS = 10
-RAMP_MIN_COLUMNS = 4
-WHITE_RGB = bytes((255, 255, 255))
 # A sheet keeps taking pieces of content while they fit: a sheet holding one four-row table is a
 # sheet of white paper, and that was the complaint this whole round started from. One chapter per
 # sheet, though - a heading belongs to what stands under it. `compact` lifts that last rule too
@@ -239,26 +228,15 @@ TEXT_HEIGHT_PAD = 8.0
 TABLE_FIT_STEPS = 10
 TABLE_FIT_MARGIN = 1.0
 TAGS = re.compile(r"<[^>]+>")
+# What a piece carries as its header on the sheet behind its own. One spelling: a reader
+# scanning the headers of a long report recognises the word, not a sentence that varies.
+CONTINUED = "(vervolg)"
 NO_COVERAGE_NOTE = "Deze bron levert geen kaartbeeld op deze locatie (geen dekking)."
 MISSING_MAP_NOTE = "Kaartbeeld van deze bron niet opgehaald (zie hoofdstuk Bronnen)."
-# One GetMap per map page, fetched up front and in parallel, instead of letting the WMS provider
-# pull tiles while each page renders. Asked at exactly the size the page prints it, so nothing is
-# up- or downscaled on paper; capped at what a service will hand out in one request.
-MAP_IMAGE_DIR = "kaarten"
-MAP_IMAGE_DPI = PDF_DPI
-MAP_IMAGE_MAX_PX = 4096
-MAP_IMAGE_WORKERS = 8
-# A full-page GetMap is a hundred times the work of a 64 px probe, so it gets a longer breath than
-# a legend - but one retry only: the page can be printed without its background.
-MAP_IMAGE_TIMEOUT_S = 30.0
-MAP_IMAGE_RETRIES = 1
 # A theme that paints a few percent of the sheet is a white rectangle with a red circle on it
 # unless something recognisable lies under it. `MapEntry.backdrop` asks for the base map at the
 # very same box and pixel size, and the theme is painted over it into the one PNG the page draws -
 # at the opacity the catalogue gives that map, so the streets stay readable through it.
-# The quartair profile-type drawings land next to the map legends, under their own prefix so a
-# second run overwrites the file of the same profile type instead of collecting copies.
-ZONE_LEGEND_PREFIX = "quartair_"
 # The legend page stacks label + strip per entry. A strip is never given more than a fifth of the
 # band: it is a picture of three centimetres, and a page holding two of them blown up to a hand's
 # width each is a page that says less than it could.
@@ -266,31 +244,12 @@ LEGEND_LABEL_H = 5.0
 LEGEND_GAP = 4.0
 LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
-# Twee verschillende zinnen voor twee verschillende dingen. "Niet opgehaald" nodigt uit om het nog
-# eens te proberen; publiceert DOV hier niets, dan valt er niets te proberen en is dat een feit
-# over de bron. Het portaal antwoordt in beide gevallen met HTTP 200, dus de pagina beslist.
+# Two different sentences for two different things. "Niet opgehaald" invites another attempt;
+# where DOV publishes nothing there is nothing to attempt, and that is a fact about the source.
+# The portal answers HTTP 200 in both cases, so the page itself decides which it is. The second
+# sentence is also what the sources chapter records for such a type (`pipeline` imports it), and
+# the sheet and the sources table saying it differently would read as two different findings.
 NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
-ZONE_LEGEND_SHEET = "kaartblad_"
-HEADER_SUFFIX = "_kop"
-# A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
-# of description - and continues with the units table of the whole map sheet. The two are separated
-# by a white band, and the first white row BELOW the swatch is the cut. Above HEADER_MIN_ROWS there
-# is another white band (under the word "Profieltype"), which is why the search starts there.
-HEADER_MIN_ROWS = 60
-HEADER_FALLBACK_ROWS = 110
-# How often a drawing is asked for. The download links of the dataset portal answer with HTTP 200
-# and the portal's own web page instead of the file now and then (live 2026-09-16, the same URL
-# gave the PNG minutes earlier), and that answer is not an error the HTTP client can see - so the
-# bytes are checked here and a bad answer is asked again, past the cache.
-ZONE_LEGEND_TRIES = 2
-# One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
-# full-minute waits on a service that is down cost the report every legend page behind it.
-LEGEND_TIMEOUT_S = 15.0
-# Een profieltypetekening is geen GetLegendGraphic-stempel maar een bestand uit een documentportaal
-# - 168 kB is normaal - en op een trage dag haalt dat de vijftien seconden hierboven niet. Ruimer,
-# maar begrensd: twee pogingen van dertig seconden is de bovengrens die een run nog draaglijk houdt.
-DRAWING_TIMEOUT_S = 30.0
-LEGEND_RETRIES = 1
 
 
 class PageMetrics(NamedTuple):
@@ -315,19 +274,7 @@ def _page_metrics(orientation=PORTRAIT) -> PageMetrics:
     return _METRICS[orientation]
 
 
-def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
-    """The text format for a label, a table or a scale bar.
-
-    `QgsLayoutItemLabel.setFont` and `QgsLayoutTable.setContentFont` are already deprecated in 3.34
-    and go away in 4.x; the text format is the spelling that survives. It carries its own size, so
-    the size is set twice on purpose - the one on the QFont only decides which face gets loaded.
-    """
-    text_format = QgsTextFormat()
-    text_format.setFont(house_font(size, bold))
-    text_format.setSize(size)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
-    return text_format
-
+# --- measuring: how wide a string is, and how a table shares out its frame --------------------
 
 def _segment_length(scale: int) -> float:
     """A scale-bar segment of about a fifth of the mapped width, snapped to the 1-2-5 ladder."""
@@ -365,6 +312,28 @@ def _floor_width(heading: str, cells: Sequence[str], available: float, size: flo
     return min(longest, available * MAX_COLUMN_SHARE)
 
 
+def _column_demand(columns: Sequence[str], rows: Sequence[Sequence[str]], cap: float,
+                   size: float = TABLE_FONT_PT) -> Tuple[List[float], List[float]]:
+    """Per column: what it WANTS (its widest cell, its header counting as one) and its FLOOR (its
+    longest unbreakable word, capped so one greedy column cannot swallow the sheet).
+
+    One measurement for the two sides that have to agree. `column_widths` shares out the frame on
+    these numbers and `_fits_portrait` decides the orientation on the very same ones; measured
+    apart, a table can be laid on its side by one sum and squeezed by the other. `cap` is what a
+    greedy column is held against - the frame for a table being laid out, `UNBOUNDED_WIDTH` when
+    the question is only how narrow the columns could honestly get.
+    """
+    # A row with one cell too few is a bug in whoever built the table, but not one that may take
+    # the whole report down here: the missing cell is simply empty.
+    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
+             for index in range(len(columns))]
+    wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
+              for column, column_cells in zip(columns, cells)]
+    floor = [_floor_width(column, column_cells, cap, size)
+             for column, column_cells in zip(columns, cells)]
+    return wanted, floor
+
+
 def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], available: float,
                   size: float = TABLE_FONT_PT) -> List[float]:
     """A width in mm per column, together no wider than `available`.
@@ -378,16 +347,9 @@ def column_widths(columns: Sequence[str], rows: Sequence[Sequence[str]], availab
     """
     if not columns:
         return []
-    # A row with one cell too few is a bug in whoever built the table, but not one that may take
-    # the whole report down here: the missing cell is simply empty.
-    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
-             for index in range(len(columns))]
-    wanted = [max(_text_width_mm([column], size, bold=True), _text_width_mm(column_cells, size))
-              for column, column_cells in zip(columns, cells)]
+    wanted, floor = _column_demand(columns, rows, available, size)
     if sum(wanted) <= available:
         return wanted
-    floor = [_floor_width(column, column_cells, available, size)
-             for column, column_cells in zip(columns, cells)]
     if sum(floor) >= available:
         return [width * available / sum(floor) for width in floor]
     extra = [want - base for want, base in zip(wanted, floor)]
@@ -412,6 +374,11 @@ def _round_scale(scale: float) -> float:
     more doubling would say less than the odd number does.
     """
     return next((step for step in SCALE_STEPS if step >= scale - 0.5), scale)
+
+
+def _continued(title: str) -> str:
+    """The header of a piece that runs on to the next sheet."""
+    return f"{title} {CONTINUED}"
 
 
 def _thousands(value: int) -> str:
@@ -510,372 +477,7 @@ def _drawn_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
     return size.width() * scale, size.height() * scale
 
 
-# --- legend images -------------------------------------------------------------------------------
-
-def wms_legend_url(entry: MapEntry, options: str = "") -> str:
-    """The GetLegendGraphic URL for one catalogue entry.
-
-    STYLE travels with it: a legend drawn from the layer default while the map is drawn with a
-    named style shows classes the map does not have (gxg is exactly that case). LEGEND_OPTIONS is
-    a GeoServer extension that lays the classes out in columns; services that do not know it
-    ignore it.
-    """
-    params = {"SERVICE": "WMS", "VERSION": "1.3.0", "REQUEST": "GetLegendGraphic",
-              "FORMAT": "image/png", "LAYER": entry.wms_layer, "STYLE": entry.wms_style}
-    if options:
-        params["LEGEND_OPTIONS"] = options
-    return build_url(entry.wms_url, params)
-
-
-def fetch_legend(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Optional[Path]:
-    """Fetch one legend to `out_dir/legendas/<map_id>.png`, or None with a WARNING."""
-    url = wms_legend_url(entry, entry.legend_options)
-    try:
-        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
-    except HttpError as exc:
-        if log:
-            log.warning(f"Legenda van {entry.id} niet opgehaald: {exc}")
-        return None
-    if not data:
-        if log:
-            log.warning(f"Legenda van {entry.id} kwam leeg terug")
-        return None
-    path = Path(out_dir) / LEGEND_DIR / f"{entry.id}.png"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(data)
-    return path
-
-
-def ramp_rect(image: QImage) -> Optional[Tuple[int, int, int, int]]:
-    """The colour-ramp band inside a legend graphic: (x, y, width, height), or None.
-
-    A ramp legend is drawn as one solid band against the LEFT edge, its title above it and its
-    range printed beside it - that is what the DHMV service answers (102 x 68 px, a band of
-    16 x 48, live 2026-09-17). So the rows that BEGIN with a run of one colour are the band, and
-    the narrowest of those runs is its width.
-
-    None for a legend shaped any other way, and then the report prints no colours at all: a strip
-    whose colours are not the map's is worse than no strip.
-    """
-    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
-    width, height, stride = rgba.width(), rgba.height(), rgba.bytesPerLine()
-    buffer = rgba.constBits()
-    buffer.setsize(height * stride)
-    data = bytes(buffer)
-    # Per row: where its solid run of one colour starts and how long it is. Not "column zero":
-    # the GxG legend leaves a white pixel against the edge, and a search that insists on the very
-    # first column finds nothing there and leaves that map without a legend.
-    bands: List[Tuple[int, int]] = []
-    for y in range(height):
-        row = data[y * stride:y * stride + width * 4]
-        start, run = 0, 0
-        while start < width:
-            pixel = row[start * 4:start * 4 + 4]
-            if pixel[3] != 0 and pixel[:3] != WHITE_RGB:
-                run = 1
-                while start + run < width and row[(start + run) * 4:(start + run) * 4 + 4] == pixel:
-                    run += 1
-                break
-            start += 1
-        bands.append((start, run) if run >= RAMP_MIN_COLUMNS else (-1, 0))
-    best_top, best_rows, best_start = 0, 0, -1
-    top = None
-    for y, (start, _run) in enumerate(bands + [(-1, 0)]):
-        # One band: the rows have to open at the same column, or a stack of legend swatches would
-        # read as one long bar.
-        if start >= 0 and (top is None or bands[top][0] == start):
-            top = y if top is None else top
-            continue
-        if top is not None and y - top > best_rows:
-            best_top, best_rows, best_start = top, y - top, bands[top][0]
-        top = y if start >= 0 else None
-    if best_rows < RAMP_MIN_ROWS:
-        return None
-    return (best_start, best_top,
-            min(run for _start, run in bands[best_top:best_top + best_rows]), best_rows)
-
-
-def ramp_strip(legend_png, target, flip: bool = False) -> Optional[Path]:
-    """The colour band of a legend graphic, cut out, laid on its side and saved as `target`.
-
-    The band runs high-to-low downwards (the DTM is brown at 300 mTAW on top, green at -50 at the
-    bottom) while a reader expects a horizontal scale to run low on the left. So it is turned a
-    quarter clockwise, which puts the top of the band on the right. Turning and stretching change
-    no colour - which is the whole point: what lands under the map is the service's own ramp.
-    """
-    image = QImage(str(legend_png))
-    if image.isNull():
-        return None
-    rect = ramp_rect(image)
-    if rect is None:
-        return None
-    # A quarter clockwise puts the TOP of the band on the right, which is where the height model
-    # wants its maximum. A bar whose smallest value sits on top turns the other way, so that both
-    # read small-left to large-right (`MapEntry.ramp_low_at_top`).
-    band = image.copy(*rect).transformed(QTransform().rotate(-90 if flip else 90))
-    target = Path(target)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    return target if band.save(str(target)) else None
-
-
-def fetch_ramp(entry: MapEntry, out_dir, client: HttpClient, log=None) -> Optional[Path]:
-    """The colour strip of one map, cut from that map's own GetLegendGraphic.
-
-    Report content, not a legend page: the height model's legend is a ramp over the whole of
-    Flanders, which fills a sheet with a picture of three centimetres. Under the map, next to the
-    three heights measured over the zone, the same picture says everything it has to say.
-    """
-    legend = fetch_legend(entry, out_dir, client, log)
-    if legend is None:
-        return None
-    strip = ramp_strip(legend, Path(legend).with_name(f"{entry.id}{RAMP_SUFFIX}.png"),
-                       flip=entry.ramp_low_at_top)
-    if strip is None and log:
-        log.warning(f"Kleurschaal van {entry.id}: geen herkenbare kleurbalk in de legenda")
-    return strip
-
-
-def prepare_legends(entries: Sequence[MapEntry], out_dir, client: HttpClient,
-                    log=None, should_cancel: Optional[Callable[[], bool]] = None
-                    ) -> Tuple[Dict[str, Path], List[MapEntry]]:
-    """(map_id -> legend PNG, entries that came back without one).
-
-    Fetched here rather than by the layout so that one failing service costs one legend page, not
-    the report, and so the shell can run this phase with its own progress and cancellation. The
-    fourteen legends are independent downloads from three services, so they go out in parallel;
-    each still fails on its own, and the caller gets the misses back to record as failed sources.
-
-    The client comes from the caller, always: one study has one disk cache and one cache mode
-    (`http.study_client`), and a client built here would quietly be a second one that ignores the
-    mode the user chose.
-    """
-    out_dir = Path(out_dir)
-    wanted = [entry for entry in entries if entry.legend]
-    images: Dict[str, Path] = {}
-
-    def fetch(entry: MapEntry) -> None:
-        path = fetch_legend(entry, out_dir, client, log)
-        if path is not None:
-            images[entry.id] = path
-
-    parallel.load_each(wanted, fetch, "legenda", LEGEND_WORKERS, log, should_cancel)
-    missing = [entry for entry in wanted if entry.id not in images]
-    if log:
-        log.info(f"Legendas opgehaald: {len(images)}/{len(wanted)}")
-        if missing:
-            log.warning(f"Geen legenda voor: {', '.join(entry.id for entry in missing)}")
-    return images, missing
-
-
-# --- the drawings behind the zone legend ----------------------------------------------------------
-
-def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
-    """URL -> profile type, one entry per distinct drawing the quartair rows point at.
-
-    The WFS answers with a row per map polygon, so a zone crossing the same profile type twice
-    carries the same URL twice; fetching it twice would cost the service two requests for one file.
-    """
-    targets: Dict[str, str] = {}
-    for fact in result.map_facts:
-        if fact.map_id != QUARTAIR_ID:
-            continue
-        for row in fact.rows:
-            url, code = str(row.get(QUARTAIR_IMAGE) or ""), str(row.get(QUARTAIR_CODE) or "")
-            if url.startswith("http") and code and url not in targets:
-                targets[url] = code
-    return targets
-
-
-class NoDrawingPublished(Exception):
-    """Het portaal antwoordt met een niet-gevonden-pagina: DOV publiceert hier geen tekening.
-
-    Een eigen fout en geen `HttpError`, want het is geen storing. De lezer krijgt er een andere
-    zin bij: een feit over de bron in plaats van een uitnodiging om het nog eens te proberen.
-    """
-
-
-def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
-    """One profile-type drawing, or an HttpError saying what came back instead.
-
-    The URL ends in "_png" but is a download link into a document portal, and that portal answers
-    with its own web page - HTTP 200, text/html - often enough that one answer proves nothing. The
-    bytes are therefore checked here. Een pagina wordt niet bewaard en niet klakkeloos herhaald:
-    ze draagt de directe link naar het bestand in zich, en die wordt gevolgd.
-    """
-    # The first try may come straight from the disk cache - which is the point: a web page cached
-    # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
-    # so a bad cached answer costs one request, not none and not two.
-    for attempt in range(ZONE_LEGEND_TRIES):
-        data = client.get(url, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES,
-                          cache_mode="refresh" if attempt else None)
-        if data.startswith(PNG_MAGIC):
-            return data
-        # Geen bestand, dus niets om te bewaren: anders dient de cache deze pagina bij elke
-        # volgende run zonder netwerk weer op.
-        client.forget(url)
-        if says_not_found(data):
-            # Niet nog eens proberen: deze pagina zegt dat het document niet bestaat, en een
-            # tweede poging levert dezelfde pagina op.
-            if log:
-                log.info(f"Profieltype {code}: het portaal publiceert hiervoor geen tekening")
-            raise NoDrawingPublished(code)
-        if log:
-            log.warning(f"Profieltype {code}: antwoord {attempt + 1}/{ZONE_LEGEND_TRIES} is geen PNG "
-                        f"({len(data)} bytes)")
-        link = content_link(data, url)
-        if link:
-            if log:
-                log.info(f"Profieltype {code}: de pagina wijst naar het bestand zelf, die link volgen")
-            found = client.get(link, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES)
-            if found.startswith(PNG_MAGIC):
-                return found
-            client.forget(link)
-            if log:
-                log.warning(f"Profieltype {code}: ook de link uit de pagina gaf geen PNG "
-                            f"({len(found)} bytes)")
-    raise HttpError(url, None, f"antwoord voor profieltype {code} is geen PNG")
-
-
-def header_rows(image: QImage) -> int:
-    """How many pixel rows of a profile-type drawing are its header.
-
-    The answer is the first fully white row under the colour swatch: that band is the gap before
-    "Eenheden op kaartblad <nn>". A drawing without such a band falls back to a fixed strip, which
-    is still a strip rather than a whole sheet of units table.
-    """
-    flags = _blank_rows(image)
-    for row in range(min(HEADER_MIN_ROWS, len(flags)), len(flags)):
-        if flags[row]:
-            return row
-    return min(HEADER_FALLBACK_ROWS, image.height())
-
-
-def _cropped(path, target: Path, part: Callable[[QImage], Tuple[int, int, int, int]],
-             what: str, log=None) -> Optional[Path]:
-    """One rectangle out of a profile-type drawing, saved as `target`.
-
-    The two crops below differ in exactly two things - which rectangle and what the failure is
-    called - so the reading, the null check and the save live here. `part` gets the image and
-    answers (x, y, width, height), because both rectangles need `header_rows` on the loaded image.
-    """
-    image = QImage(str(path))
-    if image.isNull():
-        if log:
-            log.warning(f"Profieltypetekening niet leesbaar: {path}")
-        return None
-    if not image.copy(*part(image)).save(str(target)):
-        if log:
-            log.warning(f"{what} niet weggeschreven: {target}")
-        return None
-    return target
-
-
-def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
-    """The same drawing WITHOUT its profile-type header, as `quartair_kaartblad_<nn>.png`.
-
-    The units table underneath is valid for every profile type of the sheet. Left on, the header of
-    whichever type happened to be fetched first sits above it and the table reads as that one
-    type's. The source line under the table is part of the drawing and stays.
-    """
-    target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
-    return _cropped(path, target,
-                    lambda image: (0, header_rows(image), image.width(),
-                                   image.height() - header_rows(image)),
-                    "Eenhedentabel", log)
-
-
-def crop_profile_header(path, log=None) -> Optional[Path]:
-    """Cut the header strip off a profile-type drawing and save it beside it as `<name>_kop.png`.
-
-    What is left out is the units table of the map sheet, which is the same drawing for every
-    profile type of that sheet: printed once per type it would be the same page three times over.
-    """
-    target = Path(path).with_name(Path(path).stem + HEADER_SUFFIX + ".png")
-    return _cropped(path, target, lambda image: (0, 0, image.width(), header_rows(image)),
-                    "Kopstrook", log)
-
-
-def codes_without_a_drawing(result: StudyResult, targets: Dict[str, str], log=None) -> Set[str]:
-    """The profile types the WFS gave no usable drawing URL for.
-
-    The same fact as a portal page that says not found, reached one step earlier: there is nothing
-    to fetch, so DOV publishes no drawing for this type. Read as "not fetched" it made the report
-    contradict itself - a legend line sending the reader to a sources chapter that never mentioned
-    it, because nothing was ever fetched and so nothing was ever recorded. The units table of the
-    map sheet is cut from that same drawing, so a sheet whose only type lands here has no units
-    page either; the line in the sources chapter is what explains both.
-    """
-    known = set(targets.values())
-    missing = {str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
-               if fact.map_id == QUARTAIR_ID for row in fact.rows
-               if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known}
-    if missing and log is not None:
-        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(sorted(missing))}")
-    return missing
-
-
-def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
-                               should_cancel: Optional[Callable[[], bool]] = None
-                               ) -> Tuple[Dict[str, Path], Set[str]]:
-    """The DOV drawings behind the quartair zone legend, by the key `report_content` looks them up
-    with: `profieltype:<code>` for the header strip of one type, `kaartblad:<nn>` for the units
-    table of a whole map sheet.
-
-    That drawing IS the legend of the quartair map - its GetLegendGraphic is a 20 x 20 stamp
-    without a class name - so the shell fetches it here and hands it to `build_report`. The core
-    fetches nothing itself.
-
-    One request per distinct profile type; the units table underneath is identical for every type
-    of the same sheet, so it is kept once. What does not come back has no entry, and the report
-    then leaves that page out rather than promising a drawing that is not there. The URLs end in
-    "_png" but are download links that can answer an error page with HTTP 200, so the bytes are
-    checked before they are saved as an image.
-    """
-    targets = zone_legend_targets(result)
-    drawings: Dict[str, Path] = {}
-    # De codes waarvoor er niets te halen valt: het portaal zegt dat er niets bestaat, of de WFS
-    # gaf geen enkele link. Apart van "niet opgehaald": de bron publiceert hier niets, en dat is
-    # een feit en geen storing.
-    unpublished: Set[str] = codes_without_a_drawing(result, targets, log)
-    out_dir = Path(out_dir)
-
-    def fetch(item: Tuple[str, str]) -> None:
-        url, code = item
-        try:
-            data = _drawing_bytes(client, url, code, log)
-        except NoDrawingPublished:
-            unpublished.add(code)
-            return
-        path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-        drawings[code] = path
-
-    parallel.load_each(list(targets.items()), fetch, "profieltypelegenda", LEGEND_WORKERS, log,
-                       should_cancel)
-    # The threads only fetch; the cutting and the one-per-sheet choice happen here, in the order
-    # the WFS rows first mentioned each profile type, so two runs of the same study keep the same
-    # sheet drawing.
-    images: Dict[str, Path] = {}
-    for code in targets.values():
-        drawing = drawings.get(code)
-        if drawing is None:
-            continue
-        header = crop_profile_header(drawing, log)
-        if header is None:
-            continue
-        images[profile_image_key(code)] = header
-        sheet = quartair_sheet(code)
-        key = sheet_image_key(sheet)
-        if key not in images:
-            units = crop_sheet_units(drawing, sheet, log)
-            if units is not None:
-                images[key] = units
-    if log and targets:
-        log.info(f"Profieltypetekeningen opgehaald: {len(drawings)}/{len(targets)}; "
-                 f"{len(images)} bladen in het rapport")
-    return images, unpublished
-
+# --- the frame: what box a map page shows, and which picture belongs to it --------------------
 
 def overlay_boxes(result: StudyResult) -> Dict[str, List[BBox]]:
     """The boxes a map page widens for, read from the study itself: 'investigations' (every
@@ -980,39 +582,6 @@ def crop_extent(extent: QgsRectangle, height_mm: float) -> QgsRectangle:
                         extent.xMaximum(), centre.y() + height / 2.0)
 
 
-# --- does this service draw anything here? ---------------------------------------------------------
-
-@dataclass(frozen=True)
-class MapRequest:
-    """One map image to fetch: which map, over which box, at which pixel size."""
-    key: str
-    map_id: str
-    extent: QgsRectangle
-    width: int
-    height: int
-
-
-def wms_map_url(entry: MapEntry, extent: QgsRectangle, width: int, height: int) -> str:
-    """A GetMap for one box at one pixel size.
-
-    WMS 1.1.1 on purpose: 1.3.0 orders the BBOX by the axis order of the CRS, and getting that
-    wrong for EPSG:31370 yields a picture of somewhere else - which would read as an empty map.
-    1.1.1 is always minx,miny,maxx,maxy, and every service in the catalogue answers it (checked
-    live 2026-09-16 on geopunt, DOV, waterinfo and NGI).
-    """
-    params = {"SERVICE": "WMS", "VERSION": "1.1.1", "REQUEST": "GetMap", "LAYERS": entry.wms_layer,
-              "STYLES": entry.wms_style, "SRS": CRS_AUTHID, "FORMAT": entry.image_format,
-              "TRANSPARENT": "TRUE", "WIDTH": width, "HEIGHT": height,
-              "BBOX": f"{extent.xMinimum():.0f},{extent.yMinimum():.0f},"
-                      f"{extent.xMaximum():.0f},{extent.yMaximum():.0f}"}
-    if entry.sld_body:
-        # Our own lettering for a map whose published style is unreadable at report size. The
-        # service still draws the geometry; only the labels are ours. It travels in the URL, so
-        # this one map has a GetMap of a few kilobytes - the sources table prints it shortened.
-        params["SLD_BODY"] = entry.sld_body
-    return build_url(entry.wms_url, params)
-
-
 def map_image_key(map_id: str, extent: QgsRectangle) -> str:
     """What makes two map pages share one image: the same map over the same box.
 
@@ -1021,27 +590,6 @@ def map_image_key(map_id: str, extent: QgsRectangle) -> str:
     """
     return (f"{map_id}:{extent.xMinimum():.0f}:{extent.yMinimum():.0f}:"
             f"{extent.xMaximum():.0f}:{extent.yMaximum():.0f}")
-
-
-def _image_name(key: str) -> str:
-    """The file-name part that tells two framings of one map apart, stable across runs.
-
-    `hash()` on a str is salted per process (PYTHONHASHSEED), so a headless run reusing the same
-    `--out` left a new set of orphans behind every time and two framings could collide on one
-    name. A digest of the key does neither.
-    """
-    return hashlib.sha1(key.encode("utf-8")).hexdigest()[:8]
-
-
-def _image_pixels() -> Tuple[int, int]:
-    """The pixel size a map item is printed at, capped at what a service hands out in one go."""
-    width = int(round(MAP_W / 25.4 * MAP_IMAGE_DPI))
-    height = int(round(MAP_H / 25.4 * MAP_IMAGE_DPI))
-    largest = max(width, height)
-    if largest > MAP_IMAGE_MAX_PX:
-        width = int(width * MAP_IMAGE_MAX_PX / largest)
-        height = int(height * MAP_IMAGE_MAX_PX / largest)
-    return width, height
 
 
 def page_boxes(page: MapPage, boxes: Dict[str, Sequence]) -> List:
@@ -1055,153 +603,24 @@ def page_boxes(page: MapPage, boxes: Dict[str, Sequence]) -> List:
     return extra
 
 
-def plan_map_images(report: Report, zone_ring: Sequence,
-                    boxes: Dict[str, Sequence]) -> List[MapRequest]:
-    """One request per distinct (map, box) in the report, in the order the pages need them.
+def page_image(page: MapPage, zone_ring: Sequence,
+               boxes: Dict[str, Sequence]) -> Tuple[QgsRectangle, str]:
+    """The box one map page shows, and the key its picture is fetched and found under.
 
-    The box is computed here exactly as the page will compute it, overlays included - a page that
-    widens for the search radius shows a wider picture and must ask for that picture. `boxes` is
-    what `overlay_boxes` gives for the study; no layer is needed, so this runs on a worker thread.
+    Three parties have to land on exactly the same two values: the planner on the worker thread
+    (`plan_map_images`), the page itself on the main thread (`LayoutBuilder.map_page`) and the
+    check that drops a sheet with no picture (`pipeline._pages_without_an_image`). Computed three
+    times, they drift, and a sheet then looks for an image nobody ever fetched - which is why
+    CLAUDE.md spends a hard rule on it. Computed once, they cannot.
+
+    `boxes` is `overlay_boxes(result)` for the two that read the study; a builder handed no boxes
+    passes its overlay LAYERS instead, and `map_extent` reads either.
     """
-    requests: List[MapRequest] = []
-    seen = set()
-    for chapter in report.chapters:
-        for page in chapter.pages:
-            if not isinstance(page, MapPage):
-                continue
-            extent = map_extent(zone_ring, page.scale, page.extent_factor, page_boxes(page, boxes))
-            key = map_image_key(page.map_id, extent)
-            if key in seen:
-                continue
-            seen.add(key)
-            width, height = _image_pixels()
-            requests.append(MapRequest(key, page.map_id, extent, width, height))
-    return requests
+    extent = map_extent(zone_ring, page.scale, page.extent_factor, page_boxes(page, boxes))
+    return extent, map_image_key(page.map_id, extent)
 
 
-def _write_world_file(path: Path, request: MapRequest) -> None:
-    """The six lines that put a PNG on the map: pixel size, rotation, and the centre of the
-    top-left pixel (not its corner - that half pixel is the classic world-file mistake)."""
-    x_size = request.extent.width() / request.width
-    y_size = request.extent.height() / request.height
-    path.write_text("\n".join((f"{x_size:.10f}", "0.0", "0.0", f"{-y_size:.10f}",
-                                f"{request.extent.xMinimum() + x_size / 2:.4f}",
-                                f"{request.extent.yMaximum() - y_size / 2:.4f}")) + "\n",
-                    encoding="utf-8")
-
-
-def _load_tile(data: bytes) -> Optional[QImage]:
-    """The bytes of a GetMap as an image, or None when the service sent something else."""
-    image = QImage()
-    return image if data and image.loadFromData(data) else None
-
-
-def _over_backdrop(theme: QImage, backdrop: QImage, opacity: float) -> QImage:
-    """The theme painted over the base map, at the opacity the catalogue gives the theme.
-
-    Both come from the same box at the same pixel size, so they line up by construction - the
-    page draws ONE picture and nothing has to be registered afterwards.
-    """
-    canvas = backdrop.convertToFormat(QImage.Format.Format_ARGB32)
-    painter = QPainter(canvas)
-    painter.setOpacity(opacity)
-    painter.drawImage(0, 0, theme)
-    painter.end()
-    return canvas
-
-
-def _backdrop_for(request: MapRequest, client: HttpClient, log=None) -> Tuple[Optional[QImage], str]:
-    """The base map under one theme: (image, why not). A backdrop that does not come back costs
-    the theme its background, never its page."""
-    base = catalogue.by_id(BASE_MAP_ID)
-    url = wms_map_url(base, request.extent, request.width, request.height)
-    try:
-        image = _load_tile(client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES))
-    except HttpError as exc:
-        image, reason = None, str(exc)
-    else:
-        reason = "" if image is not None else "antwoord van de basiskaart is geen afbeelding"
-    if image is None and log:
-        log.warning(f"Ondergrond voor {request.map_id} niet opgehaald: {reason}")
-    return image, reason
-
-
-def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClient, log=None,
-                       should_cancel: Optional[Callable[[], bool]] = None
-                       ) -> Tuple[Dict[str, Path], Set[str], Dict[str, str]]:
-    """({key -> PNG}, keys whose service drew nothing here), fetched in parallel.
-
-    This is the phase that used to be spread over ninety sheets of rendering: the WMS provider
-    fetches its tiles while a page draws, one page after another, and the whole report waits on
-    the network. Here every page's background is one GetMap, they go out together, and the layout
-    then draws local files.
-
-    Emptiness comes for free with the picture, so the separate coverage probe is gone. It is only
-    trusted for maps WITHOUT facts: the watertoets answers Gent with a fully transparent tile
-    because no flood zone lies there - data, not a hole in the mosaic - and its own table says so.
-
-    Emptiness is reported per REQUEST, not per map: one map carries several framings (the GRB base
-    map three), and a mosaic that has no sheet for the wide frame may well cover the narrow one.
-    Keyed per map, one empty tile would print "geen dekking" on every other sheet of that map.
-
-    The third answer is the backdrops: map id -> "" when the base map went under that theme, or
-    the reason it did not. Only for `MapEntry.backdrop` maps, and only ever as an extra request -
-    a theme whose backdrop failed is still drawn, on white paper, and says so in the sources.
-    """
-    out_dir = Path(out_dir)
-    images: Dict[str, Path] = {}
-    empty: Set[str] = set()
-    backdrops: Dict[str, str] = {}
-
-    def fetch(request: MapRequest) -> None:
-        entry = catalogue.by_id(request.map_id)
-        url = wms_map_url(entry, request.extent, request.width, request.height)
-        data = client.get(url, timeout=MAP_IMAGE_TIMEOUT_S, retries=MAP_IMAGE_RETRIES)
-        image = _load_tile(data)
-        if image is None:
-            raise HttpError(url, None, f"antwoord voor {request.map_id} is geen afbeelding "
-                                       f"({len(data)} bytes)")
-        # Asked of the THEME, before anything is painted under it: a backdrop would answer the
-        # coverage question with the base map's own ink. Asked of EVERY map, not only of the ones
-        # without facts - a themed map that draws nothing here is the sheet that showed a base map,
-        # an empty legend and a guide to a table that was not there. What such a tile costs is
-        # decided where the legend is known (`pipeline._pages_without_an_image`), not here.
-        blank = _is_empty(image)
-        path = out_dir / DATA_DIR / MAP_IMAGE_DIR / f"{request.map_id}_{_image_name(request.key)}.png"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        if entry.backdrop:
-            under, reason = _backdrop_for(request, client, log)
-            # Keyed per MAP while eight threads write it, so two framings of one map race for the
-            # same slot. Both framings ask the same base map, so the two answers are the same
-            # sentence and the winner does not matter; CPython's dict assignment is atomic, so
-            # nothing is lost either. Keep the LOSING one only when it explains a failure that the
-            # winner does not, so a reason never silently becomes "fine".
-            if reason or request.map_id not in backdrops:
-                backdrops[request.map_id] = reason
-            if under is not None:
-                data = None
-                if not _over_backdrop(image, under, entry.opacity).save(str(path)):
-                    raise HttpError(url, None, f"beeld van {request.map_id} niet weggeschreven")
-        if data is not None:
-            path.write_bytes(data)
-        _write_world_file(path.with_suffix(".pgw"), request)
-        images[request.key] = path
-        if blank:
-            empty.add(request.key)
-
-    parallel.load_each(list(requests), fetch, "kaartbeeld", MAP_IMAGE_WORKERS, log, should_cancel)
-    if log:
-        blank = sorted({request.map_id for request in requests if request.key in empty})
-        log.info(f"Kaartbeelden opgehaald: {len(images)}/{len(requests)}"
-                 + (f"; geen kaartbeeld op deze locatie voor: {', '.join(blank)}" if blank else ""))
-        missing = [request.map_id for request in requests if request.key not in images]
-        if missing:
-            log.warning(f"Geen kaartbeeld voor: {', '.join(sorted(set(missing)))}")
-        under = sorted(map_id for map_id, reason in backdrops.items() if not reason)
-        if under:
-            log.info(f"Basiskaart als ondergrond onder: {', '.join(under)}")
-    return images, empty, backdrops
-
+# --- fitting one piece: which way a table lies, and where a tall legend may be cut -------------
 
 def _fits_portrait(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> bool:
     """Whether these columns can be read on a portrait sheet.
@@ -1218,70 +637,10 @@ def _fits_portrait(columns: Sequence[str], rows: Sequence[Sequence[str]]) -> boo
     """
     count = len(columns)
     budget = CONTENT_W - 2 * TABLE_CELL_MARGIN * count - (count + 1) * TABLE_GRID_WIDTH
-    cells = [[row[index] if index < len(row) else "" for row in rows] or [""]
-             for index in range(count)]
-    wanted = sum(max(_text_width_mm([column], TABLE_FONT_PT, bold=True),
-                     _text_width_mm(column_cells, TABLE_FONT_PT))
-                 for column, column_cells in zip(columns, cells))
-    if wanted <= budget:
+    wanted, floor = _column_demand(columns, rows, UNBOUNDED_WIDTH)
+    if sum(wanted) <= budget:
         return True
-    floor = sum(_floor_width(column, column_cells, UNBOUNDED_WIDTH, TABLE_FONT_PT)
-                for column, column_cells in zip(columns, cells))
-    return floor <= budget * TABLE_MAX_SQUEEZE
-
-
-def _is_empty(image: QImage) -> bool:
-    """True when every pixel is the same, or every pixel is fully transparent.
-
-    That is what a mosaic without a sheet for this place answers: HTTP 200 and nothing drawn.
-    """
-    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
-    buffer = rgba.constBits()
-    buffer.setsize(rgba.height() * rgba.bytesPerLine())
-    data, stride, row_bytes = bytes(buffer), rgba.bytesPerLine(), rgba.width() * 4
-    pixels = b"".join(data[y * stride:y * stride + row_bytes] for y in range(rgba.height()))
-    if not pixels:
-        return True
-    first = pixels[:4]
-    return (all(pixels[i:i + 4] == first for i in range(0, len(pixels), 4))
-            or all(pixels[i + 3] == 0 for i in range(0, len(pixels), 4)))
-
-
-def _blank_rows(image: QImage) -> List[bool]:
-    """One flag per pixel row: True where the row is entirely white or entirely transparent.
-
-    Those rows are the gaps between legend entries, and they are where a page break belongs. The
-    whole mask is built in one pass over the raw buffer: a legend is a few thousand rows and
-    reading it pixel by pixel through `pixelColor` takes seconds.
-    """
-    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
-    width, height, stride = rgba.width(), rgba.height(), rgba.bytesPerLine()
-    buffer = rgba.constBits()
-    buffer.setsize(height * stride)
-    data = bytes(buffer)
-    white, clear = b"\xff" * (width * 4), b"\x00" * (width * 4)
-    flags: List[bool] = []
-    for y in range(height):
-        row = data[y * stride:y * stride + width * 4]
-        # The two fast paths cover a solid white row and a fully transparent one, which is what a
-        # gap in a GetLegendGraphic image actually is; the loop is only for mixed rows.
-        flags.append(row == white or row == clear
-                     or all(row[i + 3] == 0 or row[i:i + 3] == b"\xff\xff\xff"
-                            for i in range(0, len(row), 4)))
-    return flags
-
-
-def _cut_row(flags: Sequence[bool], top: int, nominal: int) -> int:
-    """Where to break a strip that would nominally end at `nominal`: the nearest blank row above
-    it, so the break lands in the gap between two legend entries instead of through one.
-
-    Falls back to the nominal break when the slice holds no blank row at all - a legend without
-    any gap has nothing to protect, and a break that never happens fits on no page.
-    """
-    for row in range(nominal, top, -1):
-        if flags[row - 1]:
-            return row
-    return nominal
+    return sum(floor) <= budget * TABLE_MAX_SQUEEZE
 
 
 def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
@@ -1302,19 +661,21 @@ def _legend_strips(image_path, map_id: str) -> List[Tuple[Path, float, float]]:
     if height_mm <= CONTENT_H + 0.01:
         return [(Path(image_path), width_mm, height_mm)]
     rows = max(1, int(CONTENT_H / mm_per_px))
-    flags = _blank_rows(image)
+    flags = blank_rows(image)
     strips: List[Tuple[Path, float, float]] = []
     top, number = 0, 1
     while top < image.height():
         bottom = min(top + rows, image.height())
         if bottom < image.height():  # the last slice ends where the legend does
-            bottom = _cut_row(flags, top, bottom)
+            bottom = cut_row(flags, top, bottom)
         strip = Path(image_path).with_name(f"{map_id}_{number}.png")
         image.copy(0, top, image.width(), bottom - top).save(str(strip))
         strips.append((strip, width_mm, (bottom - top) * mm_per_px))
         top, number = bottom, number + 1
     return strips
 
+
+# --- building the layout: a sheet at a time, from the top of the report tree -------------------
 
 class Slot(NamedTuple):
     """Where one piece of content landed: its sheet, the y it starts at, and whether it shares
@@ -1354,7 +715,7 @@ class LayoutBuilder:
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
         to draw on top of its map image; name: what the layout is called in the layout manager
         (`layout_name`), the bare plugin name when left empty;
-        legend_images: map_id -> legend PNG, as `prepare_legends` returns them; no_coverage: the
+        legend_images: map_id -> legend PNG, as `prefetch.prepare_legends` returns them; no_coverage: the
         `map_image_key`s whose service drew nothing there - per framing, because one map can carry
         several and a mosaic can cover the narrow one and not the wide one; map_images: the same
         key -> the raster layer of the image fetched for it, which a map page draws instead of the
@@ -1474,8 +835,7 @@ class LayoutBuilder:
     def _raise_if_cancelled(self) -> None:
         """Between two pages is where a build can stop. Ninety-five sheets take half a minute to
         lay out, and a user who pressed cancel should not wait for the other half."""
-        if self.should_cancel():
-            raise parallel.Cancelled("afgebroken door de gebruiker")
+        parallel.stop_if(self.should_cancel)
 
     def label(self, text: str, x: float, y: float, w: float, h: float, page: int, size: float = 9,
               html: bool = False, frame: bool = False, bold: bool = False) -> QgsLayoutItemLabel:
@@ -1483,12 +843,49 @@ class LayoutBuilder:
         if html:
             item.setMode(QgsLayoutItemLabel.Mode.ModeHtml)
         item.setText(text)
-        item.setTextFormat(_text_format(size, bold))
+        item.setTextFormat(text_format(size, bold))
         item.setFrameEnabled(frame)
         self.layout.addLayoutItem(item)
         item.attemptMove(point_mm(x, y), page=page)
         item.attemptResize(size_mm(w, h))
         return item
+
+    def picture(self, path, x: float, y: float, width: float, height: float, page: int,
+                stretch: bool = False, frame: bool = False,
+                background: bool = False) -> QgsLayoutItemPicture:
+        """One image on the paper, placed and sized in millimetres.
+
+        Zoom unless asked otherwise: a legend swatch that is no longer square and a class name
+        that is no longer readable are the two ways a stretched picture goes wrong. `stretch` is
+        for the colour band, whose source is a gradient a few pixels wide and whose own shape
+        says nothing; `background` gives an item its own white field (the north arrow, invisible
+        on a dark roof in an aerial photo).
+        """
+        item = QgsLayoutItemPicture(self.layout)
+        item.setPicturePath(str(path))
+        item.setResizeMode(QgsLayoutItemPicture.ResizeMode.Stretch if stretch
+                           else QgsLayoutItemPicture.ResizeMode.Zoom)
+        if frame:
+            item.setFrameEnabled(True)
+        if background:
+            item.setBackgroundEnabled(True)
+            item.setBackgroundColor(BOX_BACKGROUND)
+        self.layout.addLayoutItem(item)
+        item.attemptMove(point_mm(x, y), page=page)
+        item.attemptResize(size_mm(width, height))
+        return item
+
+    def _rect(self, x: float, y: float, width: float, height: float, page: int,
+              symbol: Dict[str, str]) -> None:
+        """A filled rectangle on the paper: the swatches of the map key and the rules under a
+        title. A shape rather than a label with a background - a rule is a rule, and a label
+        carries a margin and a text layout that have nothing to do here."""
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple(symbol))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(width, height))
 
     def info_box(self, lines: Sequence[str], y: float, page: int, size: float) -> QgsLayoutItemLabel:
         """A box on top of the map: opaque, shrunk to its text and pinned to the right margin.
@@ -1501,7 +898,7 @@ class LayoutBuilder:
         shown = [part for part in lines if part]
         item = QgsLayoutItemLabel(self.layout)
         item.setText("\n".join(shown))
-        item.setTextFormat(_text_format(size))
+        item.setTextFormat(text_format(size))
         item.setMargin(INFO_MARGIN_MM)
         item.setFrameEnabled(True)
         item.setBackgroundEnabled(True)
@@ -1575,12 +972,16 @@ class LayoutBuilder:
         """The overlays this page draws, zone excluded - the zone is the ring we start from."""
         return page_boxes(page, self.overlays)
 
-    def _page_boxes(self, page: MapPage) -> List:
-        """What this page widens for: the study's boxes when the builder has them (then the
-        planner used the very same), its layers' extents otherwise."""
-        return page_boxes(page, self.overlay_boxes if self.overlay_boxes is not None else self.overlays)
+    def _page_image(self, page: MapPage) -> Tuple[QgsRectangle, str]:
+        """This page's box and image key; see the module-level `page_image`.
 
-    def _map_layers(self, page: MapPage, extent: QgsRectangle) -> List[QgsMapLayer]:
+        The boxes are the study's when the builder was handed them - then the planner used the
+        very same - and the page's own overlay LAYERS otherwise.
+        """
+        return page_image(page, self.zone_ring,
+                          self.overlay_boxes if self.overlay_boxes is not None else self.overlays)
+
+    def _map_layers(self, page: MapPage, key: str) -> List[QgsMapLayer]:
         """Draw order, topmost first: the zone always, then what the page asked for, then the map.
 
         The map itself is the image fetched up front for exactly this box. Falling back to the live
@@ -1588,7 +989,7 @@ class LayoutBuilder:
         half a minute to draw, so a missing image simply leaves the background empty and the page
         says so.
         """
-        snapshot = self.map_images.get(map_image_key(page.map_id, extent))
+        snapshot = self.map_images.get(key)
         return (list(self.overlays.get("zone", [])) + self._page_overlays(page)
                 + ([snapshot] if snapshot is not None else []))
 
@@ -1603,7 +1004,7 @@ class LayoutBuilder:
         bar.applyDefaultSize(Qgis.DistanceUnit.Meters)
         bar.setUnits(Qgis.DistanceUnit.Meters)
         bar.setUnitLabel("m")
-        bar.setTextFormat(_text_format(7))  # the bar prints its own numbers; keep them house-size
+        bar.setTextFormat(text_format(7))  # the bar prints its own numbers; keep them house-size
         bar.setNumberOfSegments(SCALE_BAR_SEGMENTS)
         bar.setNumberOfSegmentsLeft(0)
         bar.setUnitsPerSegment(_segment_length(real_scale))  # refreshes and re-fits the bar itself
@@ -1621,7 +1022,7 @@ class LayoutBuilder:
         slot = self._start(chapter, page.title, CONTENT_H, packable=False)
         index = slot.page
         entry = catalogue.by_id(page.map_id)
-        extent = self.map_extent(page.scale, page.extent_factor, self._page_boxes(page))
+        extent, key = self._page_image(page)
         block = self._under_map(chapter, page, index)
         height = map_height(block.height)
         # Not even the first piece fits under a map that is still readable: the frame keeps its
@@ -1634,8 +1035,8 @@ class LayoutBuilder:
         if overleaf:
             height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
-        map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
-        map_item.setLayers(self._map_layers(page, extent))
+        map_item.setCrs(QgsCoordinateReferenceSystem(CRS))
+        map_item.setLayers(self._map_layers(page, key))
         map_item.setFrameEnabled(True)
         self.layout.addLayoutItem(map_item)
         map_item.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
@@ -1648,21 +1049,14 @@ class LayoutBuilder:
         # ... and where it came from, on the same sheet, so a printed page stays attributable.
         self.info_box([entry.attribution, entry.licence, f"opgehaald {self._date()}"],
                       CONTENT_TOP + height - INFO_BOTTOM_LIFT, index, size=6)
-        arrow = QgsLayoutItemPicture(self.layout)
-        arrow.setPicturePath(str(NORTH_ARROW))
-        arrow.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
         # A black arrow on a dark roof in an aerial photo is invisible; it gets its own white field.
-        arrow.setBackgroundEnabled(True)
-        arrow.setBackgroundColor(BOX_BACKGROUND)
-        self.layout.addLayoutItem(arrow)
-        arrow.attemptMove(point_mm(*ARROW_XY), page=index)
-        arrow.attemptResize(size_mm(ARROW_WH, ARROW_WH))
+        self.picture(NORTH_ARROW, ARROW_XY[0], ARROW_XY[1], ARROW_WH, ARROW_WH, index,
+                     background=True)
         self._scale_bar(map_item, real_scale, index, CONTENT_TOP + height + SCALE_BAR_LIFT)
         # The map stays on the sheet even without coverage - the zone circle is what the reader
         # came for - but the note says why the background is empty. A page whose image never
         # arrived is normally left out of the tree altogether (`report_content.build_report`);
         # this is what a caller that did not pass that information still gets to see.
-        key = map_image_key(page.map_id, extent)
         empty = key in self.no_coverage
         missing = key not in self.map_images
         note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "",
@@ -1672,7 +1066,7 @@ class LayoutBuilder:
         self._seal(index)
         if overleaf:
             index = self.new_page()
-            self.header(chapter, f"{page.title} (vervolg)", index)
+            self.header(chapter, _continued(page.title), index)
             self._seal(index)
             block.draw(index, CONTENT_TOP)
         else:
@@ -1742,13 +1136,8 @@ class LayoutBuilder:
 
     def _swatch(self, x: float, y: float, colour: str, page: int) -> None:
         """One coloured square of the map key, drawn the same way the points are coloured."""
-        shape = QgsLayoutItemShape(self.layout)
-        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
-        shape.setSymbol(QgsFillSymbol.createSimple(
-            {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"}))
-        self.layout.addLayoutItem(shape)
-        shape.attemptMove(point_mm(x, y), page=page)
-        shape.attemptResize(size_mm(KEY_SWATCH, KEY_SWATCH))
+        self._rect(x, y, KEY_SWATCH, KEY_SWATCH, page,
+                   {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"})
 
     def _guide_block(self, page: TextPage) -> UnderMap:
         """How to read this map, under its own frame instead of on a sheet of its own."""
@@ -1763,15 +1152,8 @@ class LayoutBuilder:
     def _rule(self, x: float, y: float, width: float, height: float, page: int) -> None:
         """A thin black bar: a tick under the colour strip, or the line that joins two of them.
 
-        A shape rather than a label with a background: a rule is a rule, and a label carries a
-        margin and a text layout that has nothing to do here.
         """
-        shape = QgsLayoutItemShape(self.layout)
-        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
-        shape.setSymbol(QgsFillSymbol.createSimple({"color": RULE_COLOUR, "outline_style": "no"}))
-        self.layout.addLayoutItem(shape)
-        shape.attemptMove(point_mm(x, y), page=page)
-        shape.attemptResize(size_mm(width, height))
+        self._rect(x, y, width, height, page, {"color": RULE_COLOUR, "outline_style": "no"})
 
     def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> Tuple[str, float]:
         """Put this zone on the colour strip; answer with the line that names it and where it goes.
@@ -1808,14 +1190,10 @@ class LayoutBuilder:
         def draw(sheet: int, top: float) -> None:
             self.label(CLASS_KEY_TITLE, MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9,
                        bold=True)
-            key = QgsLayoutItemPicture(self.layout)
-            key.setPicturePath(str(self.out_dir / image_path))
-            # Zoom, not Stretch: the swatches are squares and the class names are words, and both
-            # go unreadable the moment the aspect is thrown away.
-            key.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(key)
-            key.attemptMove(point_mm(MARGIN, top + UNDER_MAP_TITLE_H), page=sheet)
-            key.attemptResize(size_mm(CLASS_KEY_W, CLASS_KEY_H))
+            # Zoom (the default): the swatches are squares and the class names are words, and
+            # both go unreadable the moment the aspect is thrown away.
+            self.picture(self.out_dir / image_path, MARGIN, top + UNDER_MAP_TITLE_H,
+                         CLASS_KEY_W, CLASS_KEY_H, sheet)
 
         return UnderMap(height, draw, height)
 
@@ -1841,15 +1219,10 @@ class LayoutBuilder:
                        bold=True)
             y += UNDER_MAP_TITLE_H
             if image is not None:
-                strip = QgsLayoutItemPicture(self.layout)
-                strip.setPicturePath(str(image))
-                # Stretch, not Zoom: the band is a gradient of a few pixels and the strip it has to
-                # fill is a fixed one, so the aspect of the source says nothing.
-                strip.setResizeMode(QgsLayoutItemPicture.ResizeMode.Stretch)
-                strip.setFrameEnabled(True)
-                self.layout.addLayoutItem(strip)
-                strip.attemptMove(point_mm(MARGIN, y), page=sheet)
-                strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
+                # Stretch, not Zoom: the band is a gradient of a few pixels and the strip it has
+                # to fill is a fixed one, so the aspect of the source says nothing.
+                self.picture(image, MARGIN, y, RAMP_STRIP_W, RAMP_STRIP_H, sheet,
+                             stretch=True, frame=True)
                 y += strip_h
             if marked:
                 # Against the bar, not a gap below it: a pointer that touches nothing points at
@@ -1917,7 +1290,7 @@ class LayoutBuilder:
                 # Not the table alone: the title and the note go with it, or the reader is left
                 # with a heading on one sheet and its table on the next.
                 sheet = self.new_page()
-                self.header(chapter, f"{page.title} (vervolg)", sheet, metrics)
+                self.header(chapter, _continued(page.title), sheet, metrics)
                 top = CONTENT_TOP
             self._block_title(page.title, sheet, top)
             body = top + UNDER_MAP_TITLE_H
@@ -1927,7 +1300,7 @@ class LayoutBuilder:
             room = CONTENT_TOP + metrics.content_h - body
             last = self._place_table(table, frame, sheet, body, min(wanted, room), metrics)
             for extra in range(sheet + 1, last + 1):
-                self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+                self.header(chapter, _continued(page.title), extra, metrics)
             self._seal(last, metrics)
 
         return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw, needed)
@@ -1980,7 +1353,7 @@ class LayoutBuilder:
             needed = LEGEND_LABEL_H + (height or LEGEND_LABEL_H) + LEGEND_GAP
             if y + needed > bottom:
                 index = self.new_page()
-                self.header(chapter, f"{page.title} (vervolg)", index)
+                self.header(chapter, _continued(page.title), index)
                 y, bottom = CONTENT_TOP, CONTENT_TOP + CONTENT_H
             self.label(f"Profieltype {entry.code} - kaartblad {entry.sheet}", MARGIN, y, CONTENT_W,
                        LEGEND_LABEL_H, index, size=9, bold=True)
@@ -1991,12 +1364,7 @@ class LayoutBuilder:
                 self.label(said, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
                 y += LEGEND_LABEL_H + LEGEND_GAP
                 continue
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(self.out_dir / entry.image_path))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, y), page=index)
-            picture.attemptResize(size_mm(width, height))
+            self.picture(self.out_dir / entry.image_path, MARGIN, y, width, height, index)
             y += height + LEGEND_GAP
         return index
 
@@ -2036,12 +1404,7 @@ class LayoutBuilder:
                 QgsProperty.fromExpression(f"@{LEGEND_VARIABLE} = 0"))
             title = page.title if len(strips) == 1 else f"{page.title} ({number}/{len(strips)})"
             self.header(chapter, f"Legenda - {title}", index)
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(path))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
-            picture.attemptResize(size_mm(width, height))
+            self.picture(path, MARGIN, CONTENT_TOP, width, height, index)
             self._seal(index)
 
     # --- figure, table and text pages --------------------------------------------------------------
@@ -2070,12 +1433,7 @@ class LayoutBuilder:
             # same column fitted under the longer G3Dv3 tables.
             width, height = _drawn_size(image, metrics.content_w, room - FIT_TOLERANCE_MM)
         slot = self._start(chapter, page.title, height + caption_h, metrics)
-        picture = QgsLayoutItemPicture(self.layout)
-        picture.setPicturePath(str(image))
-        picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-        self.layout.addLayoutItem(picture)
-        picture.attemptMove(point_mm(MARGIN, slot.top), page=slot.page)
-        picture.attemptResize(size_mm(width, height))
+        self.picture(image, MARGIN, slot.top, width, height, slot.page)
         if page.caption:
             self.label(page.caption, MARGIN, slot.top + height + 2.0, metrics.content_w, 10,
                        slot.page, size=7)
@@ -2134,8 +1492,8 @@ class LayoutBuilder:
         # With fixed widths a long sentence has to break inside its column; without this QGIS
         # writes it straight through the next column and off the sheet.
         table.setWrapBehavior(QgsLayoutTable.WrapBehavior.WrapText)
-        table.setContentTextFormat(_text_format(TABLE_FONT_PT))
-        table.setHeaderTextFormat(_text_format(TABLE_FONT_PT, bold=True))
+        table.setContentTextFormat(text_format(TABLE_FONT_PT))
+        table.setHeaderTextFormat(text_format(TABLE_FONT_PT, bold=True))
         # The rows go in last: every setter above re-measures whatever the table holds, and a
         # table of a hundred and thirty rows measured five times over is a second of nothing.
         table.setContents(rows)
@@ -2213,7 +1571,7 @@ class LayoutBuilder:
         room = CONTENT_TOP + metrics.content_h - top
         last = self._place_table(table, frame, slot.page, top, min(wanted, room), metrics)
         for extra in range(slot.page + 1, last + 1):
-            self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+            self.header(chapter, _continued(page.title), extra, metrics)
         bottom = self._table_bottom(table, last, metrics)
         if last != slot.page:
             # A table that ran on used to declare its last sheet full, even when it stopped a
@@ -2266,7 +1624,7 @@ class LayoutBuilder:
         """
         plain = " ".join(TAGS.sub(" ", html).split())
         probe = QgsLayoutItemLabel(self.layout)
-        probe.setTextFormat(_text_format(TEXT_FONT_PT))
+        probe.setTextFormat(text_format(TEXT_FONT_PT))
         self.layout.addLayoutItem(probe)
         try:
             _width, height, _rows = _fit_box(probe, [plain], width, 0.0)
@@ -2287,12 +1645,7 @@ class LayoutBuilder:
         logo = self.meta.get("logo_path")
         y = 20.0
         if logo and Path(logo).exists():
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(logo))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, y), page=index)
-            picture.attemptResize(size_mm(60, 30))
+            self.picture(logo, MARGIN, y, LOGO_W, LOGO_H, index)
             y += 35
         self.label(self.report.title, MARGIN, y, CONTENT_W, 14, index, size=20, bold=True)
         # The zone line is left out when it only repeats the address: a study started from an

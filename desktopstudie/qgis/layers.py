@@ -34,10 +34,10 @@ from qgis.PyQt.QtGui import QColor
 
 from ..core import catalogue
 from ..core.catalogue import MapEntry
+from ..core.geometry import CRS
 from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
-from .compat import drop_colliding_labels, house_font
+from .compat import drop_colliding_labels, text_format
 
-CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
 # GeoTIFF / HDF / NetCDF, and "image/tiff" yields an invalid layer ("Cannot get test dataset").
 WCS_FORMAT = "GeoTIFF"
@@ -116,7 +116,7 @@ def snapshot_layer(path, name: str) -> QgsRasterLayer:
     no way to say it and a layer without one lands wherever the project happens to think.
     """
     layer = QgsRasterLayer(str(path), name, "gdal")
-    layer.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    layer.setCrs(QgsCoordinateReferenceSystem(CRS))
     return layer
 
 
@@ -128,7 +128,7 @@ def wms_layer(entry: MapEntry) -> QgsRasterLayer:
     uri.setParam("layers", entry.wms_layer)
     uri.setParam("styles", entry.wms_style)  # "" = the layer default
     uri.setParam("format", entry.image_format)
-    uri.setParam("crs", CRS_AUTHID)
+    uri.setParam("crs", CRS)
     uri.setParam("dpiMode", "7")
     uri.setParam("contextualWMSLegend", "0")
     layer = QgsRasterLayer(uri.encodedUri().data().decode("utf-8"), entry.title, "wms")
@@ -142,7 +142,7 @@ def wcs_layer(url: str, coverage: str, name: str) -> QgsRasterLayer:
     uri = QgsDataSourceUri()
     uri.setParam("url", url)
     uri.setParam("identifier", coverage)
-    uri.setParam("crs", CRS_AUTHID)
+    uri.setParam("crs", CRS)
     uri.setParam("format", WCS_FORMAT)
     uri.setParam("version", WCS_VERSION)
     return QgsRasterLayer(uri.encodedUri().data().decode("utf-8"), name, "wcs")
@@ -151,7 +151,7 @@ def wcs_layer(url: str, coverage: str, name: str) -> QgsRasterLayer:
 # --- memory layers from the model ----------------------------------------------------------------
 
 def _memory(geometry_type: str, name: str, fields: Sequence[Tuple[str, str]]) -> QgsVectorLayer:
-    spec = "&".join([f"{geometry_type}?crs={CRS_AUTHID}"] + [f"field={field}:{kind}" for field, kind in fields])
+    spec = "&".join([f"{geometry_type}?crs={CRS}"] + [f"field={field}:{kind}" for field, kind in fields])
     return QgsVectorLayer(spec, name, "memory")
 
 
@@ -198,47 +198,63 @@ def _label_format() -> QgsTextFormat:
     over water in the middle of the overview map and read as a smudge. The halo costs nothing and
     makes them legible over any backdrop.
     """
-    text_format = QgsTextFormat()
-    # Zonder expliciet lettertype kiest Qt er zelf een, en offscreen tekende die "kb12d37w-B19"
-    # als "kb12d37-N- B19": de w en het koppelteken werden losse streepjes. Hetzelfde huisfont als
-    # het rapport, zodat een boornummer op de kaart leest zoals in de tabel.
-    text_format.setFont(house_font(LABEL_SIZE_PT))
-    text_format.setSize(LABEL_SIZE_PT)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
+    # Through `compat.text_format`, so with the house face: without an explicit font Qt picks one
+    # itself, and offscreen that one drew "kb12d37w-B19" as "kb12d37-N- B19" - the w and the hyphen
+    # became loose dashes. The same face as the report, so a borehole number on the map reads the
+    # way it does in the table. The halo below hangs on THIS copy: `text_format` gives every caller
+    # an object of its own, or every table in the report would carry this halo too.
+    fmt = text_format(LABEL_SIZE_PT)
     buffer = QgsTextBufferSettings()
     buffer.setEnabled(True)
     buffer.setSize(LABEL_HALO_MM)
     buffer.setSizeUnit(Qgis.RenderUnit.Millimeters)
     buffer.setColor(QColor(LABEL_HALO_COLOUR))
-    text_format.setBuffer(buffer)
-    return text_format
+    fmt.setBuffer(buffer)
+    return fmt
+
+
+def _marker(style: Tuple[str, str]) -> QgsMarkerSymbol:
+    """The point symbol of one layer, from its (colour, marker name) pair.
+
+    The units are pinned on purpose: without them a symbol follows whatever the host project
+    happens to use, and the same study prints differently on another machine.
+    """
+    colour, marker = style
+    symbol = QgsMarkerSymbol.createSimple(
+        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
+         "outline_width": "0.3"})
+    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
+    return symbol
+
+
+def _label_points(layer: QgsVectorLayer, field: str, expression: bool = False,
+                  enabled: bool = True) -> None:
+    """Label every point of `layer` from `field`, in the house lettering with its white halo.
+
+    `expression` says `field` is one (the report maps label only the points that got a figure);
+    `enabled` off keeps the labelling configured but unprinted, which is what a report map wants
+    for a dozen doorprik points that all carry the same model name.
+    """
+    settings = QgsPalLayerSettings()
+    settings.fieldName = field
+    settings.isExpression = expression
+    settings.setFormat(_label_format())
+    drop_colliding_labels(settings)
+    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
+    layer.setLabelsEnabled(enabled)
 
 
 def style_points_layer(layer: QgsVectorLayer, kind: str,
                        label_only_figured: bool = False) -> QgsVectorLayer:
     """Marker, colour, size and the number label of one investigation kind.
 
-    The units are pinned on purpose: without them a symbol follows whatever the host project
-    happens to use, and the same study prints differently on another machine.
-
     `label_only_figured` labels only the points that have a figure in the report (see
     FIGURED_LABEL); that is the version the report maps draw. It applies to FIGURED_KINDS only -
     for a kind that never gets a figure it would mean no labels at all.
     """
-    colour, marker = POINT_STYLE[kind]
-    symbol = QgsMarkerSymbol.createSimple(
-        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
-         "outline_width": "0.3"})
-    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
-    layer.renderer().setSymbol(symbol)
-    settings = QgsPalLayerSettings()
+    layer.renderer().setSymbol(_marker(POINT_STYLE[kind]))
     figured_only = label_only_figured and kind in FIGURED_KINDS
-    settings.fieldName = FIGURED_LABEL if figured_only else LABEL_FIELD
-    settings.isExpression = figured_only
-    settings.setFormat(_label_format())
-    drop_colliding_labels(settings)
-    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(True)
+    _label_points(layer, FIGURED_LABEL if figured_only else LABEL_FIELD, expression=figured_only)
     index = layer.fields().indexOf("diepte_m")
     if index >= 0:  # a peilput carries its filter base here; the alias says so in the table
         layer.setFieldAlias(index, DEPTH_ALIAS)
@@ -255,18 +271,8 @@ def style_virtual_boreholes_layer(layer: QgsVectorLayer, labels: bool = True) ->
     line all carry the same model name, and a dozen copies of "g3dv3_F" over that line is a grey
     smudge. In QGIS the label stays - there the reader can zoom and click.
     """
-    colour, marker = VB_STYLE
-    symbol = QgsMarkerSymbol.createSimple(
-        {"name": marker, "color": colour, "size": POINT_SIZE_MM, "outline_color": "white",
-         "outline_width": "0.3"})
-    symbol.setSizeUnit(Qgis.RenderUnit.Millimeters)
-    layer.renderer().setSymbol(symbol)
-    settings = QgsPalLayerSettings()
-    settings.fieldName = VB_LABEL_FIELD
-    settings.setFormat(_label_format())
-    drop_colliding_labels(settings)
-    layer.setLabeling(QgsVectorLayerSimpleLabeling(settings))
-    layer.setLabelsEnabled(labels)
+    layer.renderer().setSymbol(_marker(VB_STYLE))
+    _label_points(layer, VB_LABEL_FIELD, enabled=labels)
     return layer
 
 
@@ -507,7 +513,7 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     ready = dict(wms_layers or {})
     dropped: List[MapEntry] = []
     project = QgsProject()
-    project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    project.setCrs(QgsCoordinateReferenceSystem(CRS))
     # The study's own layers go in FIRST, so the chapter groups of maps append underneath them.
     # The bottom of a layer tree draws first, so a group added after the maps ends up behind them -
     # which hid the zone outline, the section line and every sounding the moment a map was switched

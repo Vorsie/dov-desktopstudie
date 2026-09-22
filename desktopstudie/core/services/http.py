@@ -17,6 +17,9 @@ from typing import Any, Callable, Dict, Optional
 from ..logging_util import Log
 
 USER_AGENT = "dov-desktopstudie/0.1 (+https://github.com/Vorsie/dov-desktopstudie)"
+# The wait before retry n, multiplied by n: a second breath is longer than the first, and a
+# service that just refused a request does not want the same request back within the second.
+BACKOFF_S = 1.5
 
 CACHE_MODES = ("use", "refresh", "off")
 # Where a study keeps its machine-readable products, and the disk cache inside it. Both names live
@@ -155,7 +158,6 @@ def default_fetch(url: str, timeout: float, user_agent: str) -> bytes:
 
 class HttpClient:
     def __init__(self, cache_dir: Optional[Path] = None, timeout: float = 60.0, retries: int = 2,
-                 backoff_s: float = 1.5, user_agent: str = USER_AGENT,
                  fetch: Optional[Callable[[str, float, str], bytes]] = None,
                  sleep: Callable[[float], None] = time.sleep, log: Optional[Log] = None,
                  cache_mode: str = "use"):
@@ -164,8 +166,6 @@ class HttpClient:
         self.cache_dir = Path(cache_dir) if cache_dir else None
         self.timeout = timeout
         self.retries = max(0, retries)
-        self.backoff_s = backoff_s
-        self.user_agent = user_agent
         self._fetch = fetch or default_fetch
         self._sleep = sleep
         self.log = log
@@ -197,19 +197,19 @@ class HttpClient:
     def _retryable(self, exc: HttpError) -> bool:
         return exc.status is None or exc.status >= 500 or exc.status in RETRYABLE_STATUSES
 
-    def forget(self, url: str, params: Optional[Dict[str, Any]] = None) -> bool:
-        """Gooi het bewaarde antwoord voor deze URL weg; `True` als er iets weg was.
+    def forget(self, url: str) -> bool:
+        """Throw away the stored answer for this URL; `True` when something was there.
 
-        De cache kan niet zien dat een antwoord verkeerd is - HTTP 200 is HTTP 200 - maar de beller
-        soms wel: een webpagina waar een PNG hoorde te staan bijvoorbeeld. Zonder dit zou die pagina
-        er bij elke volgende run zonder netwerk weer uitkomen en dezelfde fout opleveren.
+        The cache cannot see that an answer is wrong - HTTP 200 is HTTP 200 - but the caller
+        sometimes can: a web page where a PNG belonged, for instance. Without this, that page
+        would come back out of the cache on every later run and produce the same error again.
         """
-        path = self._cache_path(build_url(url, params))
+        path = self._cache_path(build_url(url))
         if not path or not path.exists():
             return False
         try:
             path.unlink()
-        except OSError:  # een cache die niet wil wijken mag de studie niet breken
+        except OSError:  # a cache entry that will not budge may not break the study
             return False
         return True
 
@@ -242,7 +242,7 @@ class HttpClient:
         attempt = 0
         for attempt in range(retries + 1):
             try:
-                data = self._fetch(full, timeout, self.user_agent)
+                data = self._fetch(full, timeout, USER_AGENT)
                 if cached and cache_mode != "off":
                     self._atomic_write(cached, data)
                     self._atomic_write(cached.with_suffix(".url"), full.encode("utf-8"))
@@ -255,7 +255,7 @@ class HttpClient:
                     if self.log:
                         self.log.debug(f"retry {attempt + 1}/{retries} na {exc.status or 'netwerkfout'} "
                                         f"voor {full}")
-                    self._sleep(self.backoff_s * (attempt + 1))
+                    self._sleep(BACKOFF_S * (attempt + 1))
         if last is not None:
             if self.log:
                 self.log.warning(f"definitief mislukt na {attempt + 1} pogingen voor {full}: {last}")

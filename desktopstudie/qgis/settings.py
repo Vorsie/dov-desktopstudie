@@ -18,9 +18,9 @@ from ..core.services.http import CACHE_MODES
 PREFIX = "desktopstudie"
 DEFAULT_RADIUS_M = 500.0
 DEFAULT_CACHE_MODE = "use"
-# The separate legend pages are OFF unless the user asks for them: fourteen maps with a legend
-# turn into dozens of sheets that nobody asked for, while the classes that actually lie in the
-# zone stand under their own map. The compact layout is off for the opposite reason - the default
+# The separate legend pages are OFF unless the user asks for them: every map with a legend turns
+# into one or more sheets that nobody asked for, while the classes that actually lie in the zone
+# stand under their own map. The compact layout is off for the opposite reason - the default
 # report has to come out the same shape every time.
 DEFAULT_LEGENDS = False
 DEFAULT_COMPACT = False

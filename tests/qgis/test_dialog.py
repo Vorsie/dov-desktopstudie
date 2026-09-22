@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from tests.qgis.conftest import Click as _Click
-from tests.qgis.conftest import FakeIface
+from tests.qgis.conftest import FakeIface, rings_close
 
 GENT = (104326.0, 192506.0)
 
@@ -25,11 +25,6 @@ def _moved(points, from_authid, to_authid):
     transform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(from_authid),
                                        QgsCoordinateReferenceSystem(to_authid), QgsCoordinateTransformContext())
     return [(p.x(), p.y()) for p in (transform.transform(QgsPointXY(x, y)) for x, y in points)]
-
-
-def _close(ring, other, tolerance):
-    return len(ring) == len(other) and all(abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance
-                                           for a, b in zip(ring, other))
 
 
 def _wgs84_canvas(dialog):
@@ -302,7 +297,7 @@ def test_drawing_a_polygon_on_a_wgs84_canvas_gives_a_zone_in_lambert_72(qgs_app,
     assert "3 hoekpunten" in dialog.ring_label.text()
     assert canvas.mapTool() is not tool, "na de rechtsklik is de tekentool los"
     request = dialog.build_request()
-    assert _close(request.zone.ring, _moved(drawn, "EPSG:4326", "EPSG:31370"), 0.01)
+    assert rings_close(request.zone.ring, _moved(drawn, "EPSG:4326", "EPSG:31370"), 0.01)
     assert all(100000.0 < x < 110000.0 and 190000.0 < y < 196000.0 for x, y in request.zone.ring)
 
 
@@ -368,7 +363,7 @@ def test_layer_mode_takes_the_first_selected_polygon_in_its_own_crs(qgs_app, tmp
         request = dialog.build_request()
 
         assert request.zone.name == f"percelen #{fid}"
-        assert _close(request.zone.ring, gent_zone.ring, 0.05)
+        assert rings_close(request.zone.ring, gent_zone.ring, 0.05)
     finally:
         QgsProject.instance().removeMapLayer(layer_id)
     assert dialog.layer_combo.findData(layer_id) < 0, "een verwijderde laag verdwijnt uit de lijst"
@@ -405,7 +400,8 @@ def test_a_section_line_from_a_selected_line_layer(qgs_app, tmp_path):
 
 
 def test_the_legend_pages_start_unticked_and_the_compact_layout_too(qgs_app, tmp_path):
-    """De aparte legendapagina's staan standaard UIT - veertien kaarten leveren er tientallen -
+    """De aparte legendapagina's staan standaard UIT - de kaarten met een legenda leveren er
+    tientallen -
     en de compacte opmaak ook, want de standaardopmaak hoort voorspelbaar te zijn. Wie ze wil,
     vinkt ze aan, en die keuze wordt onthouden."""
     dialog = _dialog(tmp_path)
@@ -549,3 +545,14 @@ def test_one_line_in_the_layer_is_the_section_line(qgs_app, tmp_path):
                    for text in texts), texts
     finally:
         QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_a_lambert_72_coordinate_is_not_a_distance(qgs_app, tmp_path):
+    """X en Y zijn een coordinaat, geen afstand: achter 104326 hoort geen " m". Ze deelden de
+    spinbox-helper met de buffer en de zoekstraal, en die zet meters achter elk getal."""
+    dialog = _dialog(tmp_path)
+
+    assert dialog.x_spin.suffix() == ""
+    assert dialog.y_spin.suffix() == ""
+    assert dialog.buffer_spin.suffix() == " m", "een afstand houdt haar eenheid"
+    assert dialog.radius_spin.suffix() == " m"
