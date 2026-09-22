@@ -330,7 +330,8 @@ class _Runner:
             index, (x, y) = numbered
             per_point[index] = wms_gfi.feature_info_at_point(self.client, entry.wms_url, entry.wms_layer,
                                                              x, y, info_format=entry.gfi_format,
-                                                             log=gfi_log)
+                                                             log=gfi_log,
+                                                             m_per_pixel=entry.gfi_m_per_pixel)
 
         # Two workers, not the full pool: this runs INSIDE the pool over the maps, so the two
         # multiply. Four maps times four points is sixteen requests at once from one desktop, and
@@ -349,6 +350,12 @@ class _Runner:
         seen = set()
         for index in range(len(points)):
             for row in per_point.get(index, []):
+                if all(row.get(k) is None for k in entry.fact_fields):
+                    # A nodata pixel is not answered with zero features but with a feature whose
+                    # every field is None. Kept, such a row reads as the answer when it lands on
+                    # the representative point - "geen waarde op dit punt" printed over a map that
+                    # plainly carries values a few metres away. No value is not an answer.
+                    continue
                 key = tuple(str(row.get(k)) for k in entry.fact_fields)
                 if key not in seen:
                     seen.add(key)

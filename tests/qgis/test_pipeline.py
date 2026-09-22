@@ -168,8 +168,10 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     top = [group.name() for group in project.layerTreeRoot().findGroups()]
     assert top == [pipeline.study_group_name("Testproject")]
     study = project.layerTreeRoot().findGroup(top[0])
+    # Eerst de eigen lagen van de studie, dan pas de hoofdstukken met hun kaarten: wat onderaan
+    # staat tekent eerst, en daar hoort de zonecirkel niet thuis.
     assert [group.name() for group in study.findGroups()] == \
-        list(pipeline.CHAPTER_GROUPS.values()) + ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"]
+        ["Onderzoekszone en doorsnede", "Grondonderzoek DOV"] + list(pipeline.CHAPTER_GROUPS.values())
     assert project.layoutManager().layoutByName(layout.layout_name("Testproject")) is not None
 
 
@@ -263,7 +265,7 @@ def test_two_studies_live_side_by_side_and_only_a_same_named_one_replaces(projec
     for name in ("Testproject", "Antwerpen"):
         study = root.findGroup(pipeline.study_group_name(name))
         assert [group.name() for group in study.findGroups()] == \
-            list(pipeline.CHAPTER_GROUPS.values()) + [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP]
+                [layers.ZONE_GROUP, layers.INVESTIGATION_GROUP] + list(pipeline.CHAPTER_GROUPS.values())
     owners = collections.Counter(layer.customProperty(pipeline.REPORT_OVERLAY_FLAG)
                                  for layer in project.mapLayers().values()
                                  if layer.customProperty(pipeline.REPORT_OVERLAY_FLAG))
@@ -531,7 +533,7 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     header = write_png(tmp_path / "legendas" / "quartair_22026_kop.png")
     monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
-                        {profile_image_key("22026"): header})
+                        ({profile_image_key("22026"): header}, set()))
 
     pipeline._fetch_zone_legends(core_result, {"https://dov/22026_png": "22026"}, tmp_path, None,
                                  _log(), None)
@@ -539,6 +541,50 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     sheet = quartair_sheet("22026")
     failed = {p.source: p for p in core_result.provenance if not p.ok}
     assert any(f"kaartblad {sheet}" in source for source in failed), sorted(failed)
+
+
+def test_a_study_whose_only_profile_type_has_no_link_still_says_so(project, core_result,
+                                                                  offline_shell, tmp_path,
+                                                                  monkeypatch, no_pdf):
+    """De regel in Bronnen moet er ook komen als er GEEN enkele link is.
+
+    De hele tekeningenfase hing aan "zijn er URL's?", dus met alleen een rij zonder link werd er
+    niets gedraaid en dus ook niets vastgelegd - terwijl dat juist het geval is waarin de
+    legendaregel de lezer naar hoofdstuk Bronnen stuurt. Live gezien in Brugge: profieltype 13064,
+    `legende: null`, en geen woord erover in het rapport.
+    """
+    from desktopstudie.core.model import MapFact
+    from desktopstudie.qgis import pipeline
+    from tests import quartair
+
+    core_result.map_facts.append(MapFact("quartair", quartair.TITLE,
+                                         [{"profieltype": "13064", "legende": None}]))
+
+    pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
+
+    named = [p for p in core_result.provenance if "13064" in p.source]
+    assert named, [p.source for p in core_result.provenance]
+    assert named[0].ok and named[0].message == pipeline.NO_DRAWING_PUBLISHED
+
+
+def test_a_profile_type_without_a_drawing_link_is_named_in_the_sources(qgs_app, core_result,
+                                                                      tmp_path, monkeypatch):
+    """Zonder link wordt er niets opgehaald, en dan stond er ook niets in hoofdstuk Bronnen -
+    terwijl de legendaregel de lezer er juist naartoe stuurde. De regel hoort er te staan, als
+    feit over de bron: DOV publiceert geen tekening voor dit profieltype."""
+    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import pipeline
+
+    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+                        lambda result, out_dir, client, log=None, should_cancel=None:
+                        ({}, {"13064"}))
+
+    pipeline._fetch_zone_legends(core_result, {}, tmp_path, None, _log(), None)
+
+    named = [p for p in core_result.provenance if "13064" in p.source]
+    assert named, [p.source for p in core_result.provenance]
+    assert named[0].ok, "geen storing, maar een feit over de bron"
+    assert named[0].message == pipeline.NO_DRAWING_PUBLISHED
 
 
 def test_a_map_the_service_does_not_deliver_is_in_the_sources_without_project_groups(

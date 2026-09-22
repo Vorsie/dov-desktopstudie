@@ -814,6 +814,34 @@ def test_no_report_text_addresses_the_developer(gent_ring):
             assert word not in text, f"ontwikkelaarstaal {word!r} in het rapport: {text!r}"
 
 
+def test_no_report_text_shows_a_python_error(gent_ring):
+    """Geen enkele rapporttekst toont een Python-foutmelding.
+
+    Een willekeurige studie leverde in het rapport van een klant: "Bron niet beschikbaar:
+    HttpError: netwerkfout voor https://.../g3dv3_F: [Errno 11001] getaddrinfo failed". Wie een
+    geotechnische studie leest komt geen errno en geen getaddrinfo tegen; er hoort te staan dat de
+    dienst niet bereikbaar was. De technische tekst blijft in het log en in studie.json.
+    """
+    from desktopstudie.core import checks
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance.append(Provenance(
+        "Virtuele boring g3dv3_F", "https://services.dov.vlaanderen.be/x/g3dv3_F",
+        "2026-09-21T18:24:05", False,
+        "HttpError: netwerkfout voor https://services.dov.vlaanderen.be/x/g3dv3_F: "
+        "[Errno 11001] getaddrinfo failed"))
+    result.signaleringen = checks.run_all(result)
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    texts = _all_text(report)
+    for word in ("getaddrinfo", "Errno", "HttpError", "Traceback"):
+        for text in texts:
+            assert word not in text, f"Python-foutmelding {word!r} in het rapport: {text!r}"
+    assert any("niet bereikbaar" in text for text in texts), (
+        "en er hoort wel te staan dat de bron niet bereikbaar was")
+
+
 def test_a_boolean_from_a_service_is_printed_in_dutch(gent_ring):
     """"Risico-inrichting: True" in een Nederlandstalige tabel is Python, geen rapporttaal. De
     dienst antwoordt met een booleaanse waarde; op papier staat er ja of nee."""
@@ -1029,7 +1057,8 @@ def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
     """Wat een lezer van een diktekaart wil weten is de dikte hier. De contouren liggen kilometers
     ver, dus staat de modelwaarde van G3Dv3 op het representatieve punt erbij - als modelwaarde
     benoemd, niet als meting."""
-    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+    rows = [{"Dikte_Quartair_m": 5.0, catalogue.DISTANCE_FIELD: 67}]
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
 
     geo = _geologie(result)
 
@@ -1040,7 +1069,7 @@ def test_the_isopach_map_gives_the_modelled_thickness_at_the_point(gent_ring):
 
 def test_a_contour_inside_the_map_needs_no_excuse(gent_ring):
     """Ligt er wel een contour binnen het kaartbeeld, dan hoort die regel er niet te staan."""
-    rows = [{"dikte": 10, "afstand_m": 120}]
+    rows = [{"Dikte_Quartair_m": 10, catalogue.DISTANCE_FIELD: 120}]
     result = _with_quartair_model(_with_isopachs(_result(gent_ring), rows))
 
     geo = _geologie(result)
@@ -1214,3 +1243,51 @@ def test_every_nothing_here_answer_ends_up_on_one_page_at_the_back(gent_ring):
     assert "Potentiele bodemerosiekaart" in gathered.html and "OVAM" in gathered.html
     assert gathered.html.count("Geen kaarteenheden binnen de zone") == 1, "één keer, gegroepeerd"
     assert "overstromingsgevoelig" in gathered.html, "en het kaart-eigen antwoord ernaast"
+
+
+def test_an_isopach_map_without_coverage_joins_the_gathered_page(gent_ring):
+    """Aan de kust reikt de isopachenkartering 1/50 000 niet, en dan draagt het blad alleen nog de
+    modelzin - een lege bladzijde voor de lezer. Zonder dekking en zonder contour hoort die kaart
+    geen blad te krijgen maar op de gebundelde "geen gegevens"-pagina achteraan te staan. De dikte
+    van het Quartair staat toch al in de periodetabel van hoofdstuk 4, dus er gaat niets verloren.
+    """
+    result = _with_quartair_model(_with_isopachs(_result(gent_ring), []))
+    dropped = {("quartair_dikte", 25000, 3.0, False, False)}
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"),
+                             unavailable=dropped)
+
+    assert not [p for p in report.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "quartair_dikte"]
+    gathered = report.chapters[-1].pages[-1].html
+    assert "Dikte van het Quartair" in gathered and "dekt deze locatie niet" in gathered
+
+
+def test_without_contours_the_answer_stands_on_the_gathered_page_either_way(gent_ring):
+    """Ook zonder periodetabel - een model dat niets teruggaf - verdwijnt het antwoord niet: het
+    staat achteraan bij de andere. Er is dan trouwens ook geen dikte om kwijt te raken."""
+    result = _with_isopachs(_result(gent_ring), [])  # geen g3dv3_P, dus geen periodetabel
+
+    report = rc.build_report(result, rc.ReportMeta(project="P", author="A", company="C"))
+    gathered = report.chapters[-1].pages[-1].html
+
+    assert "Dikte van het Quartair" in gathered and "dekt deze locatie niet" in gathered
+
+
+def test_the_shrink_swell_map_carries_the_key_to_its_own_colours(gent_ring):
+    """Een blad vol donkergroen, lichtgroen en een streepje oranje, zonder een sleutel erbij: de
+    lezer kon niet weten welke kleur welke klasse is. De dienst tekent die sleutel zelf
+    (GetLegendGraphic), en die hoort onder de kaart, net als de kleurbalk van het hoogtemodel.
+    Zonder opgehaalde sleutel worden er geen kleuren verzonnen."""
+    result = _result(gent_ring)
+    report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
+                             zone_legend_images={rc.class_key_image_key("krimp_zwel"):
+                                                 "legendas/krimp_zwel.png"})
+    page = next(p for p in report.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "krimp_zwel")
+    assert page.class_key == "legendas/krimp_zwel.png"
+
+    without = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"))
+    bare = next(p for p in without.chapters[2].pages
+                if isinstance(p, rc.MapPage) and p.map_id == "krimp_zwel")
+    assert bare.class_key == ""

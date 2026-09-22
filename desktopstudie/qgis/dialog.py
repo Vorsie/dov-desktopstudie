@@ -8,7 +8,7 @@ It is non-modal, because two of the input modes are clicks on the canvas.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from qgis.core import Qgis, QgsApplication, QgsProject, QgsTask, QgsVectorLayer
 from qgis.PyQt.QtCore import Qt
@@ -56,6 +56,32 @@ LAMBERT_MAX_M = 400000.0
 DEFAULT_BUFFER_M = 50.0
 NO_HITS = "Geen kandidaat gevonden."
 NOTHING_DRAWN = "Nog niets getekend."
+# Wat een laag bijdraagt, in de woorden van de laag zelf: een vlaklaag heeft vlakken, een lijnlaag
+# lijnen. Een enkel object heeft geen selectie nodig; pas bij meerdere is er iets te kiezen, en dan
+# zegt de weigering hoeveel het er zijn en wat de gebruiker moet doen.
+NOTE_ONLY_FEATURE = {
+    "polygon": "Geen selectie; het enige vlak in de laag {layer} is gebruikt.",
+    "line": "Geen selectie; de enige lijn in de laag {layer} is gebruikt.",
+}
+NO_CHOICE = {
+    "polygon": ("De laag {layer} heeft {count} vlakken. Selecteer er een met het "
+                "selectiegereedschap en start opnieuw."),
+    "line": ("De laag {layer} heeft {count} lijnen. Selecteer er een met het "
+             "selectiegereedschap en start opnieuw."),
+}
+NO_LAYER_CHOSEN = "Nog geen laag gekozen."
+LAYER_STATE_SELECTED = {
+    "polygon": "{count} vlakken, {selected} geselecteerd; het eerste geselecteerde wordt gebruikt.",
+    "line": "{count} lijnen, {selected} geselecteerd; de eerste geselecteerde wordt gebruikt.",
+}
+LAYER_STATE_ONLY = {
+    "polygon": "1 vlak, geen selectie; dat ene vlak wordt gebruikt.",
+    "line": "1 lijn, geen selectie; die ene lijn wordt gebruikt.",
+}
+LAYER_STATE_CHOOSE = {
+    "polygon": "{count} vlakken, geen selectie; selecteer er een met het selectiegereedschap.",
+    "line": "{count} lijnen, geen selectie; selecteer er een met het selectiegereedschap.",
+}
 DRAW_RING_HINT = "Klik de hoekpunten op de kaart; rechtsklik sluit af."
 DRAW_LINE_HINT = "Klik begin- en eindpunt op de kaart; rechtsklik sluit af."
 LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter het kaartblad. Uit "
@@ -96,6 +122,16 @@ class StudyDialog(QDialog):
         self._hits: List[GeocodeHit] = []
         self._ring: Optional[List[Point]] = None  # drawn, already in Lambert 72
         self._section: Optional[Tuple[Point, Point]] = None
+        # What the drawn ring and line ACTUALLY are, so switching modes can restore the truth
+        # instead of leaving a complaint from an abandoned attempt standing (or wiping a result).
+        self._ring_text = ""
+        self._section_text = ""
+        # What the run did on the user's behalf that he did not ask for by hand, collected while
+        # the request is built and pushed to the message bar once it actually starts.
+        self._notes: List[str] = []
+        # The layers whose selection we are listening to, per hint label: reconnecting without
+        # dropping the previous one leaves every layer ever chosen writing into the same label.
+        self._watched: Dict[object, QgsVectorLayer] = {}
         self._tool = None
         self._previous_tool = None
         self._geocode_task = None  # kept: a QgsTask without a Python reference is collected mid-run
@@ -170,11 +206,17 @@ class StudyDialog(QDialog):
         layout.addWidget(self.mode_ring)
         layout.addLayout(row)
 
-        self.mode_layer = QRadioButton("Uit laag (eerste geselecteerde vlak)")
+        self.mode_layer = QRadioButton("Uit laag")
         self.layer_combo = QComboBox()
+        self.layer_hint = QLabel(NO_LAYER_CHOSEN)
         layout.addWidget(self.mode_layer)
         layout.addWidget(self.layer_combo)
+        layout.addWidget(self.layer_hint)
         layout.addStretch(1)
+        self.layer_combo.currentIndexChanged.connect(self._zone_layer_changed)
+        for button, _mode in ((self.mode_address, 0), (self.mode_point, 0), (self.mode_ring, 0),
+                              (self.mode_layer, 0)):
+            button.toggled.connect(self._zone_mode_changed)
         self._mode_buttons = ((self.mode_address, MODE_ADDRESS), (self.mode_point, MODE_POINT),
                               (self.mode_ring, MODE_RING), (self.mode_layer, MODE_LAYER))
         return tab
@@ -202,6 +244,9 @@ class StudyDialog(QDialog):
         form.addRow("Doorsnedelijn", row)
         form.addRow("", self.section_label)
         form.addRow("Lijnlaag", self.section_layer_combo)
+        self.section_layer_hint = QLabel(NO_LAYER_CHOSEN)
+        form.addRow("", self.section_layer_hint)
+        self.section_layer_combo.currentIndexChanged.connect(self._section_layer_changed)
         self.extension_spin = _spin(0.0, 2000.0, defaults.section_extension_m)
         form.addRow("Verlenging doorsnedelijn", self.extension_spin)
         self.maps_list = QListWidget()
@@ -283,6 +328,8 @@ class StudyDialog(QDialog):
     def _refresh_layers(self, *_layers) -> None:
         self._fill_layer_combo(self.layer_combo, Qgis.GeometryType.Polygon)
         self._fill_layer_combo(self.section_layer_combo, Qgis.GeometryType.Line)
+        self._zone_layer_changed()
+        self._section_layer_changed()
 
     @staticmethod
     def _fill_layer_combo(combo: QComboBox, geometry_type) -> None:
@@ -294,7 +341,23 @@ class StudyDialog(QDialog):
         if current is not None:
             combo.setCurrentIndex(max(0, combo.findData(current)))
 
+    def _zone_layer_changed(self, *_args) -> None:
+        self._watch_layer(self.layer_combo, "polygon", self.layer_hint)
+
+    def _section_layer_changed(self, *_args) -> None:
+        self._watch_layer(self.section_layer_combo, "line", self.section_layer_hint)
+
+    def _zone_mode_changed(self, *_args) -> None:
+        """A hint belongs to its own mode.
+
+        "een zone heeft minstens drie hoekpunten nodig (1 gegeven)" sat beside the Tekenen button
+        while the user was already working in the layer mode - left over from an abandoned draw.
+        """
+        self.ring_label.setText(self._ring_text or NOTHING_DRAWN)
+        self._layer_states()
+
     def _section_mode_changed(self, index: int) -> None:
+        self.section_label.setText(self._section_text)
         self.section_button.setEnabled(index == SECTION_DRAW)
         self.section_layer_combo.setEnabled(index == SECTION_LAYER)
         # The extension belongs to the line the core lays itself; a drawn or chosen line is what it is.
@@ -318,7 +381,7 @@ class StudyDialog(QDialog):
                 raise ValueError("Teken eerst een polygoon op de kaart.")
             return zone_input.zone_from_ring(self._ring, CRS_AUTHID, radius)
         layer = self._chosen_layer(self.layer_combo)
-        feature = self._first_selected(layer)
+        feature = self._chosen_feature(layer, "polygon")
         return zone_input.zone_from_feature(feature, layer.crs(), radius, name=f"{layer.name()} #{feature.id()}",
                                             context=self._transform_context())
 
@@ -331,7 +394,7 @@ class StudyDialog(QDialog):
                 raise ValueError("Teken eerst een doorsnedelijn op de kaart.")
             return self._section
         layer = self._chosen_layer(self.section_layer_combo)
-        return zone_input.section_from_feature(self._first_selected(layer), layer.crs(),
+        return zone_input.section_from_feature(self._chosen_feature(layer, "line"), layer.crs(),
                                                context=self._transform_context())
 
     @staticmethod
@@ -346,12 +409,61 @@ class StudyDialog(QDialog):
             raise ValueError("Kies een laag in het project.")
         return layer
 
-    @staticmethod
-    def _first_selected(layer: QgsVectorLayer):
+    def _chosen_feature(self, layer: QgsVectorLayer, kind: str):
+        """The feature this layer contributes: the selection, or the only one it holds.
+
+        Drawing your site boundary into a scratch layer and pointing the plugin at it is the
+        natural way to work, and demanding a separate selection step on a layer that holds exactly
+        one feature is pedantry - "een vlak in de laag, dan is dat het vlak". It never happens
+        silently: the note goes to the message bar after the run starts, so the reader knows which
+        feature was taken. Only with several features and no selection is there a real question,
+        and then the refusal says how many there are and what to do about it.
+        """
         selected = layer.selectedFeatures()
-        if not selected:
-            raise ValueError(f"Selecteer eerst een object in de laag {layer.name()}.")
-        return selected[0]
+        if selected:
+            return selected[0]
+        count = layer.featureCount()
+        if count == 1:
+            self._notes.append(NOTE_ONLY_FEATURE[kind].format(layer=layer.name()))
+            return next(layer.getFeatures())
+        raise ValueError(NO_CHOICE[kind].format(layer=layer.name(), count=count))
+
+    def _layer_state(self, combo: QComboBox, kind: str) -> str:
+        """What the chosen layer would contribute right now, for the line beside the combo."""
+        layer = QgsProject.instance().mapLayer(combo.currentData() or "")
+        if layer is None:
+            return NO_LAYER_CHOSEN
+        count, selected = layer.featureCount(), layer.selectedFeatureCount()
+        if selected:
+            return LAYER_STATE_SELECTED[kind].format(count=count, selected=selected)
+        if count == 1:
+            return LAYER_STATE_ONLY[kind]
+        return LAYER_STATE_CHOOSE[kind].format(count=count)
+
+    def _watch_layer(self, combo: QComboBox, kind: str, label: QLabel) -> None:
+        """Keep that line true while the dialog stands open.
+
+        The dialog is not modal: the user selects on the canvas and presses Start without touching
+        it, so the line has to follow the layer's own `selectionChanged` rather than only the combo.
+        The previous layer's signal is dropped first, otherwise every layer ever chosen keeps
+        writing into the same label.
+        """
+        previous = self._watched.pop(label.objectName() or id(label), None)
+        if previous is not None:
+            try:
+                previous.selectionChanged.disconnect(self._layer_states)
+            except (TypeError, RuntimeError):  # already gone, or the layer was deleted
+                pass
+        layer = QgsProject.instance().mapLayer(combo.currentData() or "")
+        if layer is not None:
+            layer.selectionChanged.connect(self._layer_states)
+            self._watched[label.objectName() or id(label)] = layer
+        label.setText(self._layer_state(combo, kind))
+
+    def _layer_states(self, *_args) -> None:
+        """Both state lines, re-read from the project."""
+        self.layer_hint.setText(self._layer_state(self.layer_combo, "polygon"))
+        self.section_layer_hint.setText(self._layer_state(self.section_layer_combo, "line"))
 
     def map_ids(self) -> Optional[List[str]]:
         """None when every enabled map is checked - the core's default - else the checked ids."""
@@ -361,6 +473,7 @@ class StudyDialog(QDialog):
         return None if checked == [entry.id for entry in catalogue.entries()] else checked
 
     def build_request(self) -> StudyRequest:
+        self._notes = []  # filled by `_chosen_feature`; `start` pushes them once the run is under way
         zone = self.zone()
         zone.section_line = self.section_line()
         settings = Settings(radius_m=self.radius_spin.value(), n_cpt_figures=self.cpt_spin.value(),
@@ -479,11 +592,12 @@ class StudyDialog(QDialog):
             zone = zone_input.zone_from_ring(points, self._canvas_crs(), self.radius_spin.value(),
                                              context=self._transform_context())
         except ValueError as exc:
-            self._ring = None
+            self._ring, self._ring_text = None, ""
             self.ring_label.setText(str(exc))
             return
         self._ring = zone.ring
-        self.ring_label.setText(f"Polygoon met {len(zone.ring)} hoekpunten, {zone.area_m2:.0f} m².")
+        self._ring_text = f"Polygoon met {len(zone.ring)} hoekpunten, {zone.area_m2:.0f} m²."
+        self.ring_label.setText(self._ring_text)
         self.mode_ring.setChecked(True)
 
     def _section_drawn(self, points: List[Point]) -> None:
@@ -492,11 +606,12 @@ class StudyDialog(QDialog):
             self._section = zone_input.section_from_points(points, self._canvas_crs(),
                                                            context=self._transform_context())
         except ValueError as exc:
-            self._section = None
+            self._section, self._section_text = None, ""
             self.section_label.setText(str(exc))
             return
         (ax, ay), (bx, by) = self._section
-        self.section_label.setText(f"Lijn van {ax:.0f}/{ay:.0f} naar {bx:.0f}/{by:.0f}.")
+        self._section_text = f"Lijn van {ax:.0f}/{ay:.0f} naar {bx:.0f}/{by:.0f}."
+        self.section_label.setText(self._section_text)
 
     # --- files -------------------------------------------------------------------------------------
 
@@ -523,6 +638,8 @@ class StudyDialog(QDialog):
             self._warn(str(exc))
             return
         self.save_settings()
+        for note in self._notes:
+            self._inform(note)
         self.start_button.setEnabled(False)
         try:
             self.runner.start(request)
@@ -537,6 +654,11 @@ class StudyDialog(QDialog):
     def _warn(self, text: str) -> None:
         self.log.warning(text)
         self.iface.messageBar().pushWarning(PLUGIN_NAME, text)
+
+    def _inform(self, text: str) -> None:
+        """Something the study did on the user's behalf that he did not ask for by hand."""
+        self.log.info(text)
+        self.iface.messageBar().pushInfo(PLUGIN_NAME, text)
 
     def closeEvent(self, event) -> None:  # noqa: N802 - Qt virtual
         """Close is not goodbye: the plugin keeps this dialog and shows it again. So a search that

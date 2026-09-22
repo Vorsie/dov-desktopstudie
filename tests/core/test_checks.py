@@ -203,11 +203,25 @@ def test_erosion_summary_mentions_every_distinct_class_not_just_the_first_row(ge
 def test_shrink_swell_and_ovam_are_flagged_when_present(gent_ring):
     r = _result(gent_ring)
     r.map_facts += [
-        MapFact("krimp_zwel", "Krimp-zwel", [{"hoofdlithologie": "klei/silt"}]),
+        MapFact("krimp_zwel", "Krimp-zwel", [{"Categorie_gevoeligheid": 3}]),
         MapFact("ovam", "OVAM", [{"uitspraak": "Er is een orienterend bodemonderzoek nodig"}]),
     ]
     codes = [s.code for s in checks.run_all(r)]
     assert "krimp_zwel" in codes and "ovam" in codes
+
+
+def test_a_high_shrink_swell_class_is_flagged_and_a_very_low_one_is_not(gent_ring):
+    """De kaart van Brugge tekende klasse 4 (hoog) over de zone en het rapport zei er niets over:
+    de feiten kwamen van een index van beoordeelde eenheden, niet van de kaart. Nu telt de klasse
+    van de kaart zelf, en de regel noemt ze: hoog hoort gemeld, zeer laag niet."""
+    high = _result(gent_ring)
+    high.map_facts.append(MapFact("krimp_zwel", "Krimp-zwel", [{"Categorie_gevoeligheid": 4}]))
+    sigs = [s for s in checks.run_all(high) if s.code == "krimp_zwel"]
+    assert len(sigs) == 1 and "hoog" in sigs[0].fact and "4" in sigs[0].fact
+
+    low = _result(gent_ring)
+    low.map_facts.append(MapFact("krimp_zwel", "Krimp-zwel", [{"Categorie_gevoeligheid": 1}]))
+    assert [s for s in checks.run_all(low) if s.code == "krimp_zwel"] == []
 
 
 def test_landslide_class_2_or_higher_is_flagged_class_1_is_not(gent_ring):
@@ -492,3 +506,21 @@ def test_a_deep_modelled_groundwater_level_says_nothing(gent_ring):
                                     [{"GHG-waarde_m-mv": 4.0}]))
 
     assert not [s for s in checks.run_all(result) if s.code == "ondiepe_ghg"]
+
+
+def test_an_unavailable_source_names_the_chapter_it_left_short(gent_ring):
+    """"Hoofdstuk onvolledig; bron in samenvattende tabel?" - de regel stond er wel, maar zei niet
+    WELK hoofdstuk iets mist. De lezer moest dat zelf uit het bronnenhoofdstuk achterin halen."""
+    from desktopstudie.core.model import Provenance
+
+    result = _result(gent_ring)
+    result.provenance = [
+        Provenance("Legenda profieltype 12026", "https://dov/12026", "2026-09-21T10:00:00", False,
+                   "tekening van het profieltype niet opgehaald of niet leesbaar"),
+        Provenance("Kaartbeeld Bodemkaart van Vlaanderen", "https://dov/wms",
+                   "2026-09-21T10:00:00", False, "kaartbeeld niet opgehaald")]
+
+    signals = [s for s in checks.run_all(result) if s.code == "bron_niet_beschikbaar"]
+
+    assert len(signals) == 2
+    assert all("Geologie en bodem" in s.advice for s in signals), [s.advice for s in signals]

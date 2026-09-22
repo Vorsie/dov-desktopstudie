@@ -15,8 +15,17 @@ import sys
 from typing import Optional
 
 from qgis.core import Qgis, QgsLayoutPoint, QgsLayoutSize
+from qgis.PyQt.QtGui import QFont
 
 MM = Qgis.LayoutUnit.Millimeters
+# Arial is the house face, but a report is also produced on the Linux CI images and on machines
+# that do not have it. Naming the substitutes keeps the metrics predictable instead of leaving the
+# choice to whatever fontconfig happens to pick first.
+#
+# It lives HERE because both writers need it and neither may import the other: the layout already
+# imports `layers`, so `layers` cannot import the layout back. Asking for no font at all is not a
+# neutral choice - offscreen, Qt then picked a face that draws "kb12d37w-B19" as "kb12d37-N- B19".
+FONT_FAMILIES = ["Arial", "Liberation Sans", "DejaVu Sans"]
 OFFSCREEN = "offscreen"
 FONT_DIR_VARIABLE = "QT_QPA_FONTDIR"
 PLATFORM_VARIABLE = "QT_QPA_PLATFORM"
@@ -54,6 +63,15 @@ def drop_colliding_labels(settings) -> None:
     placement = getattr(settings, "placementSettings", None)
     if handling is not None and placement is not None:
         placement().setOverlapHandling(handling.PreventOverlap)
+
+
+def house_font(size: float, bold: bool = False) -> QFont:
+    """The house face at this size, with the fallbacks that keep a Linux render readable."""
+    font = QFont(FONT_FAMILIES[0], int(size))
+    if hasattr(font, "setFamilies"):  # Qt >= 5.13, so every supported QGIS - but cheap to ask
+        font.setFamilies(FONT_FAMILIES)
+    font.setBold(bold)
+    return font
 
 
 def qgis_version() -> str:

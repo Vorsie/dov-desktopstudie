@@ -26,7 +26,6 @@ footer carries "pagina n / N" as text, written when the layout is complete (`_nu
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -60,7 +59,6 @@ from qgis.core import (
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import (
     QColor,
-    QFont,
     QFontMetricsF,
     QImage,
     QPainter,
@@ -87,10 +85,10 @@ from ..core.report_content import (
     quartair_sheet,
     sheet_image_key,
 )
-from ..core.services.dov_portal import PNG_MAGIC, content_link
+from ..core.services.dov_portal import PNG_MAGIC, content_link, says_not_found
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from . import layers
-from .compat import point_mm, size_mm
+from .compat import house_font, point_mm, size_mm
 from .export import PDF_DPI, refresh_data_defined
 from .layers import CRS_AUTHID
 
@@ -115,15 +113,14 @@ FOOTER_Y = 285.0
 INFO_TOP_Y = 46.0
 INFO_W, INFO_H = 55.0, 22.0
 INFO_MARGIN_MM = 1.0
+# What `adjustSizeToText` reports and what the renderer puts on paper differ by a hair, and the
+# hair is what pushed the last line onto the border. A box a fraction too tall costs nothing.
+BOX_SLACK_MM = 1.0
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
 LEGEND_DIR = "legendas"
 NORTH_ARROW = Path(__file__).resolve().parents[1] / "resources" / "noordpijl.svg"
-# Arial is the house face, but the PDF is also produced on the Linux CI images and on machines that
-# do not have it. Naming the substitutes keeps the metrics predictable instead of leaving the
-# choice to whatever fontconfig happens to pick first.
-FONT_FAMILIES = ["Arial", "Liberation Sans", "DejaVu Sans"]
 BOX_BACKGROUND = QColor(255, 255, 255)  # opaque: the info boxes sit on top of the map
 SCALE_BAR_STYLE = "Single Box"
 SCALE_BAR_SEGMENTS = 2
@@ -194,6 +191,14 @@ SCALE_BAR_LIFT = 2.0  # the scale bar, measured down from the foot of the map fr
 # its two ends named under it and the zone's own heights below that.
 RAMP_STRIP_W, RAMP_STRIP_H = 90.0, 5.0
 RAMP_LINE_H = 4.5
+# The class key of a map that is a field of classes, as the service draws it: swatch and class
+# name in one image, so it cannot disagree with the map. A box, not a size: the image keeps its
+# own aspect inside it (Zoom), and a key of six classes lands at about 24 x 40 mm - small, but
+# every class name reads. Not taller: at 55 mm the key pushed the one-row table under it onto a
+# continuation sheet, and a whole A4 for one table row is the very thing this report is trying to
+# stop doing (measured on the Wervik sheet, 2026-09-21: 54 pages at 40 mm, 55 at 55 mm).
+CLASS_KEY_W, CLASS_KEY_H = 60.0, 40.0
+CLASS_KEY_TITLE = "Klassen van de kaart"
 RAMP_LABEL_GAP = 1.5  # air between the band and the two numbers under it, so they do not touch
 # Marking the zone on the strip. Over a scale of 350 metres a building plot is a millimetre wide,
 # so a bracket is only drawn when the two ends are this far apart on paper; below it the mean gets
@@ -261,6 +266,10 @@ LEGEND_LABEL_H = 5.0
 LEGEND_GAP = 4.0
 LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
+# Twee verschillende zinnen voor twee verschillende dingen. "Niet opgehaald" nodigt uit om het nog
+# eens te proberen; publiceert DOV hier niets, dan valt er niets te proberen en is dat een feit
+# over de bron. Het portaal antwoordt in beide gevallen met HTTP 200, dus de pagina beslist.
+NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 ZONE_LEGEND_SHEET = "kaartblad_"
 HEADER_SUFFIX = "_kop"
 # A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
@@ -277,6 +286,10 @@ ZONE_LEGEND_TRIES = 2
 # One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
+# Een profieltypetekening is geen GetLegendGraphic-stempel maar een bestand uit een documentportaal
+# - 168 kB is normaal - en op een trage dag haalt dat de vijftien seconden hierboven niet. Ruimer,
+# maar begrensd: twee pogingen van dertig seconden is de bovengrens die een run nog draaglijk houdt.
+DRAWING_TIMEOUT_S = 30.0
 LEGEND_RETRIES = 1
 
 
@@ -302,15 +315,6 @@ def _page_metrics(orientation=PORTRAIT) -> PageMetrics:
     return _METRICS[orientation]
 
 
-def _font(size: float, bold: bool = False) -> QFont:
-    """A layout font in the house face, with the fallbacks that keep a Linux export readable."""
-    font = QFont(FONT_FAMILIES[0], int(size))
-    if hasattr(font, "setFamilies"):  # Qt >= 5.13, so every supported QGIS - but cheap to ask
-        font.setFamilies(FONT_FAMILIES)
-    font.setBold(bold)
-    return font
-
-
 def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
     """The text format for a label, a table or a scale bar.
 
@@ -319,7 +323,7 @@ def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
     the size is set twice on purpose - the one on the QFont only decides which face gets loaded.
     """
     text_format = QgsTextFormat()
-    text_format.setFont(_font(size, bold))
+    text_format.setFont(house_font(size, bold))
     text_format.setSize(size)
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
     return text_format
@@ -343,7 +347,7 @@ def _text_width_mm(strings: Sequence[str], size: float, bold: bool = False) -> f
     dots_per_metre = int(round(1000.0 / 25.4 * 96.0))  # 96 dpi, the resolution MM_PER_PX assumes
     device.setDotsPerMeterX(dots_per_metre)
     device.setDotsPerMeterY(dots_per_metre)
-    metrics = QFontMetricsF(_font(size, bold), device)
+    metrics = QFontMetricsF(house_font(size, bold), device)
     widest = max((metrics.horizontalAdvance(str(text)) for text in strings), default=0.0)
     return widest * MM_PER_PX * TEXT_WIDTH_FUDGE
 
@@ -420,33 +424,61 @@ def _joined(*parts: Optional[str]) -> str:
     return " - ".join(part for part in parts if part)
 
 
+def _measured_width(item: QgsLayoutItemLabel, text: str) -> float:
+    """How wide this one line is, asked of the label that will draw it.
+
+    It is the *label* that measures, not QFontMetricsF: QGIS makes the same string about seven per
+    cent wider than Qt's metrics do (6 pt licence line: 55.4 mm against 51.9 mm), and that
+    difference is exactly one wrapped row.
+    """
+    item.setText(text)
+    item.adjustSizeToText()
+    return item.rect().width()
+
+
+def _wrapped(item: QgsLayoutItemLabel, lines: Sequence[str], width: float,
+             margin: float) -> List[str]:
+    """The rows this text really becomes inside `width`, broken on spaces the way a reader reads.
+
+    Wrapping here rather than leaving it to the renderer is the whole point: a label that is handed
+    one long licence line is measured as one row and then drawn as two, and the second row lands on
+    and through the bottom border - which is exactly what a reader found on a printed sheet. Break
+    it ourselves and the box is measured on the same rows it will draw.
+    """
+    inner = max(width - 2 * margin, 1.0)
+    rows: List[str] = []
+    for line in lines:
+        words, current = line.split(), ""
+        for word in words:
+            candidate = f"{current} {word}".strip()
+            if current and _measured_width(item, candidate) - 2 * margin > inner:
+                rows.append(current)
+                current = word
+            else:
+                current = candidate
+        rows.append(current)
+    return rows or [""]
+
+
 def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
-             margin: float) -> Tuple[float, float]:
-    """Width and height in mm for a plain-text box, measured by the label itself.
+             margin: float) -> Tuple[float, float, List[str]]:
+    """Width, height in mm and the rows to draw, all measured by the label itself.
 
     `adjustSizeToText()` sizes a label to its text but never wraps it, so on its own it makes a box
-    one row too short the moment a licence line is longer than the box - and that last row then
-    hangs below the frame, right on the attribution. Measuring the lines one at a time answers how
-    many rows the text really takes. It is the *label* that measures, not QFontMetricsF: QGIS makes
-    the same string about seven per cent wider than Qt's metrics do (6 pt licence line: 55.4 mm
-    against 51.9 mm), and that difference is exactly one wrapped row.
-
-    The item is left holding the full text again.
+    one row too short the moment a licence line is longer than the box. So the text is wrapped here
+    and then measured as the multi-row string it has become - explicit newlines, which
+    `adjustSizeToText` does count - and the caller draws those same rows. Measured and drawn are
+    then the same thing, which is the only way this stays true when a title or a licence changes.
     """
-    widths: List[float] = []
-    line_h = 2 * margin
-    for line in lines:
-        item.setText(line)
-        item.adjustSizeToText()
-        widths.append(item.rect().width())
-        line_h = item.rect().height()
-    item.setText("\n".join(lines))
-    if not widths:
-        return max_w, line_h
-    width = min(max(widths), max_w)
-    inner = max(width - 2 * margin, 1.0)
-    rows = sum(max(1, int(math.ceil((one - 2 * margin) / inner))) for one in widths)
-    return width, rows * (line_h - 2 * margin) + 2 * margin
+    if not lines:
+        return max_w, 2 * margin, []
+    width = min(max(_measured_width(item, line) for line in lines), max_w)
+    rows = _wrapped(item, lines, width, margin)
+    item.setText("\n".join(rows))
+    item.adjustSizeToText()
+    height = item.rect().height()
+    item.setText("\n".join(rows))
+    return width, height + BOX_SLACK_MM, rows
 
 
 def _natural_size(image_path, max_w: float, max_h: float) -> Tuple[float, float]:
@@ -654,6 +686,14 @@ def zone_legend_targets(result: StudyResult) -> Dict[str, str]:
     return targets
 
 
+class NoDrawingPublished(Exception):
+    """Het portaal antwoordt met een niet-gevonden-pagina: DOV publiceert hier geen tekening.
+
+    Een eigen fout en geen `HttpError`, want het is geen storing. De lezer krijgt er een andere
+    zin bij: een feit over de bron in plaats van een uitnodiging om het nog eens te proberen.
+    """
+
+
 def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
     """One profile-type drawing, or an HttpError saying what came back instead.
 
@@ -666,13 +706,19 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
     # by an earlier run is exactly what has to be noticed. Every try after it goes past the cache,
     # so a bad cached answer costs one request, not none and not two.
     for attempt in range(ZONE_LEGEND_TRIES):
-        data = client.get(url, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES,
+        data = client.get(url, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES,
                           cache_mode="refresh" if attempt else None)
         if data.startswith(PNG_MAGIC):
             return data
         # Geen bestand, dus niets om te bewaren: anders dient de cache deze pagina bij elke
         # volgende run zonder netwerk weer op.
         client.forget(url)
+        if says_not_found(data):
+            # Niet nog eens proberen: deze pagina zegt dat het document niet bestaat, en een
+            # tweede poging levert dezelfde pagina op.
+            if log:
+                log.info(f"Profieltype {code}: het portaal publiceert hiervoor geen tekening")
+            raise NoDrawingPublished(code)
         if log:
             log.warning(f"Profieltype {code}: antwoord {attempt + 1}/{ZONE_LEGEND_TRIES} is geen PNG "
                         f"({len(data)} bytes)")
@@ -680,7 +726,7 @@ def _drawing_bytes(client: HttpClient, url: str, code: str, log=None) -> bytes:
         if link:
             if log:
                 log.info(f"Profieltype {code}: de pagina wijst naar het bestand zelf, die link volgen")
-            found = client.get(link, timeout=LEGEND_TIMEOUT_S, retries=LEGEND_RETRIES)
+            found = client.get(link, timeout=DRAWING_TIMEOUT_S, retries=LEGEND_RETRIES)
             if found.startswith(PNG_MAGIC):
                 return found
             client.forget(link)
@@ -749,25 +795,28 @@ def crop_profile_header(path, log=None) -> Optional[Path]:
                     "Kopstrook", log)
 
 
-def _log_rows_without_a_drawing(result: StudyResult, targets: Dict[str, str], log) -> None:
-    """Say which profile types carry no usable drawing URL - what was NOT found is a finding too.
+def codes_without_a_drawing(result: StudyResult, targets: Dict[str, str], log=None) -> Set[str]:
+    """The profile types the WFS gave no usable drawing URL for.
 
-    A row with a code but without a legend link leaves the legend page with a line and no picture,
-    and without this line nobody could tell that from a download that failed.
+    The same fact as a portal page that says not found, reached one step earlier: there is nothing
+    to fetch, so DOV publishes no drawing for this type. Read as "not fetched" it made the report
+    contradict itself - a legend line sending the reader to a sources chapter that never mentioned
+    it, because nothing was ever fetched and so nothing was ever recorded. The units table of the
+    map sheet is cut from that same drawing, so a sheet whose only type lands here has no units
+    page either; the line in the sources chapter is what explains both.
     """
-    if log is None:
-        return
     known = set(targets.values())
-    missing = sorted({str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
-                      if fact.map_id == QUARTAIR_ID for row in fact.rows
-                      if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known})
-    if missing:
-        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(missing)}")
+    missing = {str(row.get(QUARTAIR_CODE)) for fact in result.map_facts
+               if fact.map_id == QUARTAIR_ID for row in fact.rows
+               if row.get(QUARTAIR_CODE) and str(row.get(QUARTAIR_CODE)) not in known}
+    if missing and log is not None:
+        log.warning(f"Profieltype zonder bruikbare tekening-URL: {', '.join(sorted(missing))}")
+    return missing
 
 
 def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient, log=None,
                                should_cancel: Optional[Callable[[], bool]] = None
-                               ) -> Dict[str, Path]:
+                               ) -> Tuple[Dict[str, Path], Set[str]]:
     """The DOV drawings behind the quartair zone legend, by the key `report_content` looks them up
     with: `profieltype:<code>` for the header strip of one type, `kaartblad:<nn>` for the units
     table of a whole map sheet.
@@ -783,13 +832,20 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     checked before they are saved as an image.
     """
     targets = zone_legend_targets(result)
-    _log_rows_without_a_drawing(result, targets, log)
     drawings: Dict[str, Path] = {}
+    # De codes waarvoor er niets te halen valt: het portaal zegt dat er niets bestaat, of de WFS
+    # gaf geen enkele link. Apart van "niet opgehaald": de bron publiceert hier niets, en dat is
+    # een feit en geen storing.
+    unpublished: Set[str] = codes_without_a_drawing(result, targets, log)
     out_dir = Path(out_dir)
 
     def fetch(item: Tuple[str, str]) -> None:
         url, code = item
-        data = _drawing_bytes(client, url, code, log)
+        try:
+            data = _drawing_bytes(client, url, code, log)
+        except NoDrawingPublished:
+            unpublished.add(code)
+            return
         path = out_dir / LEGEND_DIR / f"{ZONE_LEGEND_PREFIX}{code}.png"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
@@ -818,7 +874,7 @@ def prepare_zone_legend_images(result: StudyResult, out_dir, client: HttpClient,
     if log and targets:
         log.info(f"Profieltypetekeningen opgehaald: {len(drawings)}/{len(targets)}; "
                  f"{len(images)} bladen in het rapport")
-    return images
+    return images, unpublished
 
 
 def overlay_boxes(result: StudyResult) -> Dict[str, List[BBox]]:
@@ -1293,7 +1349,8 @@ class LayoutBuilder:
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None, compact: bool = False):
+                 name: Optional[str] = None, compact: bool = False,
+                 unpublished: Optional[Set[str]] = None):
         """overlays: keys 'zone', 'investigations', 'section' -> the memory layers a page may ask
         to draw on top of its map image; name: what the layout is called in the layout manager
         (`layout_name`), the bare plugin name when left empty;
@@ -1313,6 +1370,8 @@ class LayoutBuilder:
         self.compact = compact
         self.legend_images = dict(legend_images or {})
         self.no_coverage = set(no_coverage or ())
+        # Profieltypes waarvoor het portaal zegt dat er geen tekening bestaat.
+        self.unpublished = set(unpublished or ())
         self.map_images = dict(map_images or {})
         self.log = log
         self.should_cancel = should_cancel or (lambda: False)
@@ -1450,7 +1509,8 @@ class LayoutBuilder:
         self.layout.addLayoutItem(item)
         item.attemptMove(point_mm(CONTENT_RIGHT - INFO_W, y), page=page)
         item.attemptResize(size_mm(INFO_W, INFO_H))
-        width, height = _fit_box(item, shown, INFO_W, INFO_MARGIN_MM)
+        width, height, rows = _fit_box(item, shown, INFO_W, INFO_MARGIN_MM)
+        item.setText("\n".join(rows))  # the rows that were measured are the rows that are drawn
         item.attemptResize(size_mm(width, height))
         # Pin the right edge to the margin only now: adjustSizeToText shifts a box by its own
         # rules (a reference point of UpperRight still moves it half a step), so the one reliable
@@ -1636,6 +1696,8 @@ class LayoutBuilder:
             blocks.append(self._guide_block(page.guide))
         if page.ramp is not None:
             blocks.append(self._ramp_block(page.ramp))
+        if page.class_key:
+            blocks.append(self._class_key_block(page.class_key))
         if page.zone_legend is not None:
             blocks.append(self._zone_legend_block(chapter, page.zone_legend, index))
         if not blocks:
@@ -1734,6 +1796,29 @@ class LayoutBuilder:
         self._rule(middle, y + RAMP_TICK_H - RAMP_TICK_W, RAMP_TICK_W * 2, RAMP_TICK_W, sheet)
         return ramp.mean_label, middle
 
+    def _class_key_block(self, image_path: str) -> UnderMap:
+        """The service's own key to this map's colours, under the map frame.
+
+        Taken whole rather than redrawn: the image carries the swatch AND the class name, so the
+        key says exactly what the map says. Only called when the shell actually fetched it - a
+        key drawn from guessed colours would contradict the picture above it.
+        """
+        height = UNDER_MAP_TITLE_H + CLASS_KEY_H
+
+        def draw(sheet: int, top: float) -> None:
+            self.label(CLASS_KEY_TITLE, MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9,
+                       bold=True)
+            key = QgsLayoutItemPicture(self.layout)
+            key.setPicturePath(str(self.out_dir / image_path))
+            # Zoom, not Stretch: the swatches are squares and the class names are words, and both
+            # go unreadable the moment the aspect is thrown away.
+            key.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
+            self.layout.addLayoutItem(key)
+            key.attemptMove(point_mm(MARGIN, top + UNDER_MAP_TITLE_H), page=sheet)
+            key.attemptResize(size_mm(CLASS_KEY_W, CLASS_KEY_H))
+
+        return UnderMap(height, draw, height)
+
     def _ramp_block(self, ramp: ColourRamp) -> UnderMap:
         """A colour scale as a strip: the service's own band, its two ends named under it and the
         zone's own values below that.
@@ -1821,7 +1906,19 @@ class LayoutBuilder:
         # and it used to be dropped without a trace.
         note_h = self._text_height(page.note, CONTENT_W) if page.note else 0.0
 
+        # What the sheet has to have room for before this legend may start on it: the title, the
+        # note and the header WITH its first row. Without that check the table begins wherever it
+        # lands and splits after the header, and a lone "Gevoeligheidsklasse" with no row under it
+        # is a table pretending something follows - exactly what an empty table may no longer do.
+        needed = UNDER_MAP_TITLE_H + note_h + self._table_height(table, 1, metrics.content_h)
+
         def draw(sheet: int, top: float) -> None:
+            if CONTENT_TOP + metrics.content_h - top + FIT_TOLERANCE_MM < needed:
+                # Not the table alone: the title and the note go with it, or the reader is left
+                # with a heading on one sheet and its table on the next.
+                sheet = self.new_page()
+                self.header(chapter, f"{page.title} (vervolg)", sheet, metrics)
+                top = CONTENT_TOP
             self._block_title(page.title, sheet, top)
             body = top + UNDER_MAP_TITLE_H
             if page.note:
@@ -1833,7 +1930,7 @@ class LayoutBuilder:
                 self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
             self._seal(last, metrics)
 
-        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw)
+        return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw, needed)
 
     def _legend_entries_block(self, chapter: Chapter, page: LegendPage) -> UnderMap:
         height = UNDER_MAP_TITLE_H + self._legend_entries_height(page)
@@ -1889,7 +1986,9 @@ class LayoutBuilder:
                        LEGEND_LABEL_H, index, size=9, bold=True)
             y += LEGEND_LABEL_H
             if not entry.image_path:
-                self.label(MISSING_DRAWING, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
+                said = (NO_DRAWING_PUBLISHED if entry.code in self.unpublished
+                        else MISSING_DRAWING)
+                self.label(said, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
                 y += LEGEND_LABEL_H + LEGEND_GAP
                 continue
             picture = QgsLayoutItemPicture(self.layout)
@@ -2170,7 +2269,7 @@ class LayoutBuilder:
         probe.setTextFormat(_text_format(TEXT_FONT_PT))
         self.layout.addLayoutItem(probe)
         try:
-            _width, height = _fit_box(probe, [plain], width, 0.0)
+            _width, height, _rows = _fit_box(probe, [plain], width, 0.0)
         finally:
             self.layout.removeLayoutItem(probe)
         return min(CONTENT_H, height * TEXT_HEIGHT_FUDGE + TEXT_HEIGHT_PAD)
@@ -2253,8 +2352,10 @@ def build_layout(project: QgsProject, report: Report,
                  no_coverage: Optional[Set[str]] = None,
                  map_images: Optional[Dict[str, QgsMapLayer]] = None,
                  overlay_boxes: Optional[Dict[str, List[BBox]]] = None,
-                 name: Optional[str] = None, compact: bool = False) -> QgsPrintLayout:
+                 name: Optional[str] = None, compact: bool = False,
+                 unpublished: Optional[Set[str]] = None) -> QgsPrintLayout:
     """The whole report as one print layout. See LayoutBuilder for what lands where."""
     return LayoutBuilder(project, report, overlays, out_dir, zone_ring, meta,
                          legends, legend_images, log, should_cancel, no_coverage,
-                         map_images, overlay_boxes, name, compact).build()
+                         map_images, overlay_boxes, name, compact,
+                         unpublished).build()

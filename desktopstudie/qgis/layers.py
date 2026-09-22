@@ -35,7 +35,7 @@ from qgis.PyQt.QtGui import QColor
 from ..core import catalogue
 from ..core.catalogue import MapEntry
 from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
-from .compat import drop_colliding_labels
+from .compat import drop_colliding_labels, house_font
 
 CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
@@ -199,6 +199,10 @@ def _label_format() -> QgsTextFormat:
     makes them legible over any backdrop.
     """
     text_format = QgsTextFormat()
+    # Zonder expliciet lettertype kiest Qt er zelf een, en offscreen tekende die "kb12d37w-B19"
+    # als "kb12d37-N- B19": de w en het koppelteken werden losse streepjes. Hetzelfde huisfont als
+    # het rapport, zodat een boornummer op de kaart leest zoals in de tabel.
+    text_format.setFont(house_font(LABEL_SIZE_PT))
     text_format.setSize(LABEL_SIZE_PT)
     text_format.setSizeUnit(Qgis.RenderUnit.Points)
     buffer = QgsTextBufferSettings()
@@ -504,6 +508,20 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
     dropped: List[MapEntry] = []
     project = QgsProject()
     project.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+    # The study's own layers go in FIRST, so the chapter groups of maps append underneath them.
+    # The bottom of a layer tree draws first, so a group added after the maps ends up behind them -
+    # which hid the zone outline, the section line and every sounding the moment a map was switched
+    # on, in the project a reader opens for exactly those.
+    for title, names in GPKG_GROUPS:
+        group_layers: List[QgsMapLayer] = []
+        for name in names:
+            layer = gpkg_layer(gpkg, name)
+            if not layer.isValid():
+                if log:
+                    log.warning(f"Laag {name} staat niet in {gpkg.name}; overgeslagen")
+                continue
+            group_layers.append(style_by_name(layer, log))
+        add_group(project, title, group_layers)
     for chapter, title in chapter_groups.items():
         rasters: List[QgsMapLayer] = []
         for entry in catalogue.entries(chapter, only=only):
@@ -518,14 +536,4 @@ def standalone_project(gpkg: Path, chapter_groups: Dict[str, str], log=None,
         add_group(project, title, rasters, visible=False)
         if log:
             log.info(f"{title}: {len(rasters)} WMS-lagen")
-    for title, names in GPKG_GROUPS:
-        group_layers: List[QgsMapLayer] = []
-        for name in names:
-            layer = gpkg_layer(gpkg, name)
-            if not layer.isValid():
-                if log:
-                    log.warning(f"Laag {name} staat niet in {gpkg.name}; overgeslagen")
-                continue
-            group_layers.append(style_by_name(layer, log))
-        add_group(project, title, group_layers)
     return project, dropped

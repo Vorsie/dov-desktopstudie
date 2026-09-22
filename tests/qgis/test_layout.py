@@ -595,7 +595,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     lines = []
     result = _quartair_result(gent_zone, ["22026", "22010", "22026", "22098"])
 
-    images = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+    images, _unpublished = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
                                                Log("layout", lines.append, scope="qgis"))
 
     # Een kopstrook per profieltype, en de eenhedentabel een keer voor het hele kaartblad.
@@ -607,9 +607,11 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     # binnenkwam; die kop staat al op de legendapagina.
     assert images[sheet_image_key("22")].read_bytes() != blob
     assert len(asked) == 3, "hetzelfde profieltype wordt niet twee keer opgehaald"
-    # Dezelfde korte adem als een gewone legenda: een dienst die plat ligt mag het rapport geen
-    # drie volle minuten kosten.
-    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
+    # Ruimer dan een GetLegendGraphic-stempel, want dit is een bestand uit een documentportaal:
+    # 168 kB haalt vijftien seconden op een trage dag niet. Wel begrensd - een dienst die plat
+    # ligt mag het rapport geen drie volle minuten kosten.
+    assert asked[0][1:] == (layout.DRAWING_TIMEOUT_S, layout.LEGEND_RETRIES)
+    assert layout.DRAWING_TIMEOUT_S > layout.LEGEND_TIMEOUT_S
     assert any("WARNING" in line for line in lines), lines
 
 
@@ -629,7 +631,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     header = QImage(str(images[profile_image_key("22026")]))
@@ -656,7 +658,7 @@ def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     whole = QImage(str(tmp_path / "bron.png"))
@@ -684,7 +686,7 @@ def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_p
             asked.append(cache_mode)
             return b"<html><body>DSpace</body></html>" if len(asked) == 1 else blob
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images
@@ -701,7 +703,7 @@ def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path,
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return b"<html><body>Service unavailable</body></html>"
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert images == {}
@@ -718,7 +720,33 @@ def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_
             raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
 
     assert layout.prepare_zone_legend_images(
-        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == {}
+        StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == ({}, set())
+
+
+def test_a_profile_type_the_wfs_gives_no_drawing_link_for_counts_as_unpublished(gent_zone, tmp_path):
+    """Het rapport sprak zichzelf tegen: onder de kaart stond "tekening niet opgehaald - zie
+    hoofdstuk Bronnen" terwijl de Feiten "Bronnen niet beschikbaar: 0" zeiden en hoofdstuk Bronnen
+    er geen regel over had. De WFS gaf voor dat profieltype namelijk geen enkele link, dus werd er
+    ook nooit iets opgehaald en viel er niets te melden. Geen link is hetzelfde feit als een
+    niet-gevonden-pagina: DOV publiceert hier geen tekening."""
+    from desktopstudie.core.model import MapFact, StudyResult
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import layout
+    from tests import quartair
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            raise AssertionError(f"er is geen link, en toch gevraagd: {url}")
+
+    result = StudyResult(zone=gent_zone, created_at="t")
+    result.map_facts = [MapFact("quartair", quartair.TITLE,
+                                [{"profieltype": "13064", "legende": None}])]
+
+    images, unpublished = layout.prepare_zone_legend_images(result, tmp_path,
+                                                            _Client(cache_dir=None))
+
+    assert images == {}
+    assert unpublished == {"13064"}
 
 
 # --- overige pagina's ------------------------------------------------------------------------
@@ -1109,6 +1137,42 @@ def test_a_table_without_rows_prints_its_reason_and_no_empty_header(project, gen
     texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
     assert "Geen kaarteenheden binnen de zone." in texts
     assert _items_of(lay, 1, QgsLayoutFrame) == [], "geen tabelkader zonder rijen"
+
+
+def test_a_zone_legend_never_prints_a_header_with_nothing_under_it(project, gent_zone, tmp_path):
+    """Onder "Legenda voor de zone - Krimp-zwelgevoelige gronden" stond een enkele kopcel
+    "Gevoeligheidsklasse" en geen regel eronder; de regel zelf stond op het blad erna.
+
+    De tabel had haar rij wel degelijk - `map_facts` droeg klasse 2 en de signalering noemde ze -
+    maar er was onder de kaart net geen plaats meer voor kop EN rij, en dan splitst de tabel na de
+    kop. Een kop zonder rij is een tabel die doet alsof er iets komt, precies wat een lege tabel
+    elders al niet meer mag. Past de eerste rij er niet bij, dan gaat de hele legenda mee naar het
+    vervolgblad.
+    """
+    from qgis.core import QgsLayoutFrame, QgsLayoutUtils
+
+    from desktopstudie.core.report_content import MapPage, TablePage, TextPage
+    from desktopstudie.qgis import layout
+
+    page = MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False, scale=25000,
+                   extent_factor=3.0)
+    page.zone_legend = TablePage("Legenda voor de zone - Krimp-zwelgevoelige gronden",
+                                 ["Gevoeligheidsklasse"], [["laag [2]"]])
+    # Een leeswijzer die de ruimte onder de kaart opeet: zo ontstond het op het echte blad.
+    sentences = " ".join(["Deze kaart toont waar plastische gronden voorkomen."] * 30)
+    page.guide = TextPage("Leeswijzer", f"<p>{sentences}</p>")
+    # En de klassensleutel eronder, want zo staat het blad er in het echt bij.
+    _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
+    page.class_key = "legendas/krimp_zwel.png"
+
+    lay = layout.build_layout(project, _report([page]), {}, tmp_path, gent_zone.ring, _meta())
+
+    context = QgsLayoutUtils.createRenderContextForLayout(lay, None)
+    for index in range(lay.pageCollection().pageCount()):
+        for frame in _items_of(lay, index, QgsLayoutFrame):
+            visible = frame.multiFrame().rowsVisible(context, frame.rect().height(), 0, True,
+                                                     False)
+            assert visible >= 1, f"kop zonder rij op blad {index}"
 
 
 def test_a_table_with_rows_keeps_its_header(project, gent_zone, tmp_path):
@@ -1595,7 +1659,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
             forgotten.append(url)
             return True
 
-    images = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images, (
@@ -2514,3 +2578,81 @@ def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
     # inspringing erin gaf 3120 tekens en vijf van de vijf pogingen mislukten, dezelfde SLD zonder
     # witruimte 1905 tekens en vijf van de vijf lukten (live 2026-09-21). Ruim eronder blijven.
     assert len(with_sld) < 2500, f"GetMap van {len(with_sld)} tekens; de gateway antwoordt 502"
+
+
+def _ink_below(lay, item, page_index: int) -> int:
+    """Hoeveel donkere pixels staan er ONDER de onderrand van dit kader?
+
+    Gemeten aan het gerenderde blad. Een infovak dat zijn tekst niet kan houden laat de laatste
+    regel op en door zijn eigen rand lopen, en dat is precies wat de gebruiker op papier zag.
+    """
+    import numpy as np
+    from qgis.core import QgsLayoutExporter
+    from qgis.PyQt.QtCore import QSize
+
+    image = QgsLayoutExporter(lay).renderPageToImage(page_index, QSize(), 300)
+    page = lay.pageCollection().page(page_index)
+    px_per_mm = image.width() / page.pageSize().width()
+    raw = image.convertToFormat(image.format())
+    buffer = raw.constBits()
+    buffer.setsize(raw.height() * raw.bytesPerLine())
+    arr = np.frombuffer(bytes(buffer), dtype=np.uint8).reshape(
+        raw.height(), raw.bytesPerLine() // 4, 4)[:, :raw.width(), :3].mean(axis=2)
+
+    origin = lay.pageCollection().page(page_index).pos()
+    left = int((item.pos().x()) * px_per_mm)
+    right = int((item.pos().x() + item.rect().width()) * px_per_mm)
+    bottom = int((item.pos().y() - origin.y() + item.rect().height()) * px_per_mm)
+    below = arr[bottom + 2:bottom + int(4 * px_per_mm), left + 2:right - 2]
+    return int((below < 128).sum())
+
+
+def test_an_info_box_holds_its_own_text(make_layout, tmp_path):
+    """De laatste regel van het rechtsonder infovak ("opgehaald 2026-09-21") stond op en door de
+    onderrand, en de regel erboven raakte hem al: het vak wordt op een vaste hoogte getekend
+    terwijl de inhoud vier regels is zodra de licentieregel afbreekt. Het vak krijgt de hoogte
+    die zijn tekst nodig heeft - zelfde breedte, zelfde hoek, alleen de hoogte volgt - en de
+    lettergrootte blijft, want het gaat net om leesbaarheid op papier."""
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.qgis import layout as layout_mod
+
+    # De drie gevallen die er toe doen: een korte bronvermelding (GRB), de lange DOV-licentie die
+    # afbreekt, en een lange kaarttitel die in het bovenste vak afbreekt.
+    lay = make_layout(pages=[
+        MapPage("grb", "Overzicht", scale=5000),
+        MapPage("bodemkaart", "Bodemkaart van Vlaanderen", scale=10000),
+        MapPage("watertoets_pluviaal",
+                "Watertoets - overstromingsgevoelige gebieden pluviaal", scale=10000)])
+    boxes = [item for item in lay.items()
+             if isinstance(item, layout_mod.QgsLayoutItemLabel) and item.frameEnabled()]
+    assert boxes, "de kaartbladen dragen infovakken"
+
+    for box in boxes:
+        assert _ink_below(lay, box, box.page()) == 0, (
+            f"tekst onder de rand van het vak: {box.text()!r}")
+
+
+def test_the_class_key_of_a_map_stands_under_that_map(make_layout, tmp_path):
+    """Een kaart die een veld van klassen is, draagt de sleutel van de dienst onder haar eigen
+    kader - niet op een legendablad, want die bladen worden niet gedrukt. Zonder opgehaalde
+    sleutel staat er geen plaatje: een zelf getekende sleutel zou de kaart erboven tegenspreken."""
+    from qgis.core import QgsLayoutItemLabel, QgsLayoutItemPicture
+
+    from desktopstudie.core.report_content import MapPage
+
+    _png(tmp_path / "legendas" / "krimp_zwel.png", 111, 184)
+    page = MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False, scale=25000,
+                   extent_factor=3.0, class_key="legendas/krimp_zwel.png")
+
+    lay = make_layout(pages=[page])
+
+    key = next(p for p in _items_of(lay, 1, QgsLayoutItemPicture)
+               if p.picturePath().endswith("krimp_zwel.png"))
+    assert key.pagePositionWithUnits().y() > _bottom_of(_map_item(lay, 1))
+    texts = " ".join(item.text() for item in _items_of(lay, 1, QgsLayoutItemLabel))
+    assert "Klassen" in texts
+
+    bare = make_layout(pages=[MapPage(MAP_ID, "Krimp-zwelgevoelige gronden", legend=False,
+                                      scale=25000, extent_factor=3.0)])
+    assert not [p for p in _items_of(bare, 1, QgsLayoutItemPicture)
+                if "krimp_zwel" in p.picturePath()]

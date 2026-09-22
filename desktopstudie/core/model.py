@@ -5,6 +5,7 @@ import dataclasses
 import datetime as dt
 import json
 import pathlib
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -74,6 +75,45 @@ class Provenance:
     retrieved_at: str
     ok: bool = True
     message: str = ""
+
+
+# Waarom een Python-foutmelding nooit in het rapport mag: `study.guarded` bewaart de tekst van de
+# uitzondering, met klassenaam en al, zodat het log en studie.json weten wat er precies misging.
+# Diezelfde tekst kwam ongefilterd op papier terecht ("[Errno 11001] getaddrinfo failed"), en wie
+# een geotechnische studie leest komt geen errno tegen. Vertaald wordt er hier, aan de rand naar
+# het rapport: de rauwe tekst blijft staan waar ze thuishoort.
+#
+# Toelaten in plaats van verbieden, net als bij de woordenschat van de boorbeschrijvingen: een
+# bericht ZONDER klassenaam ervoor is door de plugin zelf geschreven, voor de lezer, en gaat
+# ongewijzigd door. Alles met een klassenaam ervoor is ontwikkelaarstaal en krijgt een van de
+# zinnen hieronder - ook een uitzondering die nog niemand heeft gezien.
+EXCEPTION_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(Error|Exception|Cancelled|Source):\s")
+# Waaraan een onbereikbare dienst te herkennen is, in de woorden van de uitzondering zelf.
+UNREACHABLE_MARKS = ("getaddrinfo", "name or service not known", "temporary failure in name",
+                     "connection refused", "connection reset", "connection aborted",
+                     "timed out", "timeout", "netwerkfout", "unreachable", "ssl", "certificate")
+HTTP_STATUS = re.compile(r"\bHTTP\s+(\d{3})\b")
+UNREACHABLE = "de dienst was niet bereikbaar"
+REFUSED = "de dienst antwoordde met foutcode HTTP {status}"
+UNEXPECTED = "de dienst antwoordde niet zoals verwacht"
+
+
+def plain_reason(message: str) -> str:
+    """Wat er in het rapport staat over een bron die niet gelukt is.
+
+    De technische tekst blijft in `Provenance.message`, in studie.json en in het log; dit is wat
+    een lezer ervan te zien krijgt.
+    """
+    text = message.strip()
+    if not text or not EXCEPTION_PREFIX.match(text):
+        return text
+    lowered = text.lower()
+    status = HTTP_STATUS.search(text)
+    if status is not None:
+        return REFUSED.format(status=status.group(1))
+    if any(mark in lowered for mark in UNREACHABLE_MARKS):
+        return UNREACHABLE
+    return UNEXPECTED
 
 
 @dataclass

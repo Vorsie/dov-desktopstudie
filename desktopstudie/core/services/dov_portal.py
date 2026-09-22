@@ -44,6 +44,26 @@ def file_name_of(url: str) -> str:
     return last
 
 
+# Wat een portaalpagina zegt als het gevraagde document er niet is. Op de inhoud gelezen en niet
+# op de HTTP-status: DSpace antwoordt 200 op een "niet gevonden"-pagina, dus de status zegt niets.
+NOT_FOUND_MARKS = ("not found", "404", "niet gevonden", "does not exist")
+
+
+def says_not_found(page: bytes) -> bool:
+    """Of deze portaalpagina meldt dat er niets te vinden is.
+
+    Het verschil is voor de lezer: "DOV publiceert hiervoor geen tekening" is een feit over de
+    bron, "tekening niet opgehaald" klinkt als iets dat een tweede poging verdient. Een pagina met
+    een downloadlink erin is nooit een niet-gevonden-pagina, hoe vaak het woord er ook in staat.
+    """
+    if page.startswith(PNG_MAGIC):
+        return False
+    text = page.decode("utf-8", "replace").lower()
+    if CONTENT_HREF.search(text):
+        return False
+    return any(mark in text for mark in NOT_FOUND_MARKS)
+
+
 def content_link(page: bytes, url: str) -> Optional[str]:
     """De directe link naar het bestand dat `url` vraagt, gelezen uit de portaalpagina zelf.
 

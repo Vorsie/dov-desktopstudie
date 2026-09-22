@@ -95,10 +95,47 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 - **Layout-maten altijd via `compat.point_mm`/`size_mm`** (nooit `QgsUnitTypes.LayoutMillimeters`);
   **WMS/WCS-URI's alleen met live geverifieerde laag-, stijl- en formaatnamen** (`gxg:gxg` en
   `pfas:no_regret_zones` zijn stijlen, WCS-formaat is `GeoTIFF`).
+- **Een grofmazige coverage antwoordt NIETS op een fijne GetFeatureInfo.** Vraag je een raster met
+  cellen van 100 m op een meter per beeldpunt (101 pixels over 100 m), dan geeft GeoServer een
+  lege FeatureCollection terug: geen fout, geen melding, gewoon nul objecten - en in het rapport
+  leest dat als "de kaart zegt hier niets" boven een kaart die er wel degelijk een klasse tekent.
+  Gemeten op `plastische_gronden:krimp_zwel` (2026-09-21, drie punten tegelijk): nul op 1,0 en
+  2,0 m per beeldpunt, vanaf 3,0 m per beeldpunt de klasse die de kaart daar tekent. Niet de
+  WMS-versie en niet de doos: alleen de RESOLUTIE (dezelfde doos van 500 m antwoordt op 45 m/px
+  wel en op 1 m/px niet). Grover vragen mag geen standaard worden - op 9 m/px middelt een fijne
+  kaart buurcellen mee en verschuift de GLG van 3,54 naar 3,52 m - dus zegt de kaart zelf hoe grof
+  ze bevraagd wil worden (`MapEntry.gfi_m_per_pixel`, `wms_gfi._grid`).
+- **Een naburig feature type is niet de kaart.** De krimp-zwelkaart haalde haar feiten bij
+  `plastische_gronden:IndexPlastisch`, wat klinkt als de index van dezelfde kaart maar een index
+  van beoordeelde G3Dv3-eenheden is. Ze antwoordde alleen waar zo'n eenheid ligt, en dus zweeg het
+  rapport op een plek waar de kaart klasse 4 (hoog) tekent. Staat de waarde OP de kaart, vraag dan
+  de kaart (`fact_mode="gfi"`) - en controleer een nieuw feitveld altijd tegen wat de kaart op
+  dezelfde plek tekent, niet alleen tegen het feit dat er een rij terugkomt.
+- **`MapEntry.opacity` bereikt het gedrukte blad alleen via `backdrop`.** `layout._over_backdrop`
+  is de enige plek die haar toepast; een kaart zonder ondergrond krijgt de PNG van de dienst
+  ongewijzigd op het blad. Een doorzichtigheid in de catalogus zonder `backdrop=True` is dus een
+  stille no-op op papier (ze dimt alleen de laag in `studie.qgz`).
+- **Geen Python-foutmelding in rapporttekst.** `study.guarded` bewaart de tekst van de uitzondering
+  met klassenaam en al - dat hoort zo, log en `studie.json` hebben die nodig - maar het rapport
+  krijgt `model.plain_reason`: een bericht met een klassenaam ervoor is ontwikkelaarstaal en wordt
+  een van drie zinnen ("de dienst was niet bereikbaar", "... foutcode HTTP 502", "... niet zoals
+  verwacht"); een bericht zonder klassenaam is door de plugin zelf voor de lezer geschreven en
+  gaat ongewijzigd door. Beide randen gebruiken het: `checks.check_sources` en
+  `report_content._status`. Bewaakt door `test_no_report_text_shows_a_python_error`.
 - **Tekst in een layout via `QgsTextFormat`, niet via `setFont`.** `QgsLayoutItemLabel.setFont`,
   `QgsLayoutTable.setContentFont` en `setHeaderFont` zijn in 3.34 al `SIP_DEPRECATED` en verdwijnen
   in 4.x; `setTextFormat`/`setContentTextFormat`/`setHeaderTextFormat` blijven. Een `QgsTextFormat`
   draagt zijn eigen grootte: de puntgrootte op de `QFont` kiest alleen het lettertype.
+- **Een `QgsTextFormat` zonder `QFont` kiest zijn eigen lettertype.** Zet het altijd via
+  `compat.house_font`: die legt de huisreeks (Arial, Liberation Sans, DejaVu Sans) op de `QFont`
+  en gebruikt `setFamilies` waar dat bestaat, zodat elke machine de eerste neemt die ze heeft. Een
+  format dat het overslaat, erft wat de renderer toevallig oplevert, en dat is onder `offscreen`
+  niet hetzelfde als in de layout: `layers._label_format` deed dat en tekende de boornaam
+  `kb12d37w-B19` op de overzichtskaart met vreemde tekens in plaats van `w-`, terwijl diezelfde
+  boring twee bladen verder in de tabel wel klopte. De layouttekst ging altijd al door de huisreeks,
+  de kaartlabels niet, en die twee staan op hetzelfde blad naast elkaar. Dit is niet hetzelfde als
+  de ontbrekende `QT_QPA_FONTDIR` hieronder: die maakt van elke letter een blokje, dit vervangt er
+  een paar - je ziet het pas als je een naam teken voor teken tegen de tabel legt.
 - **`QgsPrintLayout.initializeDefaults()` legt pagina 0 LIGGEND neer.** Het rapport is van kaft tot
   kaft staand A4, dus pagina 0 moet expliciet op `Orientation.Portrait` worden gezet. Gebeurt dat
   niet, dan valt op het titelblad alles onder 210 mm (inhoudsopgave, disclaimer) van het papier -
@@ -661,6 +698,15 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   _wait_until` spoelt de `DeferredDelete`-events door na het wachten.
 - Uitvoer van testruns hoort in `uitvoer/` (genegeerd door git).
 - Figuren visueel controleren: `python scripts/render_figures.py` → `uitvoer/figuren_check/`.
+- **Zoek bugs op plaatsen die niemand gekozen heeft: `scripts/random_study.py`.** Alles wat we
+  renderden was Gent, en de twee ergste meldingen kwamen van een gebruiker die ergens anders keek.
+  Het script prikt een willekeurig punt in Vlaanderen (getoetst aan `VRBG:Refgem`, dus geen zee en
+  geen Nederland), draait er een volledige studie en kijkt het resultaat daarna zelf na: bladen
+  onder 2 % inkt, een kaart die niets tekent, een kaart die WEL iets tekent maar geen feitenrij
+  oplevert (dat was de GHG-bug), en opmerkingsregels die in ruis verzuipen (dat was de andere).
+  Elke bevinding is een regel met run, plaats en bladnummer; de seed staat erbij zodat een reeks
+  exact te herhalen is. Haperende diensten staan apart van echte bevindingen - een timeout bij DOV
+  is geen fout van ons, en een run met alleen haperingen slaagt.
 
 ## Bekende architecturale schuld
 

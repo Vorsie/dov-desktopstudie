@@ -247,14 +247,22 @@ GUIDE_EROSIE = (
     "streepje betekent dat het perceel geen klasse heeft. "
     "De kaart bestaat alleen voor landbouwpercelen, dus een zone zonder percelen levert geen "
     "rijen op.")
+# De klassen van de dienst, in haar eigen woorden: de GetLegendGraphic van `krimp_zwel` noemt
+# 0 (niet-ingedeeld), 1 (zeer laag), 2 (laag), 3 (matig), 4 (hoog) en 5 (zeer hoog)
+# (live gelezen 2026-09-21).
+KRIMP_ZWEL_FIELD = "Categorie_gevoeligheid"
+# Het rooster van de kaart is 100 m; tien meter per beeldpunt is grof genoeg om een
+# antwoord te krijgen en fijn genoeg om binnen de zone te blijven.
+KRIMP_ZWEL_M_PER_PIXEL = 10.0
+KRIMP_ZWEL_CLASSES = {"0": "niet-ingedeeld", "1": "zeer laag", "2": "laag", "3": "matig",
+                      "4": "hoog", "5": "zeer hoog"}
 GUIDE_KRIMP_ZWEL = (
     "Deze kaart toont waar plastische gronden voorkomen: klei- en silthoudende lagen die uitzetten "
     "als ze nat worden en krimpen als ze uitdrogen. "
     "Die beweging kan funderingen en verhardingen doen scheuren, vooral bij ondiep funderen. "
-    "De kolom Hoofdlithologie zegt waaruit de laag hoofdzakelijk bestaat: klei of silt is "
-    "gevoelig, grind en zand niet. "
-    "Eenheid en code benoemen de geologische laag uit het model G3Dv3 waarop de beoordeling "
-    "slaat.")
+    "De dienst deelt elke plek in een klasse in: 0 niet-ingedeeld, 1 zeer laag, 2 laag, 3 matig, "
+    "4 hoog en 5 zeer hoog. De tabel onder de kaart geeft de klasse op het representatieve punt "
+    "en op de rand van de zone; ligt de zone over twee klassen, dan staan ze er allebei.")
 GUIDE_PFAS = (
     "Deze kaart toont de zones waarvoor de Vlaamse overheid no-regretmaatregelen rond "
     "PFAS-verontreiniging heeft afgekondigd. "
@@ -320,6 +328,14 @@ class MapEntry:
     # one (live, both services and both formats, 2026-09-17). Asked in the wrong format a map
     # fails with "geen van de punten antwoordde" and arrives without a number.
     gfi_format: str = "application/geo+json"
+    # How COARSE this coverage wants its point query, in metres per pixel. A raster on a 100 m grid
+    # answers a GetFeatureInfo posed at one metre per pixel with an empty FeatureCollection - no
+    # error, just nothing - and the report then says the map is silent over a map that plainly
+    # draws a class (krimp_zwel: nothing at 1 and 2 m/px, class 2, 4 and 1 from 3 m/px upwards on
+    # three points, live 2026-09-21). 0 keeps the fine grid, which is what a fine coverage needs:
+    # asked at nine metres per pixel the GLG point moves from 3,54 to 3,52 m because neighbouring
+    # cells average in. So only the coarse ones say so.
+    gfi_m_per_pixel: float = 0.0
     # How far around the zone a WFS fact query looks. None means "whatever overlaps the zone",
     # which is right for a map of areas. A map of LINES needs a radius instead: the isopachs of
     # the Quaternary are contour lines, and an overlap test against a zone of fifty metres never
@@ -332,11 +348,17 @@ class MapEntry:
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
-    # Paint this map OVER the base map instead of on white paper. True for a theme that covers a
-    # few percent of the sheet at most - the landslides, the flood classes, PFAS - because on its
-    # own such a sheet is a white rectangle with a red circle on it and nothing to place it by.
-    # False for a map that fills the extent itself (bodemkaart, Tertiair): a backdrop under that
-    # one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    # Paint this map OVER the base map instead of on white paper. True where the reader will SEE
+    # that base map. Two ways that happens. A theme that covers a few percent of the sheet at most
+    # - the landslides, the flood classes, PFAS - because on its own such a sheet is a white
+    # rectangle with a red circle on it and nothing to place it by. Or a theme that fills the whole
+    # sheet but is drawn translucent enough to read through: krimp_zwel is six classes in big
+    # blocks, and without streets under it there is nothing to hang them on.
+    # False for a map that fills the extent and is drawn solid (bodemkaart, Tertiair): a backdrop
+    # under that one is work nobody ever sees. Measured per map on the Gent extent, 2026-09-17.
+    # `opacity` only reaches the PRINTED sheet through this flag - `layout._over_backdrop` is what
+    # applies it - so on a map without a backdrop the page gets the service's own PNG untouched
+    # and an opacity in the catalogue does nothing there but dim the layer in studie.qgz.
     backdrop: bool = False
     # This map's legend is a continuous colour bar, not a list of classes: it belongs under the map
     # as a strip (`report_content.ColourRamp`), where a sheet of its own would be a sheet holding a
@@ -346,6 +368,12 @@ class MapEntry:
     # maximum at the top, the groundwater depths their minimum; on paper both have to run small to
     # large from left to right, so one of the two is turned the other way (`layout.ramp_strip`).
     ramp_low_at_top: bool = False
+    # This map's legend is a SHORT list of classes and the map is a field of those classes: the
+    # service's own GetLegendGraphic is then the only thing that says which colour is which class,
+    # and it belongs under the map (`report_content.MapPage.class_key`). Not a legend page: those
+    # are switched off, and a map whose colours mean nothing without a key is not helped by a key
+    # on a sheet the report does not print.
+    class_key: bool = False
     note: str = ""
     # Three to five sentences telling the reader how to read this map's codes, printed as a
     # "Leeswijzer" page behind the map. Empty for a map that needs none (a historical photo).
@@ -385,14 +413,22 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          legend: bool = True, opacity: float = 0.7, labels: Optional[Dict[str, Dict[str, str]]] = None,
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
-         empty_meaning: str = "", sld_body: str = "") -> MapEntry:
+         empty_meaning: str = "", sld_body: str = "", gfi: str = "",
+         class_key: bool = False, gfi_m_per_pixel: float = 0.0) -> MapEntry:
+    """One DOV map. `wfs` asks a separate feature type for the facts; `gfi` (an INFO_FORMAT) asks
+    the drawn map itself. A map whose value IS the colour has to use `gfi`: a neighbouring feature
+    type can be an index of something else entirely and then answers nothing where the map is
+    perfectly clear."""
     url, name = dov_wms(layer)
     return MapEntry(id=map_id, chapter="geologie", title=title, wms_url=url, wms_layer=name,
                     attribution="Databank Ondergrond Vlaanderen (DOV)", wms_style=style, licence=DOV_LICENCE,
-                    legend=legend, opacity=opacity, fact_mode="wfs" if wfs else None, wfs_typename=wfs,
+                    legend=legend, opacity=opacity,
+                    fact_mode="wfs" if wfs else ("gfi" if gfi else None),
+                    gfi_format=gfi or MapEntry.gfi_format, wfs_typename=wfs,
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
-                    empty_meaning=empty_meaning, sld_body=sld_body)
+                    empty_meaning=empty_meaning, sld_body=sld_body, class_key=class_key,
+                    gfi_m_per_pixel=gfi_m_per_pixel)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -498,7 +534,9 @@ CATALOGUE: List[MapEntry] = [
          field_labels={"Dikte_Quartair_m": "Dikte Quartair (m)",
                        DISTANCE_FIELD: "Afstand tot de zone (m)"},
          guide=GUIDE_QUARTAIR_DIKTE, scale=25000, backdrop=True, within_m=2000.0,
-         sld_body=ISOPACH_SLD),
+         sld_body=ISOPACH_SLD,
+         empty_meaning="De isopachenkartering 1/50 000 dekt deze locatie niet; er ligt geen "
+                       "contour in het kaartbeeld."),
     _dov("tertiair", "Tertiairgeologische kaart 1/50 000", "neo_paleo:tertiair_50k",
          ("code", "formatie", "lid", "beschrijving"), wfs="neo_paleo:tertiair_50k",
          field_labels={"code": "Code", "formatie": "Formatie", "lid": "Lid", "beschrijving": "Beschrijving"},
@@ -547,10 +585,17 @@ CATALOGUE: List[MapEntry] = [
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          field_labels={"Erosieklasse_ALV": "Erosieklasse", "Totale_erosie": "Totale erosie"},
          guide=GUIDE_EROSIE, scale=10000, backdrop=True),
+    # De klasse staat op de kaart zelf (`Categorie_gevoeligheid`), niet in `IndexPlastisch`: die
+    # index noemt de beoordeelde G3Dv3-eenheden en antwoordt alleen waar zo'n eenheid ligt. Met de
+    # index zweeg het rapport in Brugge, waar de kaart klasse 4 (hoog) tekent. DOV's GeoServer
+    # antwoordt hier in `application/json`; op `application/geo+json` geeft ze een
+    # ServiceExceptionReport (live 2026-09-21).
     _dov("krimp_zwel", "Krimp-zwelgevoelige gronden (plastische gronden)", "plastische_gronden:krimp_zwel",
-         ("Eenheid_G3Dv3_0", "hoofdlithologie", "code_G3Dv3_0"), wfs="plastische_gronden:IndexPlastisch",
-         field_labels={"Eenheid_G3Dv3_0": "Eenheid", "hoofdlithologie": "Hoofdlithologie",
-                       "code_G3Dv3_0": "Code"}, guide=GUIDE_KRIMP_ZWEL, scale=25000),
+         (KRIMP_ZWEL_FIELD,), gfi="application/json", legend=False,
+         labels={KRIMP_ZWEL_FIELD: KRIMP_ZWEL_CLASSES},
+         field_labels={KRIMP_ZWEL_FIELD: "Gevoeligheidsklasse"},
+         guide=GUIDE_KRIMP_ZWEL, class_key=True, backdrop=True, opacity=0.6,
+         gfi_m_per_pixel=KRIMP_ZWEL_M_PER_PIXEL, scale=35000),
     _dov("ovam", "OVAM - uitspraak bodemonderzoeken", "ovam:uitspraak_bodemonderzoeken",
          ("kadaster_id", "uitspraak", "risico_inrichting", "onder_voorbehoud"), wfs="ovam:uitspraak_bodemonderzoeken",
          field_labels={"kadaster_id": "Perceel", "uitspraak": "Uitspraak",

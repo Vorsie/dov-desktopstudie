@@ -35,7 +35,6 @@ def _client():
         ("typeNames=hcov", "wfs_hcov_0100_vk_intersects.json"),
         ("typeNames=gw_bescherming", "wfs_gwkwb_kwbschaal_intersects.json"),
         ("typeNames=ovam", "wfs_ovam_uitspraak_intersects.json"),
-        ("typeNames=plastische_gronden", "wfs_indexplastisch_intersects.json"),
         ("typeNames=erosie", "wfs_erosie_2014_intersects.json"),
         ("typeNames=grondverschuivingen%3Agrndversch_gevoeligh", "wfs_grndversch_gevoeligh_intersects.json"),
         ("typeNames=grondverschuivingen%3Agrndversch_gekarteerd", "wfs_grndversch_gekarteerd_intersects.json"),
@@ -50,6 +49,7 @@ def _client():
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
         ("gebieden_fluviaal", "watertoets_fluviaal_hit.json"),
         ("gebieden_pluviaal", "watertoets_pluviaal_empty.json"),
+        ("query_layers=krimp_zwel", "gfi_krimp_zwel_hit.json"),
         ("ghg_mmv_main", "gxg_ghg_hit.json"),
         ("glg_mmv_main", "gxg_glg_hit.json"),
     ])
@@ -474,3 +474,58 @@ def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
     assert [row["Dikte_Quartair_m"] for row in rows] == [15, 20], "dichtstbij eerst"
     assert rows[0][catalogue.DISTANCE_FIELD] == 100
     assert any("zonder geometrie" in line and "WARNING" in line for line in lines)
+
+
+def test_a_point_that_answers_nothing_is_not_an_answer(gent_ring):
+    """"er staat voor GHG en GLG geen waarde op dit punt maar er zijn duidelijk waarden op de
+    kaart binnen de polygoon". De dienst antwoordt op een nodata-pixel niet met nul objecten maar
+    met een object waarvan elk veld None is. Zo'n rij werd bewaard, en viel ze op het
+    representatieve punt, dan las het rapport "geen waarde op dit punt" terwijl de punten ernaast
+    wel een waarde hebben. Een antwoord zonder waarde is geen antwoord."""
+    from desktopstudie.core import catalogue, study
+    from desktopstudie.core.model import StudyZone
+
+    entry = catalogue.by_id("gxg_ghg")
+    answers = {0: [{"GHG-waarde_m-mv": None, "Standaardafwijking_GHG_m": None,
+                    "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": None,
+                    "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": None}],
+               2: [{"GHG-waarde_m-mv": 0.34, "Standaardafwijking_GHG_m": 0.63,
+                    "Onderkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 0.0,
+                    "Bovenkant_80_procent_betrouwbaarheidsinterval_GHG_m-mv": 1.21}]}
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.zone = StudyZone(ring=gent_ring, name="z")
+    runner.s = study.Settings()
+    runner.log = Log("test", sink=lambda _line: None)
+    runner.client = None
+    runner._load_each = lambda items, load, label, max_workers=4: _run_each(items, load)
+
+    import desktopstudie.core.services.wms_gfi as wms_gfi
+
+    real = wms_gfi.feature_info_at_point
+    calls = {"n": 0}
+
+    def fake(_client, _url, _layer, x, y, **_kw):
+        index = calls["n"]
+        calls["n"] += 1
+        return answers.get(index, [])
+
+    wms_gfi.feature_info_at_point = fake
+    try:
+        rows = runner._gfi_rows(entry)
+    finally:
+        wms_gfi.feature_info_at_point = real
+
+    assert rows, "de punten die wel antwoordden horen te blijven"
+    assert rows[0]["GHG-waarde_m-mv"] == 0.34
+    assert rows[0][catalogue.POINT_FIELD] == 2, "en het rapport noemt welk punt dat was"
+
+
+def _run_each(items, load):
+    failed = 0
+    for item in items:
+        try:
+            load(item)
+        except Exception:  # noqa: BLE001
+            failed += 1
+    return failed

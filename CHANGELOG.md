@@ -2,6 +2,106 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [0.3.0] - 2026-09-22
+
+Tweede gebruikersronde. De Locatie-tab zegt wat ze ziet, de lagenboom zet het eigen werk bovenaan,
+en drie willekeurige studies per ronde zoeken de fouten die Gent nooit laat zien.
+
+### Toegevoegd
+- **Willekeurige studies als zoekmethode** (`scripts/random_study.py`). Het script prikt punten in
+  Vlaanderen, bevestigt elk punt tegen `VRBG:Refgem` zodat de plek een gemeentenaam heeft, draait
+  er een volledige studie op en leest daarna het eigen resultaat na: blanco bladen (minder dan 2 %
+  inkt), kaarten die wel tekenen maar geen enkel feit opleveren, opmerkingsregels met te veel
+  termen of met ruiswoorden, en bladen zonder titel. De seed wordt geprint, zodat een reeks te
+  herhalen is (`--seed`). Gent is een stad met alles erop en eraan; de fouten die deze ronde boven
+  kwamen - een verminkte boornaam, een leeg isopachenblad, een profieltype waarvoor DOV niets
+  publiceert - zaten alle drie ergens anders.
+- **`compat.house_font`**: de enige plek waar het rapport zijn lettertype kiest (Arial, Liberation
+  Sans, DejaVu Sans), voor layouttekst en kaartlabels samen.
+
+### Gewijzigd
+- **Eén vlak in de laag is het vlak.** Wie een laag met precies één polygoon aanwijst, hoeft niets
+  meer te selecteren. Het tabblad Locatie zegt bovendien vooraf wat het ziet - hoeveel vlakken de
+  laag heeft en welk er gekozen is - in plaats van pas na "Start" te weigeren, en een hint die bij
+  een andere modus hoort blijft niet staan als je van modus wisselt.
+- **De onderzoekszone, de snede en het grondonderzoek van DOV staan bovenaan de lagenboom**, in de
+  sessie en in `studie.qgz`; de kaartlagen van de hoofdstukken staan daaronder. Wie de kaart
+  openslaat wil zijn eigen zone zien, niet de bovenste WMS-achtergrond.
+- **Een isopachenkaart zonder dekking krijgt geen blad meer.** Ligt de locatie buiten de
+  isopachenkartering 1/50 000 en staat er geen enkele contour in beeld, dan zegt de kaart niets wat
+  de periodetabel van hoofdstuk 4 niet al zegt (daar staat de quartairdikte als getal). De zin over
+  de ontbrekende dekking verhuist naar het verzamelblad; staat hoofdstuk 4 uit, dan blijft die zin
+  er staan.
+- **De krimp-zwelkaart zegt eindelijk iets.** Ze vroeg haar feiten aan
+  `plastische_gronden:IndexPlastisch` - een index van de G3Dv3-eenheden die beoordeeld zijn, niet
+  van de gevoeligheid. Die index antwoordt alleen waar zo'n eenheid ligt, dus zweeg het rapport in
+  Brasschaat (de kaart tekent daar klasse 1) en in Brugge (klasse 4, hoog), en gaf het in Wervik
+  een eenheidsnaam in plaats van de klasse. De klasse staat op de kaart zelf
+  (`Categorie_gevoeligheid`, GetFeatureInfo in `application/json`) en staat nu in de tabel onder de
+  kaart, met de klassewoorden van de dienst erbij (laag [2]). De signalering telt niet langer het
+  aantal rijen maar de klasse: vanaf 2 een aandachtspunt, met de klasse in de regel.
+- **En ze is leesbaar getekend.** Een blad van zes kleuren zonder iets eronder liet niet zien waar
+  iets lag. De kaart krijgt de GRB-basiskaart als ondergrond, staat op 0,6 in plaats van 0,7 en
+  gaat van 1:25 000 naar 1:35 000; straten, gebouwen en de waterlopen lezen door en het patroon
+  rond de zone staat in beeld. Daaronder staat de sleutel die de dienst zelf tekent
+  (GetLegendGraphic: 0 niet-ingedeeld tot 5 zeer hoog), zodat de kleuren een naam hebben.
+  `opacity` bereikte het blad tot nu toe alleen via een ondergrond, dus de 0,7 van deze kaart deed
+  daar niets - dat staat nu bij het veld.
+- **Een grofmazige kaart wordt grofmazig bevraagd.** Het rooster van de krimp-zwelkaart is 100 m,
+  en op een meter per beeldpunt antwoordt GeoServer met nul objecten: geen fout, gewoon niets, wat
+  in het rapport leest als "de kaart zegt hier niets" boven een kaart die er wel degelijk een
+  klasse tekent. Vanaf drie meter per beeldpunt komt het antwoord (live gemeten op drie punten).
+  De kaart zegt zelf hoe grof ze bevraagd wil worden (`MapEntry.gfi_m_per_pixel`); de fijne
+  kaarten blijven op hun eigen rooster, want grover bevraagd verschuift de GLG van 3,54 naar
+  3,52 m.
+- **Een profieltype zonder tekeninglink heet ook "niet gepubliceerd".** Gaf de WFS geen link, dan
+  werd er niets opgehaald en dus ook niets vastgelegd - terwijl de legendaregel onder de kaart de
+  lezer naar het hoofdstuk Bronnen stuurde, waar niets over die tekening stond en de Feiten
+  "Bronnen niet beschikbaar: 0" meldden. Hetzelfde feit als een niet-gevonden-pagina, een stap
+  eerder bereikt: er valt niets te halen. De eenhedentabel van het kaartblad wordt uit diezelfde
+  tekening gesneden, dus een kaartblad waarvan het enige profieltype hier belandt krijgt ook geen
+  eenhedenblad; de regel in Bronnen verklaart nu allebei.
+- **Geen Python-foutmeldingen meer in het rapport.** "Bron niet beschikbaar: HttpError:
+  netwerkfout voor https://.../g3dv3_F: [Errno 11001] getaddrinfo failed" stond zo in het rapport
+  van een klant, zowel bij de signaleringen als in de bronnentabel. Er staat nu "de dienst was
+  niet bereikbaar", "de dienst antwoordde met foutcode HTTP 502" of "de dienst antwoordde niet
+  zoals verwacht"; de technische tekst blijft in het log en in `studie.json`. Toelaten in plaats
+  van verbieden: een bericht zonder klassenaam ervoor is door de plugin zelf voor de lezer
+  geschreven en gaat ongewijzigd door.
+- **Een tekening die DOV niet publiceert heet nu zo.** Het portaal antwoordt voor een onbestaand
+  profieltype met HTTP 200 en een DSpace-pagina die "not found" zegt; dat werd gelezen als een
+  mislukte ophaling. `dov_portal.says_not_found` herkent die pagina aan haar inhoud, niet aan haar
+  status, en zowel de legendaregel als het hoofdstuk Bronnen zeggen dan "DOV publiceert geen
+  tekening voor dit profieltype" in plaats van te suggereren dat het aan de verbinding lag.
+- **Meer geduld voor een profieltypetekening**: 30 s in plaats van de 15 s van een legenda
+  (`layout.DRAWING_TIMEOUT_S`). Het portaal levert een tekening trager dan een kaartdienst een
+  legenda, en één keer langer wachten scheelt een gemist blad. Geen eindeloze herkansing.
+- **Een bron die een hoofdstuk kort liet, noemt dat hoofdstuk.** De regel in "Niet opgehaalde
+  bronnen" zei wat er misging maar niet waar het gat viel; nu staat het hoofdstuk erbij, met het
+  advies de bron later opnieuw te raadplegen.
+- **De opmerkingsregel bij een boring is korter.** De gewone woordenschat groeide naar 839 woorden
+  en wordt nu ook per regel verbreed: kleuren en hun samenstellingen, afgeleiden op -houdend,
+  -achtig en -rijk, en oxidatie, verwering en gley gelden als gewoon. Fossiel- en soortnamen
+  (`nummulites planulatus`) zijn geen geotechnische zeldzaamheid en worden niet meer gemeld. Franse
+  vulwoorden die het corpus bleef tonen (`sable flandrien`, `végétale`, `semblable`) zijn weg. Twee
+  stammen aan elkaar zijn samen zo gewoon als apart (`zandleem`), een zandlensje is een lensje, en
+  een afgekorte formatienaam (`ieper.`) is net als een soortnaam een datumstempel - `ieperiaan`,
+  `aalter` en `asse` stonden al aan de gewone kant. Eén gebruikersregel ging van 28 termen naar 7,
+  `1508-B2023-01007-B3` van 11 naar 4, en `kb28d96e-B87` uit een willekeurige run van 12 naar 5 -
+  wat overblijft zijn turfballen, silexstukken, veen en twee typfouten van de bron zelf.
+
+### Opgelost
+- **De kaartlabels vroegen geen lettertype aan.** `layers._label_format` zette wel een grootte, een
+  kleur en een halo, maar geen `QFont`, en dan kiest de renderer er zelf een. Op de overzichtskaart
+  van hoofdstuk 5 kwam de boring `kb12d37w-B19` daardoor met vreemde tekens in plaats van `w-` uit
+  de export, terwijl dezelfde boring twee bladen verder in de tabel wel klopte. De labels gaan nu
+  door `compat.house_font`, net als alle layouttekst.
+- **Een infokader liep over zijn eigen tekst.** Het kader kreeg een vaste hoogte; een noot van vier
+  regels liep er onderuit. Het meet nu de hoogte die zijn omgebroken tekst nodig heeft.
+- **Een GetFeatureInfo-rij zonder waarden telde als antwoord.** Buiten hun dekking geven de
+  GxG-diensten een rij terug waarin elk veld leeg is. Die rij werd `rows[0]` en het rapport meldde
+  "geen waarde" waar de dienst eenvoudigweg niets weet. Zo'n rij valt nu weg.
+
 ## [0.2.0] - 2026-09-18
 
 Compactere opmaak na de eerste gebruikersronde: minder wit, minder bladen, en de virtuele boring
@@ -207,6 +307,7 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Vorsie/dov-desktopstudie/releases/tag/v0.1.0

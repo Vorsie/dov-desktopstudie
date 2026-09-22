@@ -54,6 +54,7 @@ from ..core.report_content import (
     Report,
     ReportMeta,
     build_report,
+    class_key_image_key,
     map_page_key,
     profile_image_key,
     quartair_sheet,
@@ -345,12 +346,23 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
     the layout resolves both the same way. Every drawing is a source of its own: one that did not
     come back is named in the sources chapter rather than quietly missing from the legend.
     """
-    images = layout_mod.prepare_zone_legend_images(result, out_dir, client, log.child("legendas"),
-                                                   should_cancel)
+    images, unpublished = layout_mod.prepare_zone_legend_images(
+        result, out_dir, client, log.child("legendas"), should_cancel)
     for url, code in targets.items():
         found = profile_image_key(code) in images
+        # Twee verschillende dingen. Publiceert DOV hier niets, dan is dat een feit over de bron
+        # en geldt de regel als "ok": er valt niets op te halen, en "niet opgehaald" zou de lezer
+        # aanzetten het nog eens te proberen.
+        if code in unpublished:
+            record_source(result, f"Legenda profieltype {code}", url, True,
+                          NO_DRAWING_PUBLISHED)
+            continue
         record_source(result, f"Legenda profieltype {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
+    # A type the WFS gave no link for has no URL to loop over, so it would leave the sources
+    # chapter silent while the legend line under the map points the reader straight at it.
+    for code in sorted(unpublished - set(targets.values())):
+        record_source(result, f"Legenda profieltype {code}", "", True, NO_DRAWING_PUBLISHED)
     # The units table of a map sheet is a page of its own, cut from the same drawing but by a
     # second step that can fail on its own (`crop_sheet_units` returns None). Without a line per
     # sheet, that page can disappear from the report with nothing in the sources chapter about it.
@@ -358,7 +370,8 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
         found = sheet_image_key(sheet) in images
         record_source(result, f"Eenhedentabel kaartblad {sheet}", sheet_url, found,
                       "" if found else "eenhedentabel van het kaartblad niet opgehaald of niet leesbaar")
-    return {key: path.relative_to(out_dir).as_posix() for key, path in images.items()}
+    return ({key: path.relative_to(out_dir).as_posix() for key, path in images.items()},
+            unpublished)
 
 
 def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
@@ -374,11 +387,38 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
 
 
 RAMP_SOURCE = "Kleurschaal"
+CLASS_KEY_SOURCE = "Klassensleutel"
 
 
 def _ramp_entries(result: StudyResult):
     """The catalogue entries whose legend is a colour bar, as far as this study chose them."""
     return [entry for entry in catalogue.entries(only=result.map_ids) if entry.ramp]
+
+
+def _class_key_entries(result: StudyResult):
+    """The catalogue entries whose legend is a short list of classes, as far as this study chose
+    them."""
+    return [entry for entry in catalogue.entries(only=result.map_ids) if entry.class_key]
+
+
+def _fetch_class_keys(result: StudyResult, entries, out_dir: Path, client: HttpClient,
+                      log: Log) -> Dict[str, str]:
+    """The class keys, keyed as `report_content` looks them up.
+
+    Fetched whatever the legend switch says, for the same reason as the colour strips above: a map
+    that is a field of classes says nothing at all without the key to its colours, and the key on a
+    sheet the report does not print is no key. Taken as the service draws it - swatch and class
+    name in one image - so it cannot disagree with the map above it.
+    """
+    keys: Dict[str, str] = {}
+    for entry in entries:
+        image = layout_mod.fetch_legend(entry, out_dir, client, log.child("legendas"))
+        record_source(result, f"{CLASS_KEY_SOURCE} {entry.title}",
+                      layout_mod.wms_legend_url(entry, entry.legend_options), image is not None,
+                      "" if image is not None else "klassensleutel niet opgehaald")
+        if image is not None:
+            keys[class_key_image_key(entry.id)] = Path(image).relative_to(out_dir).as_posix()
+    return keys
 
 
 def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient,
@@ -401,6 +441,7 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
     return strips
 
 
+NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
@@ -528,6 +569,7 @@ class Prepared:
     thread as data."""
     legend_images: Dict[str, Path]  # map id -> legend PNG
     zone_legend_images: Dict[str, str]  # as `build_report` wants them, relative to out_dir
+    unpublished: Set[str]  # profile types the portal says it publishes no drawing for
     map_images: Dict[str, Path]  # `map_image_key` -> PNG with its world file next to it
     no_coverage: Set[str]  # `map_image_key`s whose service drew nothing there, per framing
     requests: List[layout_mod.MapRequest]  # what was asked for, in page order
@@ -593,12 +635,17 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         legend_images = _fetch_legends(result, out_dir, client, log, should_cancel)
 
     zone_legend_images: Dict[str, str] = {}
+    unpublished: Set[str] = set()
     targets = layout_mod.zone_legend_targets(result)
-    if targets:
+    # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
+    # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
+    # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
+    if targets or layout_mod.codes_without_a_drawing(result, targets):
         _stop_if_cancelled(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
         client = client or make_client(out_dir, log, cache_mode)
-        zone_legend_images = _fetch_zone_legends(result, targets, out_dir, client, log, should_cancel)
+        zone_legend_images, unpublished = _fetch_zone_legends(result, targets, out_dir, client,
+                                                              log, should_cancel)
 
     ramp_entries = _ramp_entries(result)
     if ramp_entries:
@@ -606,6 +653,12 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
         clock.begin(0.13, "Kleurschalen")
         client = client or make_client(out_dir, log, cache_mode)
         zone_legend_images.update(_fetch_ramps(result, ramp_entries, out_dir, client, log))
+
+    key_entries = _class_key_entries(result)
+    if key_entries:
+        _stop_if_cancelled(should_cancel)
+        client = client or make_client(out_dir, log, cache_mode)
+        zone_legend_images.update(_fetch_class_keys(result, key_entries, out_dir, client, log))
 
     _stop_if_cancelled(should_cancel)
     clock.begin(0.14, "Kaartbeelden")
@@ -620,8 +673,8 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     if unavailable and log:
         log.info(f"{len(unavailable)} kaartblad(en) vervallen: geen kaartbeeld op deze locatie")
     clock.close()
-    return Prepared(legend_images, zone_legend_images, map_images, no_coverage, requests,
-                    unavailable, clock.timings)
+    return Prepared(legend_images, zone_legend_images, unpublished, map_images, no_coverage,
+                    requests, unavailable, clock.timings)
 
 
 # The PDF phase on the progress bar: from `PDF_START` to `PDF_END` the export reports per run.
@@ -675,9 +728,11 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     # layers and all, and leaves any other study in the project alone.
     owner = meta.project
     study = layers.add_group(project, study_group_name(owner), [])
-    layers_by_map = _map_layers_into_groups(project, result, log, study, should_cancel) if study_groups else {}
+    # The study's own layers first: the chapter groups of maps then append below them, and the
+    # bottom of a layer tree draws first. Added after the maps they sit behind every one of them.
     layers.add_group(project, layers.ZONE_GROUP, overlays["zone"] + overlays["section"], parent=study)
     layers.add_group(project, layers.INVESTIGATION_GROUP, overlays["investigations"], parent=study)
+    layers_by_map = _map_layers_into_groups(project, result, log, study, should_cancel) if study_groups else {}
     report_overlays = _report_overlays(project, overlays, owner)
     map_images = _snapshot_layers(project, prepared.requests, prepared.map_images, owner)
 
@@ -732,7 +787,8 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
                                   should_cancel=should_cancel, no_coverage=prepared.no_coverage,
                                   map_images=map_images,
                                   overlay_boxes=layout_mod.overlay_boxes(result),
-                                  name=layout_mod.layout_name(owner), compact=compact)
+                                  name=layout_mod.layout_name(owner), compact=compact,
+                                  unpublished=prepared.unpublished)
     _install_layout(project, lay, log)
     sheets = lay.pageCollection().pageCount()
     log.info(f"Layout: {sheets} bladen")

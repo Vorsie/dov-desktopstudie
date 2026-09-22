@@ -193,3 +193,77 @@ def test_a_material_denied_by_its_own_suffix_is_not_a_report_of_it():
     assert lithology.notable_terms([_layer(0.0, 1.0, "fijn zand, glauconietarm")]) == []
     assert [t.word for t in lithology.notable_terms(
         [_layer(0.0, 1.0, "fijn zand met glauconietkorrels")])] == ["glauconietkorrels"]
+
+
+def test_gravel_as_an_admixture_is_ordinary():
+    """"geel fijn zand met een weinig grind" - grind als bijmenging is gewone grond. Een grindLAAG
+    of grindbank blijft wel een rariteit: die draagt haar eigen woord."""
+    assert lithology.notable_terms(
+        [_layer(0.0, 1.0, "geel fijn zand met een weinig grind")]) == []
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "zand met een grindlaag")])] == ["grindlaag"]
+
+
+def test_colours_adjectives_and_plant_debris_are_ordinary():
+    """"kleuren niet vermelden, plantenresten ook niet roestkleurig ook niet, mooi schelpje? niet
+    vermelden, schelpfragment, niet vermelden, paar?" - een beschrijving van gewone grond hoort
+    geen enkele opmerking op te leveren."""
+    assert lithology.notable_terms([_layer(0.0, 1.0,
+        "donkerbruine en lichtbruine klei, fijnzandhoudend, met plantenresten, wortels, "
+        "plastisch, weinig kalkhoudend")]) == []
+    assert lithology.notable_terms([_layer(0.0, 1.0,
+        "roestkleurige kleivlekken, een mooi schelpje, een schelpfragment, een paar "
+        "verkleurende brosse plantenresten")]) == []
+
+
+def test_what_a_geotechnician_still_has_to_see_keeps_flagging():
+    """Wat hij wel wil zien blijft komen: silexkeien, veen in elke vorm, baksteen, steenbrokken."""
+    for text, expected in (
+            ("grijze klei met silexkeien", "silexkeien"),
+            ("zand met veenbrokjes", "veenbrokjes"),
+            ("aanvulling met baksteen", "baksteen"),
+            ("zand met steenbrokken", "steenbrokken"),
+            ("klei, veenhoudend", "veenhoudend")):
+        words = [t.word for t in lithology.notable_terms([_layer(0.0, 1.0, text)])]
+        assert expected in words, f"{text!r} gaf {words}"
+
+
+def test_the_plain_words_of_kb28d96e_B87_are_ordinary_ground():
+    """Een willekeurige run zette twaalf termen onder boring kb28d96e-B87. Zandleem, zavel, een
+    bouwlaag, losser zand, kwartskorrels en zandlensjes zijn gewone grond - geen van zessen zegt
+    een machinist iets wat hij nog niet wist. Wat hij wel moet zien blijft staan: turfballen en
+    silexstukken."""
+    plain = ("zwarte bruine zandleem bouwlaag, losser lemig zavel, kleiig grijs zeer fijn zand "
+             "met zandlensjes en kwartskorrels")
+    assert lithology.notable_terms([_layer(0.0, 1.0, plain)]) == []
+    words = [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "grijze leem met turfballen en silexstukken")])]
+    assert "turfballen" in words and "silexstukken" in words
+
+
+def test_a_formation_name_is_a_date_stamp_like_a_fossil_name():
+    """"ieper. klei" op hetzelfde blad: de formatienaam staat al in de laagbeschrijving en zegt,
+    net als een soortnaam, in welke formatie je staat - niet wat je zult tegenkomen. Ieperiaan,
+    Aalter, Asse, Boom en Maldegem staan al aan de gewone kant; de afgekorte vorm hoort erbij."""
+    assert lithology.notable_terms(
+        [_layer(22.5, 25.0, "grijsgroenachtige harde ieper. klei")]) == []
+
+
+def test_the_words_the_other_two_runs_flagged_are_ordinary_too():
+    """Brasschaat en Brugge leverden dezelfde soort ruis: teeltaarde is de bouwvoor onder een
+    andere naam, een zandfractie is zand, en normaal, brokkelig en substraat beschrijven gewone
+    grond. Steenpuin en zandsteen in dezelfde beschrijvingen blijven staan."""
+    assert lithology.notable_terms([_layer(0.0, 0.8, "Teeltaarde - bruin, normaal")]) == []
+    assert lithology.notable_terms(
+        [_layer(0.0, 1.0, "heterogene zware klei, bovenaan humeus, brokkelig")]) == []
+    assert lithology.notable_terms(
+        [_layer(1.2, 2.0, "roestig zand, witfijn zand, zandfractie op het substraat")]) == []
+    words = [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "steenpuin op groene klei met zandsteen")])]
+    assert "steenpuin" in words and "zandsteen" in words
+
+
+def test_one_sand_layer_is_as_ordinary_as_several():
+    """"zandlaagje" bleef staan terwijl "zandlaagjes" allang gewone grond was: het enkelvoud hoort
+    bij dezelfde regel, net als lensje bij lenzen."""
+    assert lithology.notable_terms([_layer(1.5, 1.6, "klei met een zandlaagje")]) == []

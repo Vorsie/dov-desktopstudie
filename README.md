@@ -292,6 +292,20 @@ Installatie uit die zip in een schoon profiel: `scripts\zip_check.py` op dezelfd
 `--profile zipcheck` (status in `uitvoer/zip_check/zip_status.json`; geef het `--code`-pad absoluut
 op, een relatief pad liep onder Git Bash niet).
 
+Bugs zoeken die niemand bedacht heeft: `scripts/random_study.py` kiest een willekeurig punt in
+Vlaanderen (bevestigd tegen de gemeentegrenzen van VRBG, dus geen Noordzee of Nederland), draait
+er een volledige studie en KIJKT het resultaat daarna zelf na - bijna lege bladen, een kaart die
+niets tekent, een kaart die wel iets tekent maar geen feiten oplevert, en opmerkingsregels die in
+ruis verzuipen. Elke bevinding is een regel met run, plaats en bladnummer.
+
+```
+"C:\Program Files\QGIS 3.40.15\bin\python-qgis-ltr.bat" scripts\random_study.py --aantal 3
+```
+
+Het print de seed; `--seed` herhaalt een reeks exact. Haperende diensten staan apart van echte
+bevindingen, want een timeout bij DOV is geen fout van ons. Ontwikkelaarsgereedschap: het zit niet
+in de zip en het mag minuten per run duren.
+
 CI: de kern op Python 3.9 en 3.12 (`ci.yml`), de schil in de containers `qgis/qgis:release-3_34`
 en `qgis/qgis:latest` plus één live studie voor Gent waarvan de bladen als artefact bewaard worden
 (`ci-qgis.yml`).

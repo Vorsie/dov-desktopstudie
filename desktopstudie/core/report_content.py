@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
-from .model import StudyResult
+from .model import StudyResult, plain_reason
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
@@ -109,6 +109,10 @@ class MapPage:
     guide: Optional[TextPage] = None
     zone_legend: Optional[Page] = None
     ramp: Optional[ColourRamp] = None
+    # The service's own GetLegendGraphic, relative to the output directory, for a map that is a
+    # field of classes. Empty means the shell did not get it, and then no colours are drawn at
+    # all: a key painted from guessed colours would not match the map above it.
+    class_key: str = ""
 
 
 @dataclass
@@ -377,6 +381,14 @@ def _point_name(row: Optional[Dict[str, Any]]) -> str:
     return f"punt {index} op de rand van de zone"
 
 
+def _quartair_model_layer(result: StudyResult):
+    """De Quartairlaag die het periodemodel op het representatieve punt geeft, of None."""
+    borehole = result.virtual_boreholes.get("g3dv3_P")
+    layers = [layer for layer in (borehole.layers if borehole else [])
+              if layer.name.lower().startswith(QUARTAIR_UNIT)]
+    return layers[0] if layers else None
+
+
 def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
                   entry: catalogue.MapEntry) -> str:
     """The one line the thickness map still needs under it.
@@ -391,15 +403,18 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     parts = []
     spread = sorted({float(row[THICKNESS_FIELD]) for row in rows or []
                      if row.get(THICKNESS_FIELD) is not None})
+    if not spread and _quartair_model_layer(result) is not None:
+        # Geen contour in beeld EN de dikte staat al in de periodetabel van hoofdstuk 4: dan heeft
+        # dit blad niets eigens meer te zeggen. Een lege bladzijde met een modelzin erop leest als
+        # een fout, dus valt de kaart weg en komt ze op de gebundelde pagina achteraan te staan.
+        # Ontbreekt die tabel wel, dan is deze zin het enige dat de dikte nog noemt en blijft ze.
+        return ""
     if spread:
         seen = (f"{spread[0]:.1f} tot {spread[-1]:.1f} m" if spread[0] != spread[-1]
                 else f"{spread[0]:.1f} m")
         parts.append(f"Isopachen in beeld: {seen} dikte Quartair, met de waarde op de lijn zelf.")
-    borehole = result.virtual_boreholes.get("g3dv3_P")
-    layers = [layer for layer in (borehole.layers if borehole else [])
-              if layer.name.lower().startswith(QUARTAIR_UNIT)]
-    if layers:
-        layer = layers[0]
+    layer = _quartair_model_layer(result)
+    if layer is not None:
         parts.append(f"Modelwaarde G3Dv3 op het representatieve punt: {layer.thickness_m:.2f} m "
                      f"Quartair ({layer.top_mtaw:.2f} tot {layer.base_mtaw:.2f} mTAW). "
                      f"Een modelwaarde, geen boring.")
@@ -470,11 +485,17 @@ DEM_MAP_ID = "dhmv_dtm"
 DEM_RAMP_TITLE = "Hoogte maaiveld (m TAW)"
 DEM_RAMP_MISSING = "Kleurschaal niet opgehaald; zie de leeswijzer hierna."
 RAMP_KEY = "kleurschaal"
+CLASS_KEY = "klassensleutel"
 
 
 def ramp_image_key(map_id: str) -> str:
     """How `zone_legend_images` names the colour strip the shell cut for one map."""
     return f"{RAMP_KEY}:{map_id}"
+
+
+def class_key_image_key(map_id: str) -> str:
+    """How `zone_legend_images` names the class key the shell fetched for one map."""
+    return f"{CLASS_KEY}:{map_id}"
 
 
 def _ramp_at(value: float, low: float, high: float) -> float:
@@ -629,6 +650,8 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
                        note=entry.note)
         if entry.ramp:
             page.ramp = _ramp_for(entry, result, zone_legend_images)
+        if entry.class_key:
+            page.class_key = zone_legend_images.get(class_key_image_key(entry.id), "")
         if entry.fact_mode is not None:
             page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
         # A LegendPage carries `entries`, a TablePage `rows`; either way an empty one means the
@@ -756,8 +779,8 @@ def _status(entry) -> str:
     reach the page or the reader is left with a blank map and no explanation.
     """
     if not entry.ok:
-        return f"fout: {entry.message}"
-    return f"ok - {entry.message}" if entry.message else "ok"
+        return f"fout: {plain_reason(entry.message)}"
+    return f"ok - {plain_reason(entry.message)}" if entry.message else "ok"
 
 
 # Provenance lines that describe what this study PRODUCED rather than what it consulted. They are
