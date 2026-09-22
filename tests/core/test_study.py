@@ -6,7 +6,7 @@ from typing import List, Tuple
 
 import pytest
 
-from desktopstudie.core import geometry, study
+from desktopstudie.core import geometry, parallel, study
 from desktopstudie.core.logging_util import Log
 from desktopstudie.core.model import StudyZone
 from desktopstudie.core.report_content import ReportMeta, TextPage, build_report
@@ -197,7 +197,7 @@ def test_feature_info_points_are_spread_around_the_whole_ring(tmp_path):
 
 def test_cancelling_between_stages_raises_and_writes_nothing(gent_ring, tmp_path):
     seen = []
-    with pytest.raises(study.StudyCancelled):
+    with pytest.raises(parallel.Cancelled):
         study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2), _client(),
                   tmp_path, progress=lambda f, m: seen.append(m), should_cancel=lambda: len(seen) >= 2)
     assert seen[:2] == ["Sonderingen", "Boringen"]
