@@ -73,12 +73,7 @@ def _descriptions(place: str, client, log: Log) -> List[Tuple[str, object]]:
     ring = buffer_point(hit.x, hit.y, RADIUS_M)
     wfs = DovWfs(client, log=log)
     features = wfs.within_distance("dov-pub:Boringen", polygon_wkt(ring), RADIUS_M, MAX_BOREHOLES)
-    interpretations: Dict[str, str] = {}
-    for typename in ("interpretaties:lithologische_beschrijvingen",
-                     "interpretaties:gecodeerde_lithologie"):
-        for feature in wfs.within_distance(typename, polygon_wkt(ring), RADIUS_M, MAX_BOREHOLES):
-            props = feature["properties"]
-            interpretations.setdefault(props.get("Proeffiche"), props.get("Interpretatiefiche"))
+    interpretations = wfs.interpretation_urls(polygon_wkt(ring), RADIUS_M, MAX_BOREHOLES)
     wanted = []
     for feature in features:
         props = feature["properties"]
