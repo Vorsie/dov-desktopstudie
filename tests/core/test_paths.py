@@ -6,23 +6,29 @@ naam meer maar een pad.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from desktopstudie.core import paths
 
 
-def test_a_value_with_a_slash_in_it_cannot_become_a_path():
-    """`../../ergens` is een pad, geen naam: de scheidingstekens vallen weg, het resultaat is één
-    stuk en het kan de map waarin het hoort niet meer verlaten."""
-    cleaned = paths.safe_segment("../../ergens")
+def _stays_inside(value: str, folder: Path) -> bool:
+    """Of een naam die uit `safe_segment` komt de map waarin hij hoort niet kan verlaten.
 
-    assert "/" not in cleaned and "\\" not in cleaned
-    assert not cleaned.startswith("..")
+    Gemeten zoals het misgaat - de naam wordt aan een map geplakt en het pad wordt opgelost -
+    en niet op de vorm van de string: `.._.._ergens` ziet eruit als een pad en is er geen.
+    """
+    joined = (folder / paths.safe_segment(value)).resolve()
+    return joined.parent == folder.resolve()
 
 
-def test_a_windows_path_and_a_percent_escape_go_the_same_way():
-    assert "\\" not in paths.safe_segment(r"..\..\ergens")
-    assert "/" not in paths.safe_segment("..%2F..%2Fergens").replace("%", "")
+def test_a_value_with_a_slash_in_it_cannot_leave_its_folder(tmp_path):
+    """`../../ergens` is een pad, geen naam. De scheidingstekens vallen weg, er blijft één stuk
+    over, en aan de figurenmap geplakt landt het IN die map."""
+    for hostile in ("../../ergens", r"..\..\ergens", "/etc/passwd", "C:/Windows/system32",
+                    "..%2F..%2Fergens", "map/onder/erin"):
+        assert _stays_inside(hostile, tmp_path), hostile
 
 
 def test_an_ordinary_permkey_is_left_alone():
