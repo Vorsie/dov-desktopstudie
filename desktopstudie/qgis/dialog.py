@@ -97,6 +97,8 @@ GEOCODE_TIMEOUT_S = 15.0
 
 
 def _spin(low: float, high: float, value: float, decimals: int = 0, suffix: str = " m") -> QDoubleSpinBox:
+    """A number box. Distances carry their unit; a coordinate does not, so X and Y ask for
+    `suffix=""` - "104326 m" reads as a length where a Lambert 72 easting belongs."""
     spin = QDoubleSpinBox()
     spin.setRange(low, high)
     spin.setDecimals(decimals)
@@ -183,8 +185,8 @@ class StudyDialog(QDialog):
         layout.addWidget(self.hits_list)
 
         self.mode_point = QRadioButton("X/Y in Lambert 72 (EPSG:31370)")
-        self.x_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1)
-        self.y_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1)
+        self.x_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1, suffix="")
+        self.y_spin = _spin(0.0, LAMBERT_MAX_M, 0.0, decimals=1, suffix="")
         row = QHBoxLayout()
         for label, spin in (("X", self.x_spin), ("Y", self.y_spin)):
             row.addWidget(QLabel(label))
