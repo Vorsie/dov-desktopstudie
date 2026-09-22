@@ -108,8 +108,12 @@ def lithology_colour(text: str) -> str:
     return FALLBACK_LITHOLOGY_COLOUR
 
 
-def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
-                      label_chars: int = 48) -> Tuple[float, int]:
+# How long a band label may get before it is shortened: wider than this and the label column
+# eats the drawing beside it.
+LABEL_CHARS = 48
+
+
+def draw_depth_column(ax, bands: List[Band], max_depth_m: float) -> Tuple[float, int]:
     """Draws stacked `bands` (top_m, base_m, colour, label) as rectangles in x in [0, 1], with a
     label per band at x=1.05. Labels are placed top to bottom without overlapping and without
     leaving the axes: each one sits at its band's midpoint unless that would collide with the
@@ -137,7 +141,7 @@ def draw_depth_column(ax, bands: List[Band], max_depth_m: float,
                 continue
             y = lowest
         prev_y = y
-        ax.text(1.05, y, textwrap.shorten(label, label_chars), va="center", fontsize=7, clip_on=True)
+        ax.text(1.05, y, textwrap.shorten(label, LABEL_CHARS), va="center", fontsize=7, clip_on=True)
         if y != mid:
             ax.plot([1.0, 1.04], [mid, y], color="grey", lw=0.5)
     ax.set_xlim(0, 3.6)
