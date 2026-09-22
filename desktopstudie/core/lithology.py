@@ -171,20 +171,20 @@ DENIALS = ("geen", "zonder", "sans", "vrij van")
 # the material stem won over everything and the report claimed a sandstone the layer says is
 # absent - the very error DENIALS exists to prevent, spelled the other way round.
 DENYING_SUFFIXES = ("vrij", "loos", "arm")
-# Kleuren, en alles wat ervan gemaakt wordt. Een kleur zegt niets over wat een machine tegenkomt,
-# en de klasse is productief: lichtbruine, bruinzwarte, roestkleurige, geelgroen. Als stam
-# gematcht, dus de verbuigingen (-e, -en, -ig, -achtig) komen er gratis bij.
+# Colours, and everything built out of them. A colour says nothing about what a machine will meet,
+# and the class is productive: lichtbruine, bruinzwarte, roestkleurige, geelgroen. Matched as a
+# stem, so the inflections (-e, -en, -ig, -achtig) come along for free.
 COLOUR_STEMS = ("bruin", "geel", "grijs", "grijze", "zwart", "groen", "rood", "rode", "blauw",
                 "wit", "beige", "oranje", "paars", "roest", "oker", "creme", "crème", "kaki",
                 "bleek", "donker", "licht", "kleurig", "kleurige", "gevlekt", "gespikkeld",
                 "gemarmerd")
-# Gewone stammen waarop een modificator gebouwd mag worden. Bewust NIET "steen": steenbrokken en
-# silexkeien zijn juist wat een geotechnicus wil zien.
+# Plain stems a modifier may be built on. Deliberately NOT "steen": steenbrokken and silexkeien
+# are exactly what a geotechnician wants to see.
 ORDINARY_STEMS = ("zand", "klei", "leem", "silt", "grind", "kalk", "kwarts", "schelp",
                   "schelpen", "plant", "planten", "wortel", "wortels", "glimmer", "mica",
                   "humus", "zavel", "loess", "löss", "slib", "detritus",
                   "oxidatie", "verwering", "gley")
-# Achtervoegsels die van een gewone stam een gewone beschrijving maken: bijmenging, niet materiaal.
+# Suffixes that turn a plain stem into a plain description: an admixture, not a material.
 MODIFIER_SUFFIXES = ("houdend", "houdende", "rijk", "rijke", "achtig", "achtige", "ig", "ige",
                      "vlekken", "vlekjes", "brokjes", "brokken", "lenzen", "laagje", "laagjes", "gruis",
                      "resten", "rest", "restjes", "fragment", "fragmenten", "fragmentjes",
@@ -268,10 +268,11 @@ def _is_modified_ordinary(word: str) -> bool:
 
 
 def _is_compound_ordinary(word: str) -> bool:
-    """Twee gewone stammen aan elkaar: zandleem, kleizand, leemzand.
+    """Two plain stems stuck together: zandleem, kleizand, leemzand.
 
-    Vlaamse boorbeschrijvingen bouwen textuurnamen door ze te plakken, en het paar zegt niets meer
-    dan elke helft apart. `ALWAYS_NOTABLE` gaat voor, dus veenzand en zandsteen blijven staan.
+    Flemish borehole descriptions build texture names by gluing them, and the pair says nothing
+    more than either half on its own. `ALWAYS_NOTABLE` comes first, so veenzand and zandsteen
+    keep flagging.
     """
     for stem in ORDINARY_STEMS:
         if len(word) > len(stem) and word.endswith(stem):
