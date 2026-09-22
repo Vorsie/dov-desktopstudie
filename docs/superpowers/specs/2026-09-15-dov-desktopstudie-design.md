@@ -4,6 +4,10 @@ QGIS-plugin die uit een adres, coördinaat of polygoon automatisch een geotechni
 desktopstudie voor Vlaanderen samenstelt: een QGIS-project met alle lagen én een PDF-rapport,
 uitsluitend op basis van open data van DOV en geopunt.
 
+> Dit document is het ontwerp van 2026-09-15 en blijft staan zoals het geschreven is. Een tiental
+> details is sindsdien anders gelopen; die staan bij elkaar in **§10 Wat sindsdien veranderd is**.
+> Lees dat erbij voor je hier een laagnaam, een pad of een bestandsnaam uit overneemt.
+
 ## 1. Probleem en doel
 
 Een desktopstudie (ligging, historiek, geologie, bestaand grondonderzoek, doorsnede,
@@ -201,3 +205,42 @@ DEBUG. Wat NIET gevonden is wordt expliciet gelogd én in het rapport benoemd.
 - Robuustheid: één bron uitschakelen (foute URL in de catalogus) → rapport komt toch, met de
   signalering "bron niet beschikbaar".
 - Compatibiliteit: headless flow in `qgis/qgis:release-3_34` en de actuele LTR; handmatig op QGIS 4.x.
+
+## 10. Wat sindsdien veranderd is (bijgewerkt 2026-09-22)
+
+Het ontwerp hierboven is niet bijgewerkt: het is het verslag van wat er op 2026-09-15 bedacht is,
+en dat heeft zijn eigen waarde. Wat de code vandaag anders doet staat hier, punt voor punt, met de
+paragraaf erbij die het tegenspreekt. De geldende huisregels staan in `CLAUDE.md`.
+
+- **§3 - de diktekaart van het Quartair is een andere laag.** `dov-pub:Quartair_Isopachen` staat in
+  de WFS- én de WMS-rij van de tabel. Die reeks telt 780 lijnen voor heel Vlaanderen en gaf rond de
+  Gentse zone niets binnen 5 km. De catalogus gebruikt `quartair:qisopachen_quartair_50k` - de
+  kartering op 1:50 000, die de verkenner van DOV zelf tekent - met veld `Dikte_Quartair_m` en een
+  DWITHIN-vraag in plaats van INTERSECTS, want een INTERSECTS raakt een contourlijn nooit.
+- **§3 - de DOV-kaarten gaan niet naar de globale WMS.** De tabel noemt
+  `https://www.dov.vlaanderen.be/geoserver/wms`. Die dienst antwoordt met heel DOV (1,1 MB, 2,6 s
+  parsen per kaart). Elke DOV-kaart wordt nu bij de WMS van haar eigen workspace opgehaald
+  (`catalogue.DOV_WORKSPACE_WMS_URL`, via `catalogue.dov_wms`), waar ze haar kale laagnaam draagt.
+  De WFS-typenamen houden hun voorvoegsel.
+- **§4 - `dialog.py (+ .ui)`: er is geen `.ui`.** Het formulier wordt in code gebouwd.
+- **§4 - geen `.qml`-stijlen en geen `paginasjabloon.qpt`.** De laagstijlen zitten als code in
+  `layers.style_*` (één bron voor de memory-laag van een run én voor dezelfde laag uit het
+  GeoPackage), en de layout wordt in code opgebouwd door `layout.LayoutBuilder`. `resources/`
+  draagt alleen `icoon.svg` en `noordpijl.svg`.
+- **§4 en §5.4 - geen DHMV-hoogteprofiel langs de doorsnedelijn.** `dem.py` doet alleen de zonale
+  statistiek op de zone (min/max/gemiddelde). Het maaiveld op de doorsnede komt uit het model van
+  de virtuele boring. Staat als schuld in `CLAUDE.md`.
+- **§5.6 - de runmap draagt ook een tijd.** `<uitvoer>/<projectnaam>_<yyyymmdd>_<HHMM>`
+  (`zone_input.run_folder`), zodat twee runs op één dag elkaars GeoPackage niet overschrijven.
+- **§5.6 - de bladen staan in een eigen map.** Niet `pagina_XX.png` naast het rapport maar
+  `paginas/pagina.png`, `paginas/pagina_2.png`, ... zoals QGIS ze schrijft
+  (`export.export_pages_png`), en alleen met `--paginas`.
+- **§5.6 en §8 - er is geen `log.txt`.** De plugin logt naar het logpaneel van QGIS en de scripts
+  naar stdout. Staat als schuld in `CLAUDE.md`.
+- **§6.3 - niet "per kaart een tabel met de kaarteenheden".** Eén tabel per kaart: waar een
+  `Legenda voor de zone` bestaat, VERVANGT die de feitentabel, en ze staat onder het kaartkader op
+  hetzelfde blad, niet op een blad van zichzelf (`MapPage.zone_legend`,
+  `report_content.ZONE_LEGEND_COLUMNS`).
+- **§4 en §9 - de tests en de CI zijn gesplitst.** Naast `tests/core` staan `tests/qgis` (de schil,
+  alleen in een QGIS-Python) en `tests/scripts`, en naast `ci.yml` draait `ci-qgis.yml` de
+  schiltests in `qgis/qgis:release-3_34` en `qgis/qgis:latest`.
