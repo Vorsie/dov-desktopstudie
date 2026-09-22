@@ -72,6 +72,24 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `python-qgis-ltr.bat -m pytest tests/qgis`; in CI in `qgis/qgis:release-3_34` en
   `qgis/qgis:latest` (`ci-qgis.yml`). Geen stubs of mocks van `qgis.core` in de venv: een
   4.x-API-breuk hoort in een echte QGIS zichtbaar te worden, niet in een namaak.
+- **CI draait niets twee keer, en de live studie draait wekelijks.** De minuten van een account
+  zijn eindig (de gebruiker zat op 90 % toen dit geschreven werd), en beide workflows stonden op
+  `on: [push, pull_request]`: elke commit op een branch met een openstaande pull request bouwde
+  twee keer, dezelfde commit en dezelfde uitkomst. `push` staat nu op `[main, dev]` - de branches
+  die geen pull request van zichzelf hebben - en `pull_request` dekt de rest; tags vallen er
+  gratis mee weg, want de release-zip komt uit `build_zip.py`. `concurrency` met
+  `cancel-in-progress` alléén voor een pull request: een afgebroken run op `main` laat de branch
+  zonder groen stempel. `headless-live` (een volledige studie tegen de echte diensten, al
+  `continue-on-error` en geen verplichte check) hangt aan `schedule` en `workflow_dispatch`, niet
+  aan elke commit; `shell` blijft wél op elke commit staan met beide images en de hele matrix,
+  want dat is wat de 3.34-segfault, het Qt6-labelverschil en de speling op het infovak gevangen
+  heeft. Twee dingen die je moet weten voor je hier iets bijschaaft. **`paths-ignore` hoort alleen
+  op `push`**: een workflow die een padfilter overslaat meldt haar checks nóóit, en `core (3.9)`,
+  `core (3.12)` en de twee `shell`-jobs zijn verplichte checks op `main` - een pull request met
+  alleen documentatie zou eeuwig blijven wachten. En **`README.md` mag er niet in**, want hij zit
+  in de plugin-zip en `tests/scripts/test_build_zip.py` controleert dat; `.github/workflows/**`
+  evenmin, want `tests/scripts/test_ci_containers.py` leest `ci-qgis.yml`. Die suite bewaakt nu
+  ook de triggers zelf.
 - **Compatibel met QGIS 3.34 t/m 4.x.** `qgisMinimumVersion=3.34`, `supportsQt6=True`. Alleen
   API's die in 3.34 bestaan. Imports via `qgis.PyQt`. Qt-enums altijd scoped
   (`Qt.AlignmentFlag.AlignRight`, `QDialog.DialogCode.Accepted`). Python-syntaxis ≥ 3.9: geen
