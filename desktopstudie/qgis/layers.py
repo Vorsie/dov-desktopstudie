@@ -35,7 +35,7 @@ from qgis.PyQt.QtGui import QColor
 from ..core import catalogue
 from ..core.catalogue import MapEntry
 from ..core.model import Borehole, Cpt, GwFilter, StudyResult, StudyZone, VirtualBorehole
-from .compat import drop_colliding_labels, house_font
+from .compat import drop_colliding_labels, text_format
 
 CRS_AUTHID = "EPSG:31370"
 # The WCS coverage format name, not a WMS mime type: DescribeCoverage on the DHMV service offers
@@ -198,20 +198,19 @@ def _label_format() -> QgsTextFormat:
     over water in the middle of the overview map and read as a smudge. The halo costs nothing and
     makes them legible over any backdrop.
     """
-    text_format = QgsTextFormat()
-    # Zonder expliciet lettertype kiest Qt er zelf een, en offscreen tekende die "kb12d37w-B19"
-    # als "kb12d37-N- B19": de w en het koppelteken werden losse streepjes. Hetzelfde huisfont als
-    # het rapport, zodat een boornummer op de kaart leest zoals in de tabel.
-    text_format.setFont(house_font(LABEL_SIZE_PT))
-    text_format.setSize(LABEL_SIZE_PT)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
+    # Via `compat.text_format`, dus met het huisfont: zonder expliciet lettertype kiest Qt er zelf
+    # een, en offscreen tekende die "kb12d37w-B19" als "kb12d37-N- B19" - de w en het koppelteken
+    # werden losse streepjes. Hetzelfde font als het rapport, zodat een boornummer op de kaart
+    # leest zoals in de tabel. De halo hieronder hangt aan DEZE kopie: `text_format` geeft elke
+    # oproeper een eigen object, anders droeg elke tabel in het rapport deze halo.
+    fmt = text_format(LABEL_SIZE_PT)
     buffer = QgsTextBufferSettings()
     buffer.setEnabled(True)
     buffer.setSize(LABEL_HALO_MM)
     buffer.setSizeUnit(Qgis.RenderUnit.Millimeters)
     buffer.setColor(QColor(LABEL_HALO_COLOUR))
-    text_format.setBuffer(buffer)
-    return text_format
+    fmt.setBuffer(buffer)
+    return fmt
 
 
 def style_points_layer(layer: QgsVectorLayer, kind: str,
