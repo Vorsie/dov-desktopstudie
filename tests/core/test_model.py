@@ -136,3 +136,19 @@ def test_section_carries_a_stacked_profile_that_round_trips_to_json(gent_ring, t
 def test_a_section_without_a_profile_defaults_to_none():
     section = m.Section(line=((0.0, 0.0), (10.0, 0.0)), boreholes=[], projected=[], zone_from_m=0.0, zone_to_m=10.0)
     assert section.profile is None
+
+
+def test_a_source_consulted_twice_leaves_one_row_and_it_is_the_last(gent_ring):
+    """Een tweede poging op dezelfde bron VERVANGT de vorige regel. Twee tegenstrijdige regels over
+    dezelfde bron in het bronnenhoofdstuk zijn erger dan geen: de lezer weet dan niet welke van de
+    twee de studie gebruikt heeft."""
+    result = m.StudyResult(zone=m.StudyZone(ring=gent_ring, name="z"), created_at=m.now_iso())
+
+    m.record_source(result, "Kaartlaag GRB", "https://grb", False, "dienst plat")
+    m.record_source(result, "Legenda GRB", "https://legenda", True)
+    m.record_source(result, "Kaartlaag GRB", "https://grb", True)
+
+    rows = [p for p in result.provenance if p.source == "Kaartlaag GRB"]
+    assert len(rows) == 1 and rows[0].ok and rows[0].message == ""
+    assert [p.source for p in result.provenance] == ["Kaartlaag GRB", "Legenda GRB"], \
+        "de vervangen regel houdt haar plaats in de tabel"
