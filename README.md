@@ -18,8 +18,8 @@ berichtenbalk, de lagen die in de boom verschijnen, en op het einde de melding m
 Van Start tot rapport: ruim een minuut.*
 
 **Status:** v0.3.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het geopende project,
-PDF-rapport, headless script. Twee rondes gebruikersfeedback zijn verwerkt; de plugin staat als
-*experimenteel* gemarkeerd in `metadata.txt` tot de volgende ronde dat weerlegt.
+PDF-rapport, headless script. Twee rondes gebruikersfeedback zijn verwerkt; de plugin staat nog
+als *experimenteel* gemarkeerd in `metadata.txt`.
 
 ## Wat je krijgt
 
@@ -28,8 +28,8 @@ Eén locatie in, en ongeveer een minuut later staat dit er:
 - **Een PDF-rapport** in staand A4, tekst selecteerbaar - zestig bladen voor de voorbeeldzone in
   Gent hieronder: ligging en topografie, historische kaarten, geologie en bodem, virtuele boring,
   bestaand grondonderzoek, doorsnede, aandachtspunten en bronnen.
-- **Negenentwintig kaarten** uit DOV en geopunt, elk met een leeswijzer die zegt hoe je de code
-  leest en een legenda met alleen de klassen die in de zone voorkomen.
+- **Negenentwintig kaarten** uit DOV en geopunt. Een kaart met een code draagt een leeswijzer die
+  zegt hoe je die leest, en een legenda met alleen de klassen die in de zone voorkomen.
 - **Een QGIS-project** (`studie.qgz`) met al die lagen, plus dezelfde lagen in het project dat je
   al open hebt staan.
 - **De data zelf**: een GeoPackage met zone, doorsnedelijn en proefpunten, en `studie.json` met
@@ -59,7 +59,7 @@ een aandachtspunt voor het grondonderzoek. De plugin signaleert; ze interpreteer
 | | |
 |---|---|
 | [![De dialoog](docs/afbeeldingen/plugin-dialoog.png)](docs/afbeeldingen/plugin-dialoog.png) | [![De lagen in QGIS](docs/afbeeldingen/qgis-lagen.png)](docs/afbeeldingen/qgis-lagen.png) |
-| **De dialoog.** Adres, X/Y, tekenen of uit een laag; buffer, zoekstraal, kaartenkeuze en rapportgegevens. Ze is niet-modaal en de studie draait in de achtergrond, met de fase en een knop *Annuleren* in de berichtenbalk. | **Na afloop.** De studielagen in de boom van het project dat al open stond, de zone met haar doorsnedelijn op de kaart, en de melding met *Open PDF*. |
+| **De dialoog.** Drie tabbladen: Locatie (adres, X/Y, polygoon tekenen of uit een laag, met de buffer), Instellingen (zoekstraal, doorsnedelijn, kaartenkeuze, cache) en Rapport. Ze is niet-modaal, en de studie draait in de achtergrond met de fase en een knop *Annuleren* in de berichtenbalk. | **Na afloop.** De studielagen in de boom van het project dat al open stond, de zone met haar doorsnedelijn op de kaart, en de melding met *Open PDF*. |
 
 ## Wat zit in de studie
 
