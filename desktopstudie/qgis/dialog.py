@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from qgis.core import Qgis, QgsApplication, QgsProject, QgsTask, QgsVectorLayer
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import QEvent, Qt
 from qgis.PyQt.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -170,11 +170,15 @@ class StudyDialog(QDialog):
         self.mode_address.setChecked(True)
         self.address_edit = QLineEdit()
         self.address_edit.setPlaceholderText("Kortrijksesteenweg 100, Gent")
-        self.address_edit.returnPressed.connect(self.search_address)
         self.search_button = QPushButton("Zoek")
         self.search_button.clicked.connect(self.search_address)
         self.hits_list = QListWidget()
         self.hits_list.setMaximumHeight(90)
+        # A double-click on a candidate arrives as `itemActivated`; the keys of the address block
+        # - Enter and arrow down - go through `eventFilter`, which says why they have to.
+        self.hits_list.itemActivated.connect(self._hit_chosen)
+        self.address_edit.installEventFilter(self)
+        self.hits_list.installEventFilter(self)
         row = QHBoxLayout()
         row.addWidget(self.address_edit, 1)
         row.addWidget(self.search_button)
@@ -521,6 +525,13 @@ class StudyDialog(QDialog):
         if self._geocode_token is not None:
             self.log.info(f"adres zoeken loopt al ({self._geocode_query!r}); nieuwe zoekopdracht genegeerd")
             return
+        if query == self._geocode_query and self._hits:
+            # The same question, already answered: this Enter is meant for the candidates the user
+            # is looking at, not for the geocoder. What is compared is the text that was SEARCHED,
+            # never the address that was accepted - retyping something close to the chosen address
+            # is a new question and has to reach the service.
+            self._focus_hits()
+            return
         self.hits_list.clear()
         self._hits = []
         self.search_button.setEnabled(False)
@@ -558,6 +569,65 @@ class StudyDialog(QDialog):
             self.mode_address.setChecked(True)
         else:
             self.hits_list.addItem(NO_HITS)
+
+    def _hit_chosen(self, item: QListWidgetItem) -> None:
+        """Enter or a double-click on a candidate: that one is the address.
+
+        Accepting is three things at once, because a search box with a result list is expected to
+        do all three: the row stays the current one (`zone` reads it), the field shows the accepted
+        address so the reader sees WHICH candidate he got, and the focus moves on to Start, so the
+        next Enter starts the study. The "niets gevonden" line is not a candidate - `_hits` is
+        empty then, exactly as `zone` checks it - and accepting it would start a study on an
+        address nobody found.
+        """
+        row = self.hits_list.row(item)
+        if not 0 <= row < len(self._hits):
+            self.log.debug("enter op een regel die geen kandidaat is; niets gekozen")
+            return
+        hit = self._hits[row]
+        self.hits_list.setCurrentRow(row)
+        self.address_edit.setText(hit.address)
+        self.mode_address.setChecked(True)
+        self.log.info(f"adres gekozen: {hit.address!r}")
+        self.start_button.setFocus()
+
+    def _focus_hits(self) -> None:
+        """Into the candidate list, on the row that is current - the first, unless the user moved."""
+        if self.hits_list.currentRow() < 0:
+            self.hits_list.setCurrentRow(0)
+        self.hits_list.setFocus()
+
+    def eventFilter(self, watched, event):  # noqa: N802 - Qt virtual
+        """Enter and arrow down in the address block belong to the address block.
+
+        Enter is handled here rather than through `QLineEdit.returnPressed` and the list's own
+        `itemActivated`, because both widgets IGNORE the key after emitting their signal: it then
+        travels up to the dialog, which clicks its default button - the first auto-default button
+        in the focus chain, and that is Zoek. So one Enter on a candidate chose the address AND
+        asked the geocoder the same question over again (measured by driving the dialog). Handling
+        the key here and answering True stops it at the widget it belongs to. A double-click needs
+        none of this and keeps arriving as `itemActivated`.
+
+        Arrow down is the other half of the same gesture - what a reader tries right after a search
+        - and only with candidates standing: without them there is nothing to step into and the key
+        belongs to whoever wants it next (the dialog moves the focus on).
+        """
+        if event.type() != QEvent.Type.KeyPress:
+            return super().eventFilter(watched, event)
+        enter = event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+        if watched is self.address_edit:
+            if enter:
+                self.search_address()
+                return True
+            if event.key() == Qt.Key.Key_Down and self._hits:
+                self._focus_hits()
+                return True
+        elif watched is self.hits_list and enter:
+            item = self.hits_list.currentItem()
+            if item is not None:
+                self._hit_chosen(item)
+            return True
+        return super().eventFilter(watched, event)
 
     # --- drawing on the canvas ---------------------------------------------------------------------
 
