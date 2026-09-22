@@ -396,7 +396,26 @@ def test_failed_source_reports_message_as_fact_and_source_as_source(gent_ring):
     assert len(sigs) == 1
     assert sigs[0].fact == "Bron niet beschikbaar: timeout"
     assert sigs[0].source == "Bodemkaart"
-    assert sigs[0].severity == "aandacht"
+
+
+def test_a_source_that_did_not_answer_is_no_geotechnical_attention_point(gent_ring):
+    """Een voorbijgaande netwerkfout is geen waarneming over de grond.
+
+    Uit een echte run stond "Bron niet beschikbaar: kaartbeeld niet opgehaald; kaartpagina zonder
+    ondergrond" met de ernst "aandacht" in de samenvattende tabel, tussen een ondiepe
+    grondwaterstand en een krimp-zwelklasse in. Ze zegt niet dat er iets aan de hand is met de
+    ondergrond, ze zegt dat er een plaatje ontbreekt en dat de run later opnieuw mag - net als de
+    twee andere signaleringen over een onvolledig rapport, die al `info` dragen. De regel blijft
+    wel in de tabel staan: de lezer moet weten dat een hoofdstuk iets mist.
+    """
+    result = _result(gent_ring)
+    result.provenance.append(Provenance("Kaartbeeld Orthofoto (meest recent)", "https://x", "t",
+                                        ok=False, message="kaartbeeld niet opgehaald"))
+
+    signals = [s for s in checks.run_all(result) if s.code == "bron_niet_beschikbaar"]
+
+    assert [s.severity for s in signals] == ["info"]
+    assert "bron later opnieuw raadplegen" in signals[0].advice
 
 
 def test_successful_source_is_not_flagged(gent_ring):
