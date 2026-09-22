@@ -1,13 +1,65 @@
 # DOV Desktopstudie
 
-**Status:** v0.2.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het
-geopende project, PDF-rapport, headless script. De plugin staat als *experimenteel* gemarkeerd
-(`metadata.txt`) tot de eerste ronde gebruikersfeedback verwerkt is.
+[![ci](https://github.com/Vorsie/dov-desktopstudie/actions/workflows/ci.yml/badge.svg)](https://github.com/Vorsie/dov-desktopstudie/actions/workflows/ci.yml)
+[![ci-qgis](https://github.com/Vorsie/dov-desktopstudie/actions/workflows/ci-qgis.yml/badge.svg)](https://github.com/Vorsie/dov-desktopstudie/actions/workflows/ci-qgis.yml)
+[![laatste release](https://img.shields.io/github/v/release/Vorsie/dov-desktopstudie)](https://github.com/Vorsie/dov-desktopstudie/releases/latest)
+[![QGIS 3.34 – 4.x](https://img.shields.io/badge/QGIS-3.34%20%E2%80%93%204.x-93b023)](https://qgis.org)
+[![licentie GPL-2.0-or-later](https://img.shields.io/badge/licentie-GPL--2.0--or--later-blue)](LICENSE)
 
-QGIS-plugin die een geotechnische desktopstudie voor een locatie in Vlaanderen automatisch
-samenstelt uit open data van [DOV](https://www.dov.vlaanderen.be) en
-[geopunt](https://www.geopunt.be). Je geeft een adres, een coördinaat (Lambert 72) of een polygoon
-op; de plugin levert een QGIS-project met alle lagen én een PDF-rapport.
+QGIS-plugin die uit een adres, een coördinaat (Lambert 72) of een polygoon automatisch een
+geotechnische desktopstudie voor Vlaanderen samenstelt: een QGIS-project met alle lagen én een
+PDF-rapport, uitsluitend uit open data van [DOV](https://www.dov.vlaanderen.be) en
+[geopunt](https://www.geopunt.be).
+
+![De plugin draait een studie in QGIS](docs/afbeeldingen/demo.gif)
+
+*Eén run in QGIS 3.40 LTR op een warme cache: adres invullen, **Start**, de fasen in de
+berichtenbalk, de lagen die in de boom verschijnen, en op het einde de melding met **Open PDF**.
+Van Start tot rapport: ruim een minuut.*
+
+**Status:** v0.3.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het geopende project,
+PDF-rapport, headless script. Twee rondes gebruikersfeedback zijn verwerkt; de plugin staat als
+*experimenteel* gemarkeerd in `metadata.txt` tot de volgende ronde dat weerlegt.
+
+## Wat je krijgt
+
+Eén locatie in, en ongeveer een minuut later staat dit er:
+
+- **Een PDF-rapport** in staand A4, tekst selecteerbaar - zestig bladen voor de voorbeeldzone in
+  Gent hieronder: ligging en topografie, historische kaarten, geologie en bodem, virtuele boring,
+  bestaand grondonderzoek, doorsnede, aandachtspunten en bronnen.
+- **Negenentwintig kaarten** uit DOV en geopunt, elk met een leeswijzer die zegt hoe je de code
+  leest en een legenda met alleen de klassen die in de zone voorkomen.
+- **Een QGIS-project** (`studie.qgz`) met al die lagen, plus dezelfde lagen in het project dat je
+  al open hebt staan.
+- **De data zelf**: een GeoPackage met zone, doorsnedelijn en proefpunten, en `studie.json` met
+  alle feiten, signaleringen en bronnen, machineleesbaar.
+- **Figuren**: qc-diagrammen van de dichtstbijzijnde sonderingen, lithologiekolommen van de
+  boringen, de virtuele boring en de geologische doorsnede.
+- **Aandachtspunten** die volgen uit de data, elk met de bron erbij - signaleringen, geen advies.
+
+Geen extra Python-packages: alles draait op wat QGIS meelevert.
+
+## Zo ziet het eruit
+
+De bladen hieronder komen uit één studie voor een zone aan de Kortrijksesteenweg in Gent.
+
+| | |
+|---|---|
+| [![Atlas der Buurtwegen](docs/afbeeldingen/rapport-buurtwegen.jpg)](docs/afbeeldingen/rapport-buurtwegen.jpg) | [![Dikte van het Quartair](docs/afbeeldingen/rapport-isopachen.jpg)](docs/afbeeldingen/rapport-isopachen.jpg) |
+| **Blad 9 - Atlas der Buurtwegen (ca. 1840).** Elke historische kaart krijgt haar eigen blad, met de zone erop, een schaalbalk en in het kader de bron met haar ophaaldatum. | **Blad 19 - dikte van het Quartair.** Isopachen met de waarde op de lijn zelf; onder het kader de leeswijzer en de modelwaarde van G3Dv3 op het representatieve punt. |
+| [![Gemiddeld hoogste grondwaterstand](docs/afbeeldingen/rapport-ghg.jpg)](docs/afbeeldingen/rapport-ghg.jpg) | [![Bestaand grondonderzoek](docs/afbeeldingen/rapport-grondonderzoek.jpg)](docs/afbeeldingen/rapport-grondonderzoek.jpg) |
+| **Blad 23 - gemiddeld hoogste grondwaterstand.** De kleurbalk van de dienst zelf, en in de tabel de gemodelleerde diepte met haar standaardafwijking en 80 %-interval: een modelwaarde, geen peilbuismeting. | **Blad 34 - bestaand grondonderzoek.** Wat DOV binnen de zoekstraal heeft liggen: hier 133 sonderingen, 82 boringen en 3 peilputten, over de GRB-basiskaart. |
+
+[![Signaleringen](docs/afbeeldingen/rapport-signaleringen.png)](docs/afbeeldingen/rapport-signaleringen.png)
+
+*Blad 55 - de feiten uit de data en de signaleringen die eruit volgen, elk met hun bron en met
+een aandachtspunt voor het grondonderzoek. De plugin signaleert; ze interpreteert niet.*
+
+| | |
+|---|---|
+| [![De dialoog](docs/afbeeldingen/plugin-dialoog.png)](docs/afbeeldingen/plugin-dialoog.png) | [![De lagen in QGIS](docs/afbeeldingen/qgis-lagen.png)](docs/afbeeldingen/qgis-lagen.png) |
+| **De dialoog.** Adres, X/Y, tekenen of uit een laag; buffer, zoekstraal, kaartenkeuze en rapportgegevens. Ze is niet-modaal en de studie draait in de achtergrond, met de fase en een knop *Annuleren* in de berichtenbalk. | **Na afloop.** De studielagen in de boom van het project dat al open stond, de zone met haar doorsnedelijn op de kaart, en de melding met *Open PDF*. |
 
 ## Wat zit in de studie
 
@@ -251,8 +303,9 @@ per kaart de bron en het ophaaltijdstip, en het hoofdstuk Bronnen elke oproep di
 
 ## Ontwikkeling
 
-Zie `CLAUDE.md` voor de architectuur en huisregels en
-`docs/superpowers/specs/2026-09-15-dov-desktopstudie-design.md` voor het ontwerp.
+[CONTRIBUTING.md](CONTRIBUTING.md) is het vertrekpunt: omgeving, huisregels, testsuites en
+hoe je een wijziging voorstelt. `CLAUDE.md` draagt de architectuur en de volledige huisregels,
+`docs/superpowers/specs/2026-09-15-dov-desktopstudie-design.md` het ontwerp.
 
 Kern (pure Python, geen QGIS nodig):
 
@@ -286,7 +339,10 @@ eigen profiel: `scripts\dev_link.cmd smoke` en dan
 ```
 
 (adresmodus voor Gent; status met fasetabel in `uitvoer/plugin_gent/smoke_status.json`, QGIS sluit
-zichzelf). De zip voor "Installeren uit ZIP": `python scripts\build_zip.py` →
+zichzelf). Zet `DESKTOPSTUDIE_FRAMES` op een map en diezelfde run legt onderweg zijn eigen
+venster vast; `python scripts\docs_images.py --paginas <map> --frames <map>` maakt daar de
+demo-GIF en de schermafdrukken van deze README van, samen met de bladen uit een
+`--paginas`-run. De zip voor "Installeren uit ZIP": `python scripts\build_zip.py` →
 `dist/desktopstudie-<versie uit metadata.txt>.zip`, met `LICENSE` en `README.md` in het pakket.
 Installatie uit die zip in een schoon profiel: `scripts\zip_check.py` op dezelfde manier met
 `--profile zipcheck` (status in `uitvoer/zip_check/zip_status.json`; geef het `--code`-pad absoluut
@@ -310,6 +366,14 @@ CI: de kern op Python 3.9 en 3.12 (`ci.yml`), de schil in de containers `qgis/qg
 en `qgis/qgis:latest` plus één live studie voor Gent waarvan de bladen als artefact bewaard worden
 (`ci-qgis.yml`).
 
+## Bijdragen
+
+Bugs, voorstellen voor een nieuwe kaart en pull requests zijn welkom.
+[CONTRIBUTING.md](CONTRIBUTING.md) zegt hoe je het project aan de praat krijgt, welke
+afspraken gelden en wat een bugrapport hier bruikbaar maakt - de coördinaat van de studie
+vooral, want een groot deel van de fouten bestond alleen op een bepaalde plek. Een
+kwetsbaarheid meld je privé: zie [SECURITY.md](SECURITY.md).
+
 ## Licentie
 
-GPL-2.0-or-later. Zie `LICENSE`.
+GPL-2.0-or-later. Zie [LICENSE](LICENSE).
