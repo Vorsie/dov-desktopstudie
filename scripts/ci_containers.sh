@@ -6,8 +6,11 @@
 # things go wrong only in there - the sip enum types on 3.34, the percent-encoded provider URIs on
 # 4.x, and the deprecated messageReceived signal - so "green on this laptop" is not an answer.
 #
-#   scripts/ci_containers.sh                      # both images
-#   scripts/ci_containers.sh qgis/qgis:latest     # one of them
+#   sh scripts/ci_containers.sh                      # both images
+#   sh scripts/ci_containers.sh qgis/qgis:latest     # one of them
+#
+# Called through its interpreter like every other script here, so the checkout needs no
+# executable bits to work the same on Windows and on Linux.
 #
 # Needs Docker and the images pulled once (docker pull qgis/qgis:release-3_34). On Windows run it
 # from Git Bash: MSYS_NO_PATHCONV and `pwd -W` are what keep the bind mount a Windows path.
