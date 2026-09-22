@@ -592,9 +592,7 @@ def _pages_without_an_image(report: Report, result: StudyResult, images: Dict[st
         for page in chapter.pages:
             if not isinstance(page, MapPage):
                 continue
-            extent = layout_mod.map_extent(result.zone.ring, page.scale, page.extent_factor,
-                                           layout_mod.page_boxes(page, boxes))
-            key = layout_mod.map_image_key(page.map_id, extent)
+            _extent, key = layout_mod.page_image(page, result.zone.ring, boxes)
             legend = page.zone_legend
             shows = getattr(legend, "rows", None) or getattr(legend, "entries", None)
             if key not in images or (key in no_coverage and not shows):
