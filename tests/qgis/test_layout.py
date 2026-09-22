@@ -1061,6 +1061,24 @@ def _honest_width(columns, rows):
                for column, column_cells in zip(columns, cells))
 
 
+def test_the_table_furniture_is_exactly_what_qgis_gives_a_bare_table(project):
+    """De orientatie van een tabel wordt beslist VOOR de tabel bestaat, dus staan QGIS' eigen
+    maten - celmarge en rasterlijn - als constante in de module. Verschuift een QGIS-release er
+    een, dan rekent `_fits_portrait` met een andere breedte dan `_new_table` en steekt een tabel
+    over haar frame heen. Hier gepind tegen een kale tabel, want een assert hierop zou pas midden
+    in het bouwen van een rapport afgaan."""
+    from qgis.core import QgsLayoutItemTextTable, QgsPrintLayout
+
+    from desktopstudie.qgis import layout
+
+    lay = QgsPrintLayout(project)
+    table = QgsLayoutItemTextTable(lay)
+
+    assert table.cellMargin() == pytest.approx(layout.TABLE_CELL_MARGIN)
+    assert table.gridStrokeWidth() == pytest.approx(layout.TABLE_GRID_WIDTH)
+    assert table.showGrid(), "zonder raster telt _fits_portrait een rasterlijn te veel mee"
+
+
 def test_a_column_of_unbreakable_words_keeps_its_own_width(qgs_app):
     """WrapText breekt op spaties. Een datum of een permkey heeft er geen, dus die kolom moet haar
     hele woord krijgen - anders leest de bronnentabel "2026-09-15T22:2" en denkt de lezer dat de
