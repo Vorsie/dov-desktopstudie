@@ -672,11 +672,20 @@ def test_live_pipeline_for_gent(project, tmp_path):
                      radius_m=500.0, address="Kortrijksesteenweg 100, 9000 Gent")
     lines = []
     marks = {}
+    log = _log(lines)
     started = time.monotonic()
 
-    out = pipeline.run_pipeline(zone, study.Settings(radius_m=500.0), _meta(), LIVE_OUT, project,
-                                _log(lines), progress=lambda f, m: marks.setdefault(m, time.monotonic()),
-                                pngs=True)
+    # The two halves, with one client between them so they share one disk cache - the way the
+    # plugin and the headless script drive them. Both get the same progress callback: the phase
+    # names are what the timing below reads, and those do not change with the fraction.
+    def mark(_fraction, message):
+        marks.setdefault(message, time.monotonic())
+
+    client = pipeline.make_client(LIVE_OUT, log)
+    result = pipeline.run_core(zone, study.Settings(radius_m=500.0), LIVE_OUT, log,
+                               progress=mark, client=client)
+    out = pipeline.finish(project, result, _meta(), LIVE_OUT, log, progress=mark, client=client,
+                          pngs=True)
 
     elapsed = time.monotonic() - started
     core_done = marks.get("Relief uit DHMV", started) - started
