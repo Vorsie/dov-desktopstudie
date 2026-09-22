@@ -6,6 +6,8 @@ teruggeeft - met een enkele live-test die bewijst dat de GetLegendGraphic-URL ec
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.qgis.conftest import (
@@ -559,3 +561,30 @@ def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
     # inspringing erin gaf 3120 tekens en vijf van de vijf pogingen mislukten, dezelfde SLD zonder
     # witruimte 1905 tekens en vijf van de vijf lukten (live 2026-09-21). Ruim eronder blijven.
     assert len(with_sld) < 2500, f"GetMap van {len(with_sld)} tekens; de gateway antwoordt 502"
+
+
+def test_a_profile_type_code_from_the_wfs_cannot_write_outside_the_legend_folder(qgs_app, tmp_path,
+                                                                                 gent_zone):
+    """De profieltypecode komt uit een WFS-rij en wordt de naam van de tekening op schijf. Een rij
+    met een pad in dat veld mag niet bepalen WAAR de plugin schrijft - de tekening en de eruit
+    gesneden stroken horen in legendas/ te blijven, wat de dienst ook antwoordt."""
+    from desktopstudie.core.services.http import HttpClient
+    from desktopstudie.qgis import prefetch
+
+    blob = profile_drawing(tmp_path / "bron.png").read_bytes()
+
+    class _Client(HttpClient):
+        def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
+            return blob
+
+    result = _quartair_result(gent_zone, ["../../../ontsnapt"])
+    out = tmp_path / "run"
+
+    images, _unpublished = prefetch.prepare_zone_legend_images(result, out, _Client(cache_dir=None))
+
+    assert images, "de tekening hoort gewoon opgehaald te worden, alleen veilig weggeschreven"
+    legendas = (out / "legendas").resolve()
+    for path in images.values():
+        assert Path(path).resolve().parent == legendas, path
+    assert [p for p in out.rglob("*.png")], "er is wel degelijk geschreven"
+    assert all(p.resolve().parent == legendas for p in out.rglob("*.png"))
