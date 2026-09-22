@@ -49,7 +49,7 @@ from ..core import catalogue, checks
 from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
 from ..core.model import StudyResult, StudyZone, record_source
-from ..core.parallel import stop_if
+from ..core.parallel import Cancelled, stop_if
 from ..core.report_content import (
     MapPage,
     MapPageKey,
@@ -65,13 +65,7 @@ from ..core.report_content import (
     sheet_image_key,
 )
 from ..core.services.http import DATA_DIR, HttpClient, study_client
-from ..core.study import (
-    JSON_NAME,
-    JSON_RELATIVE,
-    Settings,
-    StudyCancelled,
-    orchestrator_signals,
-)
+from ..core.study import JSON_NAME, JSON_RELATIVE, Settings, orchestrator_signals
 from ..core.study import run as run_study
 from . import compat, dem, export, layers, prefetch
 from . import layout as layout_mod
@@ -550,7 +544,7 @@ def _guarded(what: str, failures: List[str], log: Log, run: Callable[[], object]
     """
     try:
         return run()
-    except StudyCancelled:
+    except Cancelled:
         raise  # a cancelled run is not a broken product
     except Exception as exc:  # noqa: BLE001 - the study keeps what it has already written
         failures.append(f"{what}: {exc}")
