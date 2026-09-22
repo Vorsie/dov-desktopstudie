@@ -1,20 +1,20 @@
-"""Tel de woorden in de lithologiebeschrijvingen van DOV, verspreid over Vlaanderen.
+"""Count the words in DOV's lithology descriptions, spread over Flanders.
 
-Dit is de analyse ACHTER `core/lithology.ORDINARY`: een eenmalige telling waaruit de lijst van
-gewone woorden gecureerd is. De plugin draait dit nooit; een geotechnicus draait het opnieuw
-wanneer DOV verandert of wanneer een streek te veel ruis geeft.
+This is the analysis BEHIND `core/lithology.ORDINARY`: a one-off count the list of plain words was
+curated from. The plugin never runs it; a geotechnician runs it again when DOV changes or when one
+region produces too much noise.
 
-    python scripts/lithology_vocabulary.py                  # de hele telling
-    python scripts/lithology_vocabulary.py --flags          # wat de huidige lijst zou vlaggen
+    python scripts/lithology_vocabulary.py                  # the whole count
+    python scripts/lithology_vocabulary.py --flags          # what the current list would flag
 
-Waarom meerdere punten: een woordenlijst gecureerd op één stad in zandig Vlaanderen kent de
-polders niet (veen, schelpen, slappe klei), de leemstreek niet, de Kempense en Maaslandse grinden
-niet en de Boomse klei niet. De punten hieronder dekken die settings; ze worden met de geocoder
-van de plugin zelf opgezocht, zodat er geen coördinaten geraden worden.
+Why several points: a vocabulary curated on one city in sandy Flanders does not know the polders
+(veen, schelpen, slappe klei), nor the loam belt, nor the Kempen and Maasland gravels, nor the
+Boom clay. The points below cover those settings; they are looked up with the plugin's own
+geocoder, so no coordinates are guessed.
 
-De richting van de fout is met opzet de ongevaarlijke: de lijst bepaalt alleen wat GEWOON is en
-dus onderdrukt wordt. Een woord dat er niet op staat, vlagt. Een onvolledige lijst levert dus ruis
-op, nooit een gemiste rariteit - en dat mag nooit omgedraaid worden.
+The direction of the error is deliberately the harmless one: the list only decides what is PLAIN
+and therefore suppressed. A word that is not on it flags. An incomplete list yields noise, never a
+missed oddity - and that may never be turned around.
 """
 from __future__ import annotations
 
@@ -37,8 +37,8 @@ from desktopstudie.core.services.dov_wfs import DovWfs  # noqa: E402
 from desktopstudie.core.services.geocoder import geocode  # noqa: E402
 from desktopstudie.core.services.http import study_client  # noqa: E402
 
-# De geologische settings van Vlaanderen, elk met een plaats die erin ligt. Namen in plaats van
-# coördinaten: de geocoder van de plugin zoekt ze op, dus er wordt niets geraden.
+# The geological settings of Flanders, each with a place that lies in it. Names rather than
+# coordinates: the plugin's geocoder looks them up, so nothing is guessed.
 PLACES = [
     ("kustpolders", "Oostende"),
     ("polders/veen", "Diksmuide"),
@@ -54,7 +54,7 @@ PLACES = [
     ("stedelijke ophoging", "Antwerpen"),
 ]
 RADIUS_M = 1000.0
-MAX_BOREHOLES = 60  # per punt; genoeg voor de woordenschat, niet zo veel dat DOV het merkt
+MAX_BOREHOLES = 60  # per point; enough for the vocabulary, not so many that DOV notices
 WORD = re.compile(r"[^\W\d_]+", re.UNICODE)
 CACHE = Path("uitvoer/woordenschat")
 
