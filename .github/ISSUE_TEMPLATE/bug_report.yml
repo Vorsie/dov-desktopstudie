@@ -1,0 +1,103 @@
+name: Bug melden
+description: Er ging iets mis in de plugin of in het rapport dat eruit komt.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Bedankt om dit te melden. Vul in wat je weet - een half ingevuld formulier is nog altijd
+        beter dan geen melding. De **coördinaat of het adres** is het veld dat het meeste helpt:
+        een groot deel van de fouten hier bestond alleen op een bepaalde plek.
+
+  - type: textarea
+    id: wat
+    attributes:
+      label: Wat gebeurde er, en wat verwachtte je?
+      description: Eén zin elk is genoeg.
+      placeholder: |
+        De studie liep tot het einde, maar het blad van de bodemkaart bleef leeg.
+        Ik verwachtte de kaart met haar legenda, zoals op de andere bladen.
+    validations:
+      required: true
+
+  - type: input
+    id: locatie
+    attributes:
+      label: Coördinaat of adres van de studie
+      description: >
+        Lambert 72 (X/Y in meter) of het adres dat je ingaf, plus de buffer en de zoekstraal als
+        je die veranderd hebt. Zonder de plek kan niemand je fout naspelen: kaarten hebben niet
+        overal dekking, en een deel van de fouten in dit project bestond maar op één plaats.
+      placeholder: "X 104326, Y 192506 - buffer 50 m, straal 500 m"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: qgis
+    attributes:
+      label: QGIS-versie
+      options:
+        - 3.34 LTR
+        - 3.40 LTR
+        - 4.x
+        - anders
+    validations:
+      required: true
+
+  - type: input
+    id: qgis-build
+    attributes:
+      label: Welke build precies
+      description: "Helpen > Over QGIS, de eerste regel. Laat leeg als je het niet meteen vindt."
+      placeholder: "3.40.15-Bratislava"
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Besturingssysteem
+      options:
+        - Windows
+        - Linux
+        - macOS
+    validations:
+      required: true
+
+  - type: input
+    id: plugin
+    attributes:
+      label: Versie van de plugin
+      description: "Plugins > Plugins beheren en installeren > Geïnstalleerd, of het titelblad van het rapport."
+      placeholder: "0.3.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Foutmelding of de regels uit het logpaneel
+      description: >
+        Beeld > Panelen > Logberichten, tab "DOV Desktopstudie". Daar logt de plugin per fase een
+        samenvatting en per mislukte bron een reden. Plak wat er staat; de laatste twintig regels
+        volstaan meestal.
+      render: text
+
+  - type: textarea
+    id: pdf
+    attributes:
+      label: Kwam er een PDF uit, en hoe zag die eruit?
+      description: >
+        Een blad met een leeg kader is een andere fout dan een studie die halverwege stopt. Een
+        schermafdruk van het blad zegt meer dan een zin; sleep ze gerust hierin.
+      placeholder: "Ja, 58 bladen, maar blad 15 heeft een leeg kaartkader."
+
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Bevestiging
+      options:
+        - label: >
+            Dit gaat over de plugin, niet over de data van DOV zelf. (Tekent een kaart van DOV een
+            klasse die volgens jou niet klopt, dan is dat een zaak voor DOV. Klopt niet wat het
+            rapport van die kaart máákt, dan zit je hier juist.)
+          required: true
