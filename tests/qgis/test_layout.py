@@ -1909,6 +1909,12 @@ def test_a_measured_row_is_never_as_wide_as_the_box_it_goes_in(qgs_app, project)
     from desktopstudie.core import catalogue
     from desktopstudie.qgis import layout as layout_mod
 
+    # Hoeveel een rij moet overhouden is een AANDEEL van de breedte, geen vaste haar. Gemeten in
+    # qgis/qgis:release-3_34 (Arial 6 pt) door de speling te laten groeien tot de renderer ophield
+    # er een rij bij te maken: 2,50 mm op een vak van 52,34 mm, 2,00 mm op 42,65 mm en 1,50 mm op
+    # 31,49 mm - 4,8 %, 4,7 % en 4,8 %. Vijf procent is dus de ondergrens; wat de code zelf
+    # aanhoudt mag ruimer zijn.
+    reserve = 0.05
     lay, item = _info_label(project)
     assert lay.itemById is not None  # de layout blijft leven zolang haar item gelezen wordt
     for entry in catalogue.entries(enabled_only=False):
@@ -1918,7 +1924,7 @@ def test_a_measured_row_is_never_as_wide_as_the_box_it_goes_in(qgs_app, project)
                                                    layout_mod.INFO_MARGIN_MM)
         for row in rows:
             drawn = layout_mod._measured_width(item, row)
-            assert drawn <= width - layout_mod.BOX_SLACK_MM, (
+            assert drawn <= width * (1.0 - reserve), (
                 f"{entry.id}: de rij {row!r} is {drawn:.2f} mm breed in een vak van "
                 f"{width:.2f} mm - de renderer breekt haar alsnog en de laatste rij valt op "
                 f"de onderrand")
