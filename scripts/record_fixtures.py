@@ -14,16 +14,21 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-FIXTURE_DIR = Path(__file__).resolve().parents[1] / "tests" / "core" / "fixtures"
-WFS = "https://www.dov.vlaanderen.be/geoserver/wfs"
-GXG = "https://www.dov.vlaanderen.be/geoserver/gxg/wms"
-VB = "https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/"
-VB_PROFILE = ("https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/"
-              "{model}/profielbevraging/lagen")
-WATERINFO = (
-    "https://inspirepub.waterinfo.be/arcgis/services/informatieplicht/"
-    "overstromingsgevoelige_gebieden_{kind}/MapServer/WMSServer"
-)
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+# The service addresses come from the catalogue, never from a copy here: a fixture is only a
+# record of what the CODE asks, so a URL that moved has to move in one place. `catalogue` is pure
+# stdlib, so this script stays runnable on any Python >= 3.9 without the rest of the package.
+from desktopstudie.core import catalogue  # noqa: E402
+
+FIXTURE_DIR = ROOT / "tests" / "core" / "fixtures"
+WFS = catalogue.DOV_WFS_URL
+GXG = catalogue.dov_wms("gxg:gxg")[0]
+VB_PROFILE = catalogue.VB_PROFILE_URL
+WATERINFO = catalogue.WATERINFO_WMS_URL
+GEOCODE_QUERY = "Kortrijksesteenweg 100 Gent"
+DOORPRIK_POINT = {"x": 104326, "y": 192506, "crs": "EPSG:31370"}
 ZONE = "POLYGON((104226 192406,104426 192406,104426 192606,104226 192606,104226 192406))"
 # Rural, erosion-prone square (1000 x 1000 m) in the Flemish Ardennes near Kluisbergen/Ronse,
 # picked because it is the one place a live probe found both the erosie- and the (sparse)
@@ -96,13 +101,23 @@ def vb_profile(model: str, p: tuple[float, float], q: tuple[float, float], resol
                                                                         quote_via=urllib.parse.quote)
 
 
+def doorprik(model: str) -> str:
+    """One virtual borehole at the study point, the way `virtuele_boring` asks for it."""
+    return catalogue.VB_DOORPRIK_URL.format(model=model) + "?" + urllib.parse.urlencode(
+        DOORPRIK_POINT, quote_via=urllib.parse.quote)
+
+
+def geocode(query: str) -> str:
+    return catalogue.GEOCODER_URL + "?" + urllib.parse.urlencode(
+        {"q": query, "c": 5}, quote_via=urllib.parse.quote)
+
+
 def dwithin(m: int, extra_cql: str = "") -> str:
     return f"DWITHIN(geom,{ZONE},{m},meters)" + (f" AND {extra_cql}" if extra_cql else "")
 
 
 FIXTURES: list[tuple[str, str]] = [
-    ("geocoder_kortrijksesteenweg.json",
-     "https://geo.api.vlaanderen.be/geolocation/v4/Location?q=Kortrijksesteenweg%20100%20Gent&c=5"),
+    ("geocoder_kortrijksesteenweg.json", geocode(GEOCODE_QUERY)),
     ("wfs_describe_sonderingen.json", describe("dov-pub:Sonderingen")),
     ("wfs_describe_tertiair_50k.json", describe("neo_paleo:tertiair_50k")),
     ("wfs_sonderingen_dwithin.json", wfs("dov-pub:Sonderingen", dwithin(500))),
@@ -165,10 +180,10 @@ FIXTURES: list[tuple[str, str]] = [
     ("interpretatie_2016-252456.xml", "https://www.dov.vlaanderen.be/data/interpretatie/2016-252456.xml"),
     ("interpretatie_2024-382762.xml", "https://www.dov.vlaanderen.be/data/interpretatie/2024-382762.xml"),
     ("filter_1985-007948.xml", "https://www.dov.vlaanderen.be/data/filter/1985-007948.xml"),
-    ("vb_g3dv3_F.json", VB + "g3dv3_F?x=104326&y=192506&crs=EPSG:31370"),
-    ("vb_g3dv3_L.json", VB + "g3dv3_L?x=104326&y=192506&crs=EPSG:31370"),
-    ("vb_g3dv3_P.json", VB + "g3dv3_P?x=104326&y=192506&crs=EPSG:31370"),
-    ("vb_hcovv2_S.json", VB + "hcovv2_S?x=104326&y=192506&crs=EPSG:31370"),
+    ("vb_g3dv3_F.json", doorprik("g3dv3_F")),
+    ("vb_g3dv3_L.json", doorprik("g3dv3_L")),
+    ("vb_g3dv3_P.json", doorprik("g3dv3_P")),
+    ("vb_hcovv2_S.json", doorprik("hcovv2_S")),
     ("vb_profile_g3dv3_F.json",
      vb_profile("g3dv3_F", (104126.0, 192506.0), (104526.0, 192506.0), 100)),
     ("gxg_ghg_hit.json", gxg("gxg:ghg_mmv_main", 104326.8, 192506.7)),
