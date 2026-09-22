@@ -267,3 +267,101 @@ def test_one_sand_layer_is_as_ordinary_as_several():
     """"zandlaagje" bleef staan terwijl "zandlaagjes" allang gewone grond was: het enkelvoud hoort
     bij dezelfde regel, net als lensje bij lenzen."""
     assert lithology.notable_terms([_layer(1.5, 1.6, "klei met een zandlaagje")]) == []
+
+
+def test_a_french_colour_is_a_gewoon_woord_like_a_dutch_one():
+    """"vergeet ook niet de kleuren eruit te halen als gewone woorden" - in het Frans net zo goed.
+    Gris, brun, jaune, vert, noir, blanc, rouge, bleu en beige zeggen een machinist niets, en hun
+    vrouwelijke en meervoudsvormen evenmin (grise, brune, grises). "-âtre" is het Franse "-achtig",
+    dus grisâtre is grijsachtig: dat is een achtervoegsel, geen negen extra woorden."""
+    kleuren = ("sable gris, argile grise, sables gris, argiles grises",
+               "sable brun, terre brune, sables bruns, terres brunes",
+               "argile jaune, sable vert, limon noir, sable blanc, argile rouge, sable bleu",
+               "sable noires, argiles vertes, sables verts, argiles rouges, sables blancs",
+               "grisâtre, brunâtre, jaunâtre, verdâtre, noirâtre, blanchâtre, rougeâtre",
+               "bleuâtre, roussâtre, grisâtres, brunâtres, rougeâtres")
+    for regel in kleuren:
+        assert lithology.notable_terms([_layer(0.0, 1.0, regel)]) == [], regel
+
+
+def test_french_shells_are_an_admixture_and_only_the_bed_flags():
+    """Schelpen e.d. zijn ook in het Frans bijmenging: coquilles, coquillages, débris de
+    coquilles, fragments, coquilliers. Een schelpenBANK draagt haar eigen woord en blijft vlaggen,
+    precies zoals aan de Nederlandse kant."""
+    bijmenging = ("sable gris avec coquilles et coquillages",
+                  "sable jaune, débris de coquilles, fragments coquilliers",
+                  "argile grise avec fragments de coquilles")
+    for regel in bijmenging:
+        assert lithology.notable_terms([_layer(0.0, 1.0, regel)]) == [], regel
+
+    assert [t.word for t in lithology.notable_terms(
+        [_layer(0.0, 1.0, "banc de coquilles")])] == ["banc"]
+
+
+def test_french_plant_debris_is_ordinary_ground():
+    """Plantenresten waren aan de Nederlandse kant al gewoon; végétale, végétaux, racines en
+    radicelles zijn hetzelfde in het Frans. "terre végétale" is de teelaarde."""
+    for regel in ("terre végétale", "argile avec débris végétaux",
+                  "sable brun avec racines et radicelles"):
+        assert lithology.notable_terms([_layer(0.0, 1.0, regel)]) == [], regel
+
+
+def test_the_french_matrix_and_the_filler_around_it_say_nothing():
+    """De gewone matrix en haar modificatoren - sable, argile, limon, terre, avec, fin, grossier,
+    peu, très, semblable - plus de kleine woordjes (de, des, du, à, et, en, un, une) zijn geen
+    waarneming. Drie echte DOV-regels, woord voor woord uit oude beschrijvingen."""
+    for regel in ("sable gris avec un peu d'argile",
+                  "terre végétale",
+                  "argile grise, semblable à 109",
+                  "sable fin et argile grossière, très peu de limon"):
+        assert lithology.notable_terms([_layer(0.0, 1.0, regel)]) == [], regel
+
+
+def test_what_a_geotechnician_needs_keeps_flagging_in_french_too():
+    """De vlagregel zelf blijft staan: cailloux, tourbe, grès, silex, concrétions, brique en
+    gravier zijn dingen waar een machine op stuit, en glauconifère vlagt omdat zijn Nederlandse
+    broer glauconiethoudend dat ook doet."""
+    for tekst, verwacht in (("sable gris avec cailloux", "cailloux"),
+                            ("tourbe brune", "tourbe"),
+                            ("grès glauconifère", "grès"),
+                            ("argile avec silex", "silex"),
+                            ("sable avec concrétions", "concrétions"),
+                            ("remblai avec brique", "brique"),
+                            ("banc de gravier", "gravier"),
+                            ("sable glauconifère", "glauconifère")):
+        woorden = [t.word for t in lithology.notable_terms([_layer(0.0, 1.0, tekst)])]
+        assert verwacht in woorden, f"{tekst!r} gaf {woorden}"
+
+
+def test_an_accent_is_not_a_second_word():
+    """De oude beschrijvingen spellen dezelfde woorden met en zonder accent: végétale naast
+    vegetale, grès naast gres, très naast tres. Voor de vergelijking worden de accenten
+    weggehaald, zodat één woord op de lijst allebei de spellingen dekt - en grès blijft aan de
+    vlaggende kant in allebei."""
+    assert lithology.notable_terms([_layer(0.0, 1.0, "terre vegetale, tres fin")]) == []
+    assert lithology.notable_terms([_layer(0.0, 1.0, "terre végétale, très fin")]) == []
+    for spelling in ("grès", "gres"):
+        assert [t.word for t in lithology.notable_terms(
+            [_layer(0.0, 1.0, f"argile avec {spelling}")])] == [spelling]
+
+
+def test_an_unknown_french_word_still_flags():
+    """De richting van de regel mag niet omdraaien: de lijst zegt wat GEWOON is, al de rest
+    vlagt. Een Frans woord dat niemand opgeschreven heeft is dus een rariteit, en de vlag draagt
+    het Franse woord zelf - er wordt niets vertaald."""
+    found = lithology.notable_terms([_layer(1.0, 2.0, "sable fin avec bentonite")])
+
+    assert [t.word for t in found] == ["bentonite"]
+
+
+def test_the_seven_terms_under_kb29d84e_B664_are_two():
+    """De willekeurige ronde na de opkuis zette nog zeven termen onder deze Franse boring in
+    Kruisem - een plek die niet bij de twaalf telpunten zit, en dus het soort ruis dat alleen een
+    echte run laat zien. Verwering, "dérivé de", een formatienaam, de helft van "sous-jacente" en
+    een gracht zeggen een machinist niets; de argiliet en de cailloux blijven staan."""
+    laag = ("Limon d'altération argileux jaune rougeâtre, dérivé de l'argilite paniselien "
+            "sous-jacente, se voit dans les champs et dans le fossé. Très rares cailloux.")
+
+    woorden = [t.word for t in lithology.notable_terms([_layer(0.0, 0.0, laag)])]
+
+    assert woorden == ["argilite", "cailloux"]
