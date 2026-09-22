@@ -55,9 +55,9 @@ LAMBERT_MAX_M = 400000.0
 DEFAULT_BUFFER_M = 50.0
 NO_HITS = "Geen kandidaat gevonden."
 NOTHING_DRAWN = "Nog niets getekend."
-# Wat een laag bijdraagt, in de woorden van de laag zelf: een vlaklaag heeft vlakken, een lijnlaag
-# lijnen. Een enkel object heeft geen selectie nodig; pas bij meerdere is er iets te kiezen, en dan
-# zegt de weigering hoeveel het er zijn en wat de gebruiker moet doen.
+# What a layer contributes, in the layer's own words: a polygon layer has polygons, a line layer
+# has lines. A single feature needs no selection; only with several is there anything to choose,
+# and then the refusal says how many there are and what the user has to do.
 NOTE_ONLY_FEATURE = {
     "polygon": "Geen selectie; het enige vlak in de laag {layer} is gebruikt.",
     "line": "Geen selectie; de enige lijn in de laag {layer} is gebruikt.",
