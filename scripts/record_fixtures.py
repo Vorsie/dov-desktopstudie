@@ -40,20 +40,19 @@ ZONE_GRONDVERSCHUIVING = "POLYGON((95000 165000,98000 165000,98000 168000,95000 
 ZONE_PFAS = "POLYGON((144500 209500,147500 209500,147500 212500,144500 212500,144500 209500))"
 
 
-def wfs(
-    typename: str,
-    cql: str,
-    count: int = 5,
-    extra: dict | None = None,
-    props: tuple[str, ...] = (),
-) -> str:
+def wfs(typename: str, cql: str, count: int = 5, extra: dict | None = None) -> str:
+    """One GetFeature, asked exactly the way `core.services.dov_wfs` asks it.
+
+    In particular WITHOUT `propertyName`. Naming the properties makes GeoServer answer
+    `"geometry": null` on every feature, and a fixture whose rows carry no geometry cannot be
+    measured against - `study._nearest_rows` skips exactly those rows. A fixture that does not
+    look like the live answer is a test that passes for the wrong reason.
+    """
     params = {
         "service": "WFS", "version": "2.0.0", "request": "GetFeature",
         "typeNames": typename, "outputFormat": "application/json",
         "srsName": "EPSG:31370", "CQL_FILTER": cql, "count": str(count),
     }
-    if props:
-        params["propertyName"] = ",".join(props)
     params.update(extra or {})
     return WFS + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
 
@@ -127,45 +126,40 @@ FIXTURES: list[tuple[str, str]] = [
     ("wfs_quartair_200k_intersects.json",
      wfs("quartair:quartair_200k", f"INTERSECTS(geom,{ZONE})")),
     ("wfs_tertiair_50k_intersects.json",
-     wfs("neo_paleo:tertiair_50k", f"INTERSECTS(shape,{ZONE})",
-         props=("dataengine_id", "code", "formatie", "lid", "beschrijving", "typeov", "volgorde"))),
+     wfs("neo_paleo:tertiair_50k", f"INTERSECTS(shape,{ZONE})")),
     ("wfs_hcov_0100_vk_intersects.json",
-     wfs("hcov:hcov_0100_vk", f"INTERSECTS(geometry,{ZONE})",
-         props=("id", "hcov_code", "hcov_naam"))),
+     wfs("hcov:hcov_0100_vk", f"INTERSECTS(geometry,{ZONE})")),
     ("wfs_gwkwb_kwbschaal_intersects.json",
      wfs("gw_bescherming:gwkwb_kwbschaal", f"INTERSECTS(shape,{ZONE})")),
     ("wfs_ovam_uitspraak_intersects.json",
      wfs("ovam:uitspraak_bodemonderzoeken", f"INTERSECTS(geom,{ZONE})")),
-    ("wfs_indexplastisch_intersects.json",
-     wfs("plastische_gronden:IndexPlastisch", f"INTERSECTS(geom,{ZONE})",
-         props=("id", "code_H3Dv2_0", "Eenheid_G3Dv3_0", "code_G3Dv3_0", "hoofdlithologie"))),
     ("wfs_erosie_2014_intersects.json",
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
-         f"INTERSECTS(the_geom,{ZONE_RURAL})", 5,
-         props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
+         f"INTERSECTS(the_geom,{ZONE_RURAL})", 5)),
     ("wfs_erosie_2014_hoog.json",
      wfs("erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
-         f"INTERSECTS(the_geom,{ZONE_EROSIE_HOOG})", 5,
-         props=("gid", "Erosieklasse_ALV", "Totale_erosie", "Watererosie", "Bewerkingserosie"))),
-    # A contour never overlaps a plot, so this one is asked with DWITHIN - and WITHOUT
-    # propertyName: asking for named properties makes GeoServer answer "geometry": null on every
-    # feature, and the distance the report prints is measured from that geometry. The geometry
-    # field of this layer is `geom`, not `geometry`, and the study zone itself has contours within
-    # a few hundred metres, so ZONE serves where the coarse layer needed a rural square.
+         f"INTERSECTS(the_geom,{ZONE_EROSIE_HOOG})", 5)),
+    # A contour never overlaps a plot, so this one is asked with DWITHIN, and the distance the
+    # report prints comes from the geometry in the answer. The geometry field of this layer is
+    # `geom`, not `geometry`, and the study zone itself has contours within a few hundred metres,
+    # so ZONE serves where the coarse layer needed a rural square.
     ("wfs_quartair_isopachen_dwithin.json",
      wfs("quartair:qisopachen_quartair_50k", f"DWITHIN(geom,{ZONE},2000,meters)", 5)),
+    # The one exception to the rule in `wfs`, and a measured one: this layer answers a 1 km square
+    # with a SINGLE feature whose geometry is 40 MB - the susceptibility polygon covers most of
+    # Flanders - and a 40 MB fixture is not a fixture. So this request keeps `propertyName` and
+    # its features come back with `"geometry": null`. That is safe only while this map is asked
+    # with INTERSECTS; give it a `fact_within_m` and the distance can no longer be measured, so
+    # the fixture would have to go (or the query would have to find a smaller polygon first).
     ("wfs_grndversch_gevoeligh_intersects.json",
      wfs("grondverschuivingen:grndversch_gevoeligh", f"INTERSECTS(shape,{ZONE_RURAL})", 5,
-         props=("ogc_fid", "gevoelighd", "klasse"))),
+         extra={"propertyName": "ogc_fid,gevoelighd,klasse"})),
     ("wfs_grndversch_gekarteerd_intersects.json",
-     wfs("grondverschuivingen:grndversch_gekarteerd", f"INTERSECTS(shape,{ZONE_GRONDVERSCHUIVING})", 5,
-         props=("dataengine_id", "type", "naam", "gemeente", "helling", "rapport"))),
+     wfs("grondverschuivingen:grndversch_gekarteerd", f"INTERSECTS(shape,{ZONE_GRONDVERSCHUIVING})", 5)),
     # WFS pfas:no_regret_huidig; the WMS "no_regret_zones" is a STYLE of that same layer, not a
     # layer of its own (live check 2026-09-15: GetMap on pfas:no_regret_zones -> LayerNotDefined).
     ("wfs_pfas_no_regret_intersects.json",
-     wfs("pfas:no_regret_huidig", f"INTERSECTS(geom,{ZONE_PFAS})", 5,
-         props=("id", "pfasdossiernr", "gemeente", "straat", "nrm_status_zone", "zone_geldig_vanaf",
-                "no_regret_maatregelen"))),
+     wfs("pfas:no_regret_huidig", f"INTERSECTS(geom,{ZONE_PFAS})", 5)),
     ("sondering_1965-039716.xml", "https://www.dov.vlaanderen.be/data/sondering/1965-039716.xml"),
     ("sondering_2024-090319.xml", "https://www.dov.vlaanderen.be/data/sondering/2024-090319.xml"),
     ("interpretatie_2016-252456.xml", "https://www.dov.vlaanderen.be/data/interpretatie/2016-252456.xml"),
