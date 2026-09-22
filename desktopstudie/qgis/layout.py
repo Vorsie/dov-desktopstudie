@@ -164,6 +164,8 @@ FIGURE_MIN_H = 120.0
 # The key under the overview map: a swatch of this size and a line of this height per symbol.
 KEY_SWATCH = 3.0
 KEY_ROW_H = 4.2
+# The logo on the title page, in the box it is zoomed into.
+LOGO_W, LOGO_H = 60.0, 30.0
 
 # QGIS draws a string about seven per cent wider than Qt's own metrics say (measured on a 6 pt
 # line: 55.4 mm against 51.9 mm). Column widths are estimated with Qt's metrics, so they carry
@@ -243,6 +245,9 @@ TEXT_HEIGHT_PAD = 8.0
 TABLE_FIT_STEPS = 10
 TABLE_FIT_MARGIN = 1.0
 TAGS = re.compile(r"<[^>]+>")
+# What a piece carries as its header on the sheet behind its own. One spelling: a reader
+# scanning the headers of a long report recognises the word, not a sentence that varies.
+CONTINUED = "(vervolg)"
 NO_COVERAGE_NOTE = "Deze bron levert geen kaartbeeld op deze locatie (geen dekking)."
 MISSING_MAP_NOTE = "Kaartbeeld van deze bron niet opgehaald (zie hoofdstuk Bronnen)."
 # One GetMap per map page, fetched up front and in parallel, instead of letting the WMS provider
@@ -417,6 +422,11 @@ def _round_scale(scale: float) -> float:
     more doubling would say less than the odd number does.
     """
     return next((step for step in SCALE_STEPS if step >= scale - 0.5), scale)
+
+
+def _continued(title: str) -> str:
+    """The header of a piece that runs on to the next sheet."""
+    return f"{title} {CONTINUED}"
 
 
 def _thousands(value: int) -> str:
@@ -1507,6 +1517,43 @@ class LayoutBuilder:
         item.attemptResize(size_mm(w, h))
         return item
 
+    def picture(self, path, x: float, y: float, width: float, height: float, page: int,
+                stretch: bool = False, frame: bool = False,
+                background: bool = False) -> QgsLayoutItemPicture:
+        """One image on the paper, placed and sized in millimetres.
+
+        Zoom unless asked otherwise: a legend swatch that is no longer square and a class name
+        that is no longer readable are the two ways a stretched picture goes wrong. `stretch` is
+        for the colour band, whose source is a gradient a few pixels wide and whose own shape
+        says nothing; `background` gives an item its own white field (the north arrow, invisible
+        on a dark roof in an aerial photo).
+        """
+        item = QgsLayoutItemPicture(self.layout)
+        item.setPicturePath(str(path))
+        item.setResizeMode(QgsLayoutItemPicture.ResizeMode.Stretch if stretch
+                           else QgsLayoutItemPicture.ResizeMode.Zoom)
+        if frame:
+            item.setFrameEnabled(True)
+        if background:
+            item.setBackgroundEnabled(True)
+            item.setBackgroundColor(BOX_BACKGROUND)
+        self.layout.addLayoutItem(item)
+        item.attemptMove(point_mm(x, y), page=page)
+        item.attemptResize(size_mm(width, height))
+        return item
+
+    def _rect(self, x: float, y: float, width: float, height: float, page: int,
+              symbol: Dict[str, str]) -> None:
+        """A filled rectangle on the paper: the swatches of the map key and the rules under a
+        title. A shape rather than a label with a background - a rule is a rule, and a label
+        carries a margin and a text layout that have nothing to do here."""
+        shape = QgsLayoutItemShape(self.layout)
+        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
+        shape.setSymbol(QgsFillSymbol.createSimple(symbol))
+        self.layout.addLayoutItem(shape)
+        shape.attemptMove(point_mm(x, y), page=page)
+        shape.attemptResize(size_mm(width, height))
+
     def info_box(self, lines: Sequence[str], y: float, page: int, size: float) -> QgsLayoutItemLabel:
         """A box on top of the map: opaque, shrunk to its text and pinned to the right margin.
 
@@ -1669,15 +1716,9 @@ class LayoutBuilder:
         # ... and where it came from, on the same sheet, so a printed page stays attributable.
         self.info_box([entry.attribution, entry.licence, f"opgehaald {self._date()}"],
                       CONTENT_TOP + height - INFO_BOTTOM_LIFT, index, size=6)
-        arrow = QgsLayoutItemPicture(self.layout)
-        arrow.setPicturePath(str(NORTH_ARROW))
-        arrow.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
         # A black arrow on a dark roof in an aerial photo is invisible; it gets its own white field.
-        arrow.setBackgroundEnabled(True)
-        arrow.setBackgroundColor(BOX_BACKGROUND)
-        self.layout.addLayoutItem(arrow)
-        arrow.attemptMove(point_mm(*ARROW_XY), page=index)
-        arrow.attemptResize(size_mm(ARROW_WH, ARROW_WH))
+        self.picture(NORTH_ARROW, ARROW_XY[0], ARROW_XY[1], ARROW_WH, ARROW_WH, index,
+                     background=True)
         self._scale_bar(map_item, real_scale, index, CONTENT_TOP + height + SCALE_BAR_LIFT)
         # The map stays on the sheet even without coverage - the zone circle is what the reader
         # came for - but the note says why the background is empty. A page whose image never
@@ -1692,7 +1733,7 @@ class LayoutBuilder:
         self._seal(index)
         if overleaf:
             index = self.new_page()
-            self.header(chapter, f"{page.title} (vervolg)", index)
+            self.header(chapter, _continued(page.title), index)
             self._seal(index)
             block.draw(index, CONTENT_TOP)
         else:
@@ -1762,13 +1803,8 @@ class LayoutBuilder:
 
     def _swatch(self, x: float, y: float, colour: str, page: int) -> None:
         """One coloured square of the map key, drawn the same way the points are coloured."""
-        shape = QgsLayoutItemShape(self.layout)
-        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
-        shape.setSymbol(QgsFillSymbol.createSimple(
-            {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"}))
-        self.layout.addLayoutItem(shape)
-        shape.attemptMove(point_mm(x, y), page=page)
-        shape.attemptResize(size_mm(KEY_SWATCH, KEY_SWATCH))
+        self._rect(x, y, KEY_SWATCH, KEY_SWATCH, page,
+                   {"color": colour, "outline_color": "#ffffff", "outline_width": "0.2"})
 
     def _guide_block(self, page: TextPage) -> UnderMap:
         """How to read this map, under its own frame instead of on a sheet of its own."""
@@ -1783,15 +1819,8 @@ class LayoutBuilder:
     def _rule(self, x: float, y: float, width: float, height: float, page: int) -> None:
         """A thin black bar: a tick under the colour strip, or the line that joins two of them.
 
-        A shape rather than a label with a background: a rule is a rule, and a label carries a
-        margin and a text layout that has nothing to do here.
         """
-        shape = QgsLayoutItemShape(self.layout)
-        shape.setShapeType(QgsLayoutItemShape.Shape.Rectangle)
-        shape.setSymbol(QgsFillSymbol.createSimple({"color": RULE_COLOUR, "outline_style": "no"}))
-        self.layout.addLayoutItem(shape)
-        shape.attemptMove(point_mm(x, y), page=page)
-        shape.attemptResize(size_mm(width, height))
+        self._rect(x, y, width, height, page, {"color": RULE_COLOUR, "outline_style": "no"})
 
     def _mark_the_zone(self, ramp: ColourRamp, sheet: int, y: float) -> Tuple[str, float]:
         """Put this zone on the colour strip; answer with the line that names it and where it goes.
@@ -1828,14 +1857,10 @@ class LayoutBuilder:
         def draw(sheet: int, top: float) -> None:
             self.label(CLASS_KEY_TITLE, MARGIN, top, CONTENT_W, UNDER_MAP_TITLE_H, sheet, size=9,
                        bold=True)
-            key = QgsLayoutItemPicture(self.layout)
-            key.setPicturePath(str(self.out_dir / image_path))
-            # Zoom, not Stretch: the swatches are squares and the class names are words, and both
-            # go unreadable the moment the aspect is thrown away.
-            key.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(key)
-            key.attemptMove(point_mm(MARGIN, top + UNDER_MAP_TITLE_H), page=sheet)
-            key.attemptResize(size_mm(CLASS_KEY_W, CLASS_KEY_H))
+            # Zoom (the default): the swatches are squares and the class names are words, and
+            # both go unreadable the moment the aspect is thrown away.
+            self.picture(self.out_dir / image_path, MARGIN, top + UNDER_MAP_TITLE_H,
+                         CLASS_KEY_W, CLASS_KEY_H, sheet)
 
         return UnderMap(height, draw, height)
 
@@ -1861,15 +1886,10 @@ class LayoutBuilder:
                        bold=True)
             y += UNDER_MAP_TITLE_H
             if image is not None:
-                strip = QgsLayoutItemPicture(self.layout)
-                strip.setPicturePath(str(image))
-                # Stretch, not Zoom: the band is a gradient of a few pixels and the strip it has to
-                # fill is a fixed one, so the aspect of the source says nothing.
-                strip.setResizeMode(QgsLayoutItemPicture.ResizeMode.Stretch)
-                strip.setFrameEnabled(True)
-                self.layout.addLayoutItem(strip)
-                strip.attemptMove(point_mm(MARGIN, y), page=sheet)
-                strip.attemptResize(size_mm(RAMP_STRIP_W, RAMP_STRIP_H))
+                # Stretch, not Zoom: the band is a gradient of a few pixels and the strip it has
+                # to fill is a fixed one, so the aspect of the source says nothing.
+                self.picture(image, MARGIN, y, RAMP_STRIP_W, RAMP_STRIP_H, sheet,
+                             stretch=True, frame=True)
                 y += strip_h
             if marked:
                 # Against the bar, not a gap below it: a pointer that touches nothing points at
@@ -1937,7 +1957,7 @@ class LayoutBuilder:
                 # Not the table alone: the title and the note go with it, or the reader is left
                 # with a heading on one sheet and its table on the next.
                 sheet = self.new_page()
-                self.header(chapter, f"{page.title} (vervolg)", sheet, metrics)
+                self.header(chapter, _continued(page.title), sheet, metrics)
                 top = CONTENT_TOP
             self._block_title(page.title, sheet, top)
             body = top + UNDER_MAP_TITLE_H
@@ -1947,7 +1967,7 @@ class LayoutBuilder:
             room = CONTENT_TOP + metrics.content_h - body
             last = self._place_table(table, frame, sheet, body, min(wanted, room), metrics)
             for extra in range(sheet + 1, last + 1):
-                self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+                self.header(chapter, _continued(page.title), extra, metrics)
             self._seal(last, metrics)
 
         return UnderMap(UNDER_MAP_TITLE_H + note_h + wanted, draw, needed)
@@ -2000,7 +2020,7 @@ class LayoutBuilder:
             needed = LEGEND_LABEL_H + (height or LEGEND_LABEL_H) + LEGEND_GAP
             if y + needed > bottom:
                 index = self.new_page()
-                self.header(chapter, f"{page.title} (vervolg)", index)
+                self.header(chapter, _continued(page.title), index)
                 y, bottom = CONTENT_TOP, CONTENT_TOP + CONTENT_H
             self.label(f"Profieltype {entry.code} - kaartblad {entry.sheet}", MARGIN, y, CONTENT_W,
                        LEGEND_LABEL_H, index, size=9, bold=True)
@@ -2011,12 +2031,7 @@ class LayoutBuilder:
                 self.label(said, MARGIN, y, CONTENT_W, LEGEND_LABEL_H, index, size=8)
                 y += LEGEND_LABEL_H + LEGEND_GAP
                 continue
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(self.out_dir / entry.image_path))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, y), page=index)
-            picture.attemptResize(size_mm(width, height))
+            self.picture(self.out_dir / entry.image_path, MARGIN, y, width, height, index)
             y += height + LEGEND_GAP
         return index
 
@@ -2056,12 +2071,7 @@ class LayoutBuilder:
                 QgsProperty.fromExpression(f"@{LEGEND_VARIABLE} = 0"))
             title = page.title if len(strips) == 1 else f"{page.title} ({number}/{len(strips)})"
             self.header(chapter, f"Legenda - {title}", index)
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(path))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
-            picture.attemptResize(size_mm(width, height))
+            self.picture(path, MARGIN, CONTENT_TOP, width, height, index)
             self._seal(index)
 
     # --- figure, table and text pages --------------------------------------------------------------
@@ -2090,12 +2100,7 @@ class LayoutBuilder:
             # same column fitted under the longer G3Dv3 tables.
             width, height = _drawn_size(image, metrics.content_w, room - FIT_TOLERANCE_MM)
         slot = self._start(chapter, page.title, height + caption_h, metrics)
-        picture = QgsLayoutItemPicture(self.layout)
-        picture.setPicturePath(str(image))
-        picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-        self.layout.addLayoutItem(picture)
-        picture.attemptMove(point_mm(MARGIN, slot.top), page=slot.page)
-        picture.attemptResize(size_mm(width, height))
+        self.picture(image, MARGIN, slot.top, width, height, slot.page)
         if page.caption:
             self.label(page.caption, MARGIN, slot.top + height + 2.0, metrics.content_w, 10,
                        slot.page, size=7)
@@ -2233,7 +2238,7 @@ class LayoutBuilder:
         room = CONTENT_TOP + metrics.content_h - top
         last = self._place_table(table, frame, slot.page, top, min(wanted, room), metrics)
         for extra in range(slot.page + 1, last + 1):
-            self.header(chapter, f"{page.title} (vervolg)", extra, metrics)
+            self.header(chapter, _continued(page.title), extra, metrics)
         bottom = self._table_bottom(table, last, metrics)
         if last != slot.page:
             # A table that ran on used to declare its last sheet full, even when it stopped a
@@ -2307,12 +2312,7 @@ class LayoutBuilder:
         logo = self.meta.get("logo_path")
         y = 20.0
         if logo and Path(logo).exists():
-            picture = QgsLayoutItemPicture(self.layout)
-            picture.setPicturePath(str(logo))
-            picture.setResizeMode(QgsLayoutItemPicture.ResizeMode.Zoom)
-            self.layout.addLayoutItem(picture)
-            picture.attemptMove(point_mm(MARGIN, y), page=index)
-            picture.attemptResize(size_mm(60, 30))
+            self.picture(logo, MARGIN, y, LOGO_W, LOGO_H, index)
             y += 35
         self.label(self.report.title, MARGIN, y, CONTENT_W, 14, index, size=20, bold=True)
         # The zone line is left out when it only repeats the address: a study started from an
