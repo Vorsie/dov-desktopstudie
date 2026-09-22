@@ -1673,7 +1673,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
             asked.append(url)
             return blob if url == link else page
 
-        def forget(self, url, params=None):
+        def forget(self, url):
             forgotten.append(url)
             return True
 
