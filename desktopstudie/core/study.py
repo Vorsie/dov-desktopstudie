@@ -23,6 +23,7 @@ from .model import (
     record_source,
 )
 from .parallel import Cancelled
+from .paths import safe_segment
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
 from .services.dov_wfs import DovWfs, feature_xy
@@ -464,18 +465,26 @@ class _Runner:
                             "Doorsnede onvolledig; de kolommen op die punten ontbreken.", severity="info")]
 
     def figures(self) -> None:
+        """Write the figures and record where each one landed, keyed as the report looks it up.
+
+        The KEY keeps the permkey exactly as DOV gave it - that is what `pipeline._figured` matches
+        the investigations against - while the FILE NAME goes through `safe_segment`, because a
+        permkey is the last piece of a URL and a URL can hold a path. The two need not be the same
+        string: what ties them together is the recorded path, not the spelling of the key.
+        """
         fig_dir = self.out / "figuren"
         for c in self.result.cpts:
             if c.profile and c.profile.depth_m:
                 self.result.figures[f"cpt_{c.permkey}"] = self._relative(
-                    cpt_figure.plot_cpt(c, fig_dir / f"cpt_{c.permkey}.png"))
+                    cpt_figure.plot_cpt(c, fig_dir / f"cpt_{safe_segment(c.permkey)}.png"))
         for b in self.result.boreholes:
             if b.lithology:
                 self.result.figures[f"boring_{b.permkey}"] = self._relative(
-                    borehole_column.plot_borehole(b, fig_dir / f"boring_{b.permkey}.png"))
+                    borehole_column.plot_borehole(
+                        b, fig_dir / f"boring_{safe_segment(b.permkey)}.png"))
         for model, vb in self.result.virtual_boreholes.items():
             self.result.figures[f"vb_{model}"] = self._relative(
-                vb_column.plot_virtual_borehole(vb, fig_dir / f"vb_{model}.png"))
+                vb_column.plot_virtual_borehole(vb, fig_dir / f"vb_{safe_segment(model)}.png"))
         if self.result.section is not None and has_geology(self.result.section):
             self.result.figures["section"] = self._relative(
                 section_figure.plot_section(self.result.section, fig_dir / "section.png"))
