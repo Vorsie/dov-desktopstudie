@@ -67,8 +67,7 @@ def offline_shell(monkeypatch, gent_zone):
     catalogus.
     """
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import dem, layers
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import dem, layers, prefetch
 
     def fake_wms(entry):
         layer = layers.zone_layer(gent_zone)
@@ -86,17 +85,16 @@ def offline_shell(monkeypatch, gent_zone):
 
     def fake_map_images(requests, out_dir, client, log=None, should_cancel=None):
         """Elk kaartbeeld als een klein plaatje op schijf, zonder een dienst aan te raken."""
-        from desktopstudie.qgis import layout
 
         images = {}
         for request in requests:
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
         return images, set(), {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake_map_images)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake_map_images)
     return RELIEF
 
 
@@ -203,16 +201,16 @@ def test_the_network_half_runs_without_a_project_and_finish_takes_what_it_fetche
     is (dezelfde dozen aan beide kanten)."""
     from qgis.core import QgsLayoutItemLabel
 
-    from desktopstudie.qgis import layout, pipeline
+    from desktopstudie.qgis import layout, pipeline, prefetch
 
     fetched = []
-    stand_in = layout.prepare_map_images  # the offline stand-in; counted, not replaced
+    stand_in = prefetch.prepare_map_images  # the offline stand-in; counted, not replaced
 
     def counted(requests, out_dir, client, log=None, should_cancel=None):
         fetched.append(len(requests))
         return stand_in(requests, out_dir, client, log, should_cancel)
 
-    monkeypatch.setattr(layout, "prepare_map_images", counted)
+    monkeypatch.setattr(prefetch, "prepare_map_images", counted)
     steps = []
 
     prepared = pipeline.prepare(core_result, _meta(), tmp_path, _log(),
@@ -449,8 +447,7 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
     """
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layers, pipeline
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import layers, pipeline, prefetch
 
     core_result.map_ids = ["grb", "bodemkaart", "quartair"]  # ferraris is uitgevinkt
     asked_legends = []
@@ -460,7 +457,7 @@ def test_an_unchosen_map_gets_no_layer_no_legend_and_no_map_image(
         return {entry.id: write_png(Path(out_dir) / "legendas" / f"{entry.id}.png")
                 for entry in entries}, []
 
-    monkeypatch.setattr(layout_mod, "prepare_legends", fake_legends)
+    monkeypatch.setattr(prefetch, "prepare_legends", fake_legends)
     built = []
     stand_in = layers.wms_layer
 
@@ -493,20 +490,19 @@ def test_a_map_with_one_failed_image_is_a_failed_source(qgs_app, core_result, ge
     het volgende kader wel lukte, spreekt dat blad tegen.
     """
     from desktopstudie.core.report_content import Chapter, MapPage, Report
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     pages = [MapPage("grb", "Ligging", scale=2500),
              MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
     report = Report(title="t", meta={}, chapters=[Chapter(1, "Test", pages)])
-    requests = layout_mod.plan_map_images(report, gent_zone.ring, {})
+    requests = prefetch.plan_map_images(report, gent_zone.ring, {})
     assert len(requests) == 2, [request.key for request in requests]
 
     def only_the_second(reqs, out_dir, client, log=None, should_cancel=None):
         write_png(Path(out_dir) / "kaarten" / "tweede.png")
         return {reqs[1].key: Path(out_dir) / "kaarten" / "tweede.png"}, set(), {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", only_the_second)
+    monkeypatch.setattr(prefetch, "prepare_map_images", only_the_second)
 
     pipeline._fetch_map_images(core_result, requests, tmp_path, None, _log(), None)
 
@@ -522,11 +518,10 @@ def test_a_sheet_without_its_units_table_is_a_failed_source(qgs_app, core_result
     uit het rapport. Zonder een bronnenregel per kaartblad is er niets dat dat zegt.
     """
     from desktopstudie.core.report_content import profile_image_key, quartair_sheet
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     header = write_png(tmp_path / "legendas" / "quartair_22026_kop.png")
-    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+    monkeypatch.setattr(prefetch, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
                         ({profile_image_key("22026"): header}, set()))
 
@@ -567,10 +562,9 @@ def test_a_profile_type_without_a_drawing_link_is_named_in_the_sources(qgs_app, 
     """Zonder link wordt er niets opgehaald, en dan stond er ook niets in hoofdstuk Bronnen -
     terwijl de legendaregel de lezer er juist naartoe stuurde. De regel hoort er te staan, als
     feit over de bron: DOV publiceert geen tekening voor dit profieltype."""
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
-    monkeypatch.setattr(layout_mod, "prepare_zone_legend_images",
+    monkeypatch.setattr(prefetch, "prepare_zone_legend_images",
                         lambda result, out_dir, client, log=None, should_cancel=None:
                         ({}, {"13064"}))
 
@@ -769,9 +763,9 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
                                                                tmp_path, monkeypatch, no_pdf):
     """De Popp-kaart is in Gent wit: het mozaiek heeft daar geen blad. De dienst antwoordde wel, dus
     de bron blijft "ok" - met de reden erbij, zodat het witte blad verklaard is."""
-    from desktopstudie.qgis import layout, pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
-    real = layout.prepare_map_images
+    real = prefetch.prepare_map_images
 
     def empty_ferraris(requests, out_dir, client, log=None, should_cancel=None):
         images, _empty, backdrops = real(requests, out_dir, client, log, should_cancel)
@@ -779,7 +773,7 @@ def test_a_map_that_draws_nothing_here_is_noted_but_not_failed(project, core_res
         return (images, {request.key for request in requests if request.map_id == "ferraris"},
                 backdrops)
 
-    monkeypatch.setattr(layout, "prepare_map_images", empty_ferraris)
+    monkeypatch.setattr(prefetch, "prepare_map_images", empty_ferraris)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
@@ -865,7 +859,7 @@ def test_a_run_with_project_groups_still_fills_the_open_project(project, core_re
 def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
     """Vervangt de kaartbeeld-ophaler: de genoemde kaarten leveren een lege tegel of helemaal
     niets, de rest een klein plaatje."""
-    from desktopstudie.qgis import layout as layout_mod
+    from desktopstudie.qgis import prefetch
 
     def fake(requests, out_dir, client, log=None, should_cancel=None):
         images, empty = {}, set()
@@ -874,13 +868,13 @@ def _empty_map_images(monkeypatch, empty_maps=(), failed_maps=()):
                 continue
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
             if request.map_id in empty_maps:
                 empty.add(request.key)
         return images, empty, {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake)
 
 
 def _map_ids(report):
@@ -929,8 +923,7 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
     """Geen dekking hoort bij een kader, niet bij een kaart: de GRB-basiskaart draagt drie kaders
     en een lege tegel op het ene zegt niets over de andere."""
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     seen = []
 
@@ -939,14 +932,14 @@ def test_one_empty_framing_costs_only_its_own_sheet(project, core_result, offlin
         for request in requests:
             path = Path(out_dir) / "data" / "kaarten" / f"{request.key.replace(':', '_')}.png"
             write_png(path, 60, 60)
-            layout_mod._write_world_file(path.with_suffix(".pgw"), request)
+            prefetch._write_world_file(path.with_suffix(".pgw"), request)
             images[request.key] = path
             if request.map_id == "grb" and not seen:
                 seen.append(request.key)
                 empty.add(request.key)
         return images, empty, {}
 
-    monkeypatch.setattr(layout_mod, "prepare_map_images", fake)
+    monkeypatch.setattr(prefetch, "prepare_map_images", fake)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
@@ -965,13 +958,12 @@ def test_the_shell_fetches_the_height_ramp_and_the_map_page_carries_it(project, 
     als de legendabladen uitstaan, en de kaartpagina draagt ze."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
                         [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
     strip = write_png(tmp_path / "legendas" / "dhmv_dtm_schaal.png", 48, 16)
-    monkeypatch.setattr(layout_mod, "fetch_ramp",
+    monkeypatch.setattr(prefetch, "fetch_ramp",
                         lambda entry, out_dir, client, log=None: strip)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
@@ -992,12 +984,11 @@ def test_a_height_ramp_that_did_not_come_back_is_a_failed_source(project, core_r
     waarom."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout as layout_mod
-    from desktopstudie.qgis import pipeline
+    from desktopstudie.qgis import pipeline, prefetch
 
     monkeypatch.setattr(catalogue, "CATALOGUE",
                         [e for e in full_catalogue if e.id in ("grb", "dhmv_dtm", "bodemkaart")])
-    monkeypatch.setattr(layout_mod, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
+    monkeypatch.setattr(prefetch, "fetch_ramp", lambda entry, out_dir, client, log=None: None)
 
     out = pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
