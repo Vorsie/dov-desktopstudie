@@ -412,7 +412,9 @@ def _wrapped(item: QgsLayoutItemLabel, lines: Sequence[str], width: float,
     and through the bottom border - which is exactly what a reader found on a printed sheet. Break
     it ourselves and the box is measured on the same rows it will draw.
     """
-    inner = max(width - 2 * margin, 1.0)
+    # A hair narrower than the box really is: the row has to stay inside when the RENDERER
+    # measures it, and that is not the same measurement (see `_fit_box`).
+    inner = max(width - 2 * margin - BOX_SLACK_MM, 1.0)
     rows: List[str] = []
     for line in lines:
         words, current = line.split(), ""
@@ -436,10 +438,21 @@ def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
     and then measured as the multi-row string it has become - explicit newlines, which
     `adjustSizeToText` does count - and the caller draws those same rows. Measured and drawn are
     then the same thing, which is the only way this stays true when a title or a licence changes.
+
+    And the box is a hair WIDER than its longest row, the same hair `BOX_SLACK_MM` already gave
+    the height. Without it the width is the longest line's own measurement and that line is then
+    checked against itself: it fits to the micrometre, with nothing to spare. The renderer does
+    its own word-wrap with its own metrics, and in the PDF export - a different paint engine from
+    the one that draws a preview image - that hair falls the other way: the row we counted as one
+    is broken into two, the box draws a row more than it was measured for, and the last line lands
+    on the bottom border. Measured in a user's report (77 sheets, 2026-09-22): source boxes of
+    10,33 mm with four rows of text in them on seventeen sheets; replayed through our own PDF
+    export, seven of the ten source boxes in the catalogue, while a raster render of the same box
+    kept three rows and looked fine.
     """
     if not lines:
         return max_w, 2 * margin, []
-    width = min(max(_measured_width(item, line) for line in lines), max_w)
+    width = min(max(_measured_width(item, line) for line in lines) + BOX_SLACK_MM, max_w)
     rows = _wrapped(item, lines, width, margin)
     item.setText("\n".join(rows))
     item.adjustSizeToText()
