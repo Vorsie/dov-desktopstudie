@@ -1060,6 +1060,23 @@ def page_boxes(page: MapPage, boxes: Dict[str, Sequence]) -> List:
     return extra
 
 
+def page_image(page: MapPage, zone_ring: Sequence,
+               boxes: Dict[str, Sequence]) -> Tuple[QgsRectangle, str]:
+    """The box one map page shows, and the key its picture is fetched and found under.
+
+    Three parties have to land on exactly the same two values: the planner on the worker thread
+    (`plan_map_images`), the page itself on the main thread (`LayoutBuilder.map_page`) and the
+    check that drops a sheet with no picture (`pipeline._pages_without_an_image`). Computed three
+    times, they drift, and a sheet then looks for an image nobody ever fetched - which is why
+    CLAUDE.md spends a hard rule on it. Computed once, they cannot.
+
+    `boxes` is `overlay_boxes(result)` for the two that read the study; a builder handed no boxes
+    passes its overlay LAYERS instead, and `map_extent` reads either.
+    """
+    extent = map_extent(zone_ring, page.scale, page.extent_factor, page_boxes(page, boxes))
+    return extent, map_image_key(page.map_id, extent)
+
+
 def plan_map_images(report: Report, zone_ring: Sequence,
                     boxes: Dict[str, Sequence]) -> List[MapRequest]:
     """One request per distinct (map, box) in the report, in the order the pages need them.
@@ -1074,8 +1091,7 @@ def plan_map_images(report: Report, zone_ring: Sequence,
         for page in chapter.pages:
             if not isinstance(page, MapPage):
                 continue
-            extent = map_extent(zone_ring, page.scale, page.extent_factor, page_boxes(page, boxes))
-            key = map_image_key(page.map_id, extent)
+            extent, key = page_image(page, zone_ring, boxes)
             if key in seen:
                 continue
             seen.add(key)
@@ -1583,12 +1599,16 @@ class LayoutBuilder:
         """The overlays this page draws, zone excluded - the zone is the ring we start from."""
         return page_boxes(page, self.overlays)
 
-    def _page_boxes(self, page: MapPage) -> List:
-        """What this page widens for: the study's boxes when the builder has them (then the
-        planner used the very same), its layers' extents otherwise."""
-        return page_boxes(page, self.overlay_boxes if self.overlay_boxes is not None else self.overlays)
+    def _page_image(self, page: MapPage) -> Tuple[QgsRectangle, str]:
+        """This page's box and image key; see the module-level `page_image`.
 
-    def _map_layers(self, page: MapPage, extent: QgsRectangle) -> List[QgsMapLayer]:
+        The boxes are the study's when the builder was handed them - then the planner used the
+        very same - and the page's own overlay LAYERS otherwise.
+        """
+        return page_image(page, self.zone_ring,
+                          self.overlay_boxes if self.overlay_boxes is not None else self.overlays)
+
+    def _map_layers(self, page: MapPage, key: str) -> List[QgsMapLayer]:
         """Draw order, topmost first: the zone always, then what the page asked for, then the map.
 
         The map itself is the image fetched up front for exactly this box. Falling back to the live
@@ -1596,7 +1616,7 @@ class LayoutBuilder:
         half a minute to draw, so a missing image simply leaves the background empty and the page
         says so.
         """
-        snapshot = self.map_images.get(map_image_key(page.map_id, extent))
+        snapshot = self.map_images.get(key)
         return (list(self.overlays.get("zone", [])) + self._page_overlays(page)
                 + ([snapshot] if snapshot is not None else []))
 
@@ -1629,7 +1649,7 @@ class LayoutBuilder:
         slot = self._start(chapter, page.title, CONTENT_H, packable=False)
         index = slot.page
         entry = catalogue.by_id(page.map_id)
-        extent = self.map_extent(page.scale, page.extent_factor, self._page_boxes(page))
+        extent, key = self._page_image(page)
         block = self._under_map(chapter, page, index)
         height = map_height(block.height)
         # Not even the first piece fits under a map that is still readable: the frame keeps its
@@ -1643,7 +1663,7 @@ class LayoutBuilder:
             height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
         map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
-        map_item.setLayers(self._map_layers(page, extent))
+        map_item.setLayers(self._map_layers(page, key))
         map_item.setFrameEnabled(True)
         self.layout.addLayoutItem(map_item)
         map_item.attemptMove(point_mm(MARGIN, CONTENT_TOP), page=index)
@@ -1670,7 +1690,6 @@ class LayoutBuilder:
         # came for - but the note says why the background is empty. A page whose image never
         # arrived is normally left out of the tree altogether (`report_content.build_report`);
         # this is what a caller that did not pass that information still gets to see.
-        key = map_image_key(page.map_id, extent)
         empty = key in self.no_coverage
         missing = key not in self.map_images
         note = " ".join(part for part in (page.note, NO_COVERAGE_NOTE if empty else "",
