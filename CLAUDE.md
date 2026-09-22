@@ -275,14 +275,19 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   met een lege tegel. Het kaartbeeld is er toch al, dus het antwoord valt er gratis uit te lezen:
   `layout._is_empty` in `prepare_map_images` kijkt of alle pixels gelijk of volledig doorzichtig
   zijn. De aparte dekkingsproef (een GetMap van 64 px) bestaat niet meer. Is de tegel leeg, dan
-  VERVALT het blad (zie de regel over een kaart zonder kaartbeeld hierboven) en blijft de bron `ok`
-  met de reden "geen dekking op deze locatie" (de bronnentabel drukt die reden af achter "ok").
-  Twee grenzen. Alleen kaarten
-  **zonder feiten**, want een doorzichtige tegel van de watertoets betekent "geen
-  overstromingsgevoelig gebied", niet "geen dekking" (live gemeten 2026-09-16). En per **kader**,
-  niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de andere bladen van
-  dezelfde kaart niet meeneemt. Een ophaling die faalt, verandert niets: onbekend is geen "geen
-  dekking".
+  blijft de bron `ok` met de reden "geen dekking op deze locatie" (de bronnentabel drukt die reden
+  af achter "ok").
+  De proef wordt op **elke** kaart gedaan, ook op een kaart met feiten - wat een lege tegel KOST
+  wordt elders beslist. Dat is `pipeline._pages_without_an_image`, en het antwoord is: een lege
+  tegel kost haar blad alleen als dat blad verder niets te tonen heeft. Staat er een
+  `Legenda voor de zone` met rijen onder, dan betekent de doorzichtige tegel dat de laag hier
+  niets tekent - een doorzichtige watertoetstegel is "geen overstromingsgevoelig gebied", niet
+  "geen dekking" (live gemeten 2026-09-16) - en houdt het blad zijn kaart. Is er niets anders,
+  dan VERVALT het blad (zie de regel over een kaart zonder kaartbeeld hierboven), want dan is het
+  een basiskaart, een leeg kader en een leeswijzer naar een tabel die er niet is.
+  En per **kader**, niet per kaart: `no_coverage` draagt `map_image_key`s, zodat een leeg kader de
+  andere bladen van dezelfde kaart niet meeneemt. Een ophaling die faalt, verandert niets:
+  onbekend is geen "geen dekking".
 - **De kaartenkeuze reist mee met het resultaat, en iedereen filtert ermee.** Wat de gebruiker in
   de checklist aanvinkt staat als `Settings.map_ids` in de aanvraag en wordt door `study.run` op
   `StudyResult.map_ids` gezet (None = alle ingeschakelde entries), zodat het ook in `studie.json`
