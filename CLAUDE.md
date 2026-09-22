@@ -150,11 +150,17 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   een vak van 10,33 mm waarin vier rijen stonden, onderste inkt 0,08 mm boven de rand; nagespeeld
   via onze eigen PDF-export vier van de twaalf infovakken, terwijl een beeldrender van dezelfde
   bladen er geen enkele liet zien - en dat is waarom de test die op `renderPageToImage` keek hem
-  niet ving. Twee gevolgen. **Elk vak dat om zijn tekst sluit, krijgt speling in BEIDE richtingen**
-  (`BOX_SLACK_MM`, breedte zowel als hoogte: er wordt een millimeter krapper afgebroken dan het vak
-  breed is). En **een maatvraag over gedrukte tekst wordt op de PDF gemeten, niet op een PNG** - de
-  huisregel "bladen als PNG bekijken" blijft staan voor wat er op het blad STAAT, maar voor waar
-  een letter precies landt is de PDF de enige die de waarheid vertelt.
+  niet ving. Drie gevolgen. **Elk vak dat om zijn tekst sluit, krijgt speling in BEIDE richtingen.**
+  **En op de breedte is die speling een AANDEEL, geen haar** (`ROW_SLACK`, 8 %): het verschil
+  tussen wat `adjustSizeToText` meet en wat de renderer tekent is evenredig met de lengte van de
+  regel, dus een vaste millimeter dekt een postzegel en geen licentieregel. Gemeten door de
+  speling te laten groeien tot de renderer ophield er een rij bij te maken: in
+  `qgis/qgis:release-3_34` 2,50 mm op een vak van 52,34 mm, 2,00 op 42,65 en 1,50 op 31,49 - drie
+  keer 4,8 %; op Windows 4 %. De eerste poging met één vaste millimeter was op deze laptop groen
+  en in de container nog steeds rood op acht van de tien vakken. En **een maatvraag over gedrukte
+  tekst wordt op de PDF gemeten, niet op een PNG** - de huisregel "bladen als PNG bekijken" blijft
+  staan voor wat er op het blad STAAT, maar voor waar een letter precies landt is de PDF de enige
+  die de waarheid vertelt, en de containers zijn de enige die zeggen of het elders ook klopt.
 - **`QgsPrintLayout.initializeDefaults()` legt pagina 0 LIGGEND neer.** Het rapport is van kaft tot
   kaft staand A4, dus pagina 0 moet expliciet op `Orientation.Portrait` worden gezet. Gebeurt dat
   niet, dan valt op het titelblad alles onder 210 mm (inhoudsopgave, disclaimer) van het papier -
