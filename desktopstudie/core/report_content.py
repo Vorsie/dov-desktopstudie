@@ -7,7 +7,7 @@ ONLY table for that map - and it travels ON the map page (`MapPage.zone_legend`)
 the map frame, because a sheet holding two legend rows is a sheet of white paper. The "Leeswijzer"
 behind it says how to read those codes (`MapEntry.reading_guide`). The quartair map adds the drawings DOV
 publishes - those drawings ARE its legend - but this module fetches nothing: the shell hands the
-files it already downloaded in through `build_report(..., zone_legend_images=...)`, keyed by
+files it already downloaded in through `build_report(..., report_images=...)`, keyed by
 `profieltype:<code>` and `kaartblad:<nn>`.
 """
 from __future__ import annotations
@@ -324,12 +324,12 @@ def quartair_sheet(code: str) -> str:
 
 
 def profile_image_key(code: str) -> str:
-    """How `zone_legend_images` names the header strip of one profile type."""
+    """How `report_images` names the header strip of one profile type."""
     return f"{PROFILE_KEY}:{code}"
 
 
 def sheet_image_key(sheet: str) -> str:
-    """How `zone_legend_images` names the units table of one map sheet."""
+    """How `report_images` names the units table of one map sheet."""
     return f"{SHEET_KEY}:{sheet}"
 
 
@@ -501,12 +501,12 @@ CLASS_KEY = "klassensleutel"
 
 
 def ramp_image_key(map_id: str) -> str:
-    """How `zone_legend_images` names the colour strip the shell cut for one map."""
+    """How `report_images` names the colour strip the shell cut for one map."""
     return f"{RAMP_KEY}:{map_id}"
 
 
 def class_key_image_key(map_id: str) -> str:
-    """How `zone_legend_images` names the class key the shell fetched for one map."""
+    """How `report_images` names the class key the shell fetched for one map."""
     return f"{CLASS_KEY}:{map_id}"
 
 
@@ -642,7 +642,7 @@ def _chapter_historisch(only: Optional[List[str]] = None) -> Chapter:
     return hist
 
 
-def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -> Chapter:
+def _chapter_geologie(result: StudyResult, report_images: Dict[str, str]) -> Chapter:
     """Per map: the map, with how to read its codes and the classes that lie in the zone printed
     under it.
 
@@ -661,16 +661,16 @@ def _chapter_geologie(result: StudyResult, zone_legend_images: Dict[str, str]) -
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                        note=entry.note)
         if entry.ramp:
-            page.ramp = _ramp_for(entry, result, zone_legend_images)
+            page.ramp = _ramp_for(entry, result, report_images)
         if entry.class_key:
-            page.class_key = zone_legend_images.get(class_key_image_key(entry.id), "")
+            page.class_key = report_images.get(class_key_image_key(entry.id), "")
         if entry.fact_mode is not None:
-            page.zone_legend = _zone_legend_for(entry, result, zone_legend_images)
+            page.zone_legend = _zone_legend_for(entry, result, report_images)
         # An empty zone legend means the sheet holds no table for the guide to describe.
         page.guide = _guide_text(entry, legend_shows_rows(page.zone_legend)
                                  or entry.fact_mode is None)
         geo.pages.append(page)
-        geo.pages.extend(_zone_legend_figures(entry, result, zone_legend_images))
+        geo.pages.extend(_zone_legend_figures(entry, result, report_images))
     return geo
 
 
@@ -918,12 +918,14 @@ def _gather_empty_answers(chapters: List[Chapter],
 
 
 def build_report(result: StudyResult, meta: ReportMeta,
-                 zone_legend_images: Optional[Dict[str, str]] = None,
+                 report_images: Optional[Dict[str, str]] = None,
                  unavailable: Optional[Set[MapPageKey]] = None) -> Report:
-    """The whole report tree. `zone_legend_images` maps `profieltype:<code>` to the header strip,
-    `kaartblad:<nn>` to the units table and `kleurschaal:<map id>` to a colour strip the shell
-    fetched, as paths relative to the output directory (the same shape as `StudyResult.figures`);
-    without it the legend keeps its lines but shows no drawings.
+    """The whole report tree. `report_images` is every picture the shell fetched that is report
+    CONTENT rather than a legend sheet, keyed by what it belongs to: `profieltype:<code>` for a
+    header strip, `kaartblad:<nn>` for a units table, `kleurschaal:<map id>` for a colour strip
+    and `klassensleutel:<map id>` for a class key, as paths relative to the output directory (the
+    same shape as `StudyResult.figures`). Without it a legend keeps its lines but shows no
+    drawings.
 
     `unavailable` holds the `map_page_key`s whose map image did not come back - no coverage here,
     or a fetch that failed. Those pages are left out entirely; the shell knows them because it
@@ -932,7 +934,7 @@ def build_report(result: StudyResult, meta: ReportMeta,
     z = result.zone
     cx, cy = z.centroid
     rx, ry = z.representative_point
-    images = zone_legend_images or {}
+    images = report_images or {}
     chapters = [
         _chapter_ligging(result, images), _chapter_historisch(result.map_ids),
         _chapter_geologie(result, images),
