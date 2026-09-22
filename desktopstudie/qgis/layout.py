@@ -244,9 +244,9 @@ LEGEND_LABEL_H = 5.0
 LEGEND_GAP = 4.0
 LEGEND_STRIP_MAX_H = CONTENT_H / 5.0
 MISSING_DRAWING = "tekening niet opgehaald - zie hoofdstuk Bronnen"
-# Twee verschillende zinnen voor twee verschillende dingen. "Niet opgehaald" nodigt uit om het nog
-# eens te proberen; publiceert DOV hier niets, dan valt er niets te proberen en is dat een feit
-# over de bron. Het portaal antwoordt in beide gevallen met HTTP 200, dus de pagina beslist.
+# Two different sentences for two different things. "Niet opgehaald" invites another attempt;
+# where DOV publishes nothing there is nothing to attempt, and that is a fact about the source.
+# The portal answers HTTP 200 in both cases, so the page itself decides which it is.
 NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 
 
