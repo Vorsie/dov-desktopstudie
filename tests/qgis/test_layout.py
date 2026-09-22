@@ -1051,14 +1051,13 @@ def _honest_width(columns, rows):
     Niet als getal in de test: dezelfde tekst is in de QGIS-containers breder dan op deze machine
     (andere lettertypes), en een tabel die daar niet meer past valt terug op de andere regel -
     "past zelfs de ondergrens niet, dan krimpt alles evenredig" - waar deze test niet over gaat.
-    Ruim gemeten, zodat de kap van MAX_COLUMN_SHARE niet meespeelt.
+    Gemeten met dezelfde helper als de opmaak zelf, en zonder kap (UNBOUNDED_WIDTH), zodat
+    MAX_COLUMN_SHARE niet meespeelt.
     """
     from desktopstudie.qgis import layout
 
-    roomy = 10_000.0
-    cells = [[row[index] for row in rows] for index in range(len(columns))]
-    return sum(layout._floor_width(column, column_cells, roomy, layout.TABLE_FONT_PT)
-               for column, column_cells in zip(columns, cells))
+    _wanted, floor = layout._column_demand(columns, rows, layout.UNBOUNDED_WIDTH)
+    return sum(floor)
 
 
 def test_the_table_furniture_is_exactly_what_qgis_gives_a_bare_table(project):
