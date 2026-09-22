@@ -269,7 +269,7 @@ def test_a_cancel_during_the_layers_phase_stops_before_the_next_layer(project, c
                                                                      tmp_path, monkeypatch, no_pdf):
     """Annuleren wordt in elke fase binnen seconden gehoord - ook in de lagenfase, waar elke
     WMS-laag een netwerkronde is: na de laag die bezig was stopt de run, niet na alle."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import layers, pipeline
 
     built = []
@@ -281,7 +281,7 @@ def test_a_cancel_during_the_layers_phase_stops_before_the_next_layer(project, c
 
     monkeypatch.setattr(layers, "wms_layer", counted)
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
                         should_cancel=lambda: len(built) >= 1)
 
@@ -625,10 +625,10 @@ def test_a_failed_pdf_still_leaves_the_project_and_the_geopackage(project, core_
 
 def test_a_cancelled_run_stops_before_it_writes_a_report(project, core_result, offline_shell, tmp_path):
     """Afbreken hoort te stoppen, niet stilletjes door te draaien: geen half rapport in de map."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import pipeline
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False,
                         should_cancel=lambda: True)
 
@@ -745,17 +745,17 @@ def test_the_json_is_written_before_the_heavy_products(project, core_result, off
 
 def test_a_cancelled_export_is_not_swallowed_as_a_failure(project, core_result, offline_shell, tmp_path,
                                                           monkeypatch):
-    """Afbreken is geen mislukte export: het hoort door te komen als StudyCancelled, niet als een
+    """Afbreken is geen mislukte export: het hoort door te komen als Cancelled, niet als een
     regel in `failures` met een run die daarna "klaar" meldt."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import export, pipeline
 
     def cancelled(lay, path, **kwargs):
-        raise StudyCancelled("afgebroken door de gebruiker")
+        raise Cancelled("afgebroken door de gebruiker")
 
     monkeypatch.setattr(export, "export_pdf", cancelled)
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         pipeline.finish(project, core_result, _meta(), tmp_path, _log(), legends=False)
 
 
