@@ -475,10 +475,10 @@ def test_the_legend_url_asks_for_the_style_and_the_column_layout():
     """Een legenda hoort bij een laag en bij een stijl: gxg zonder stijl tekent een andere legenda
     dan de kaart. LEGEND_OPTIONS houdt de klassen in kolommen in plaats van in een strook."""
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     entry = catalogue.by_id("gxg_ghg")
-    url = layout.wms_legend_url(entry, entry.legend_options)
+    url = prefetch.wms_legend_url(entry, entry.legend_options)
 
     assert "REQUEST=GetLegendGraphic" in url and "VERSION=1.3.0" in url
     # the workspace service, on which the layer goes by its bare name; the style keeps its prefix
@@ -486,7 +486,7 @@ def test_the_legend_url_asks_for_the_style_and_the_column_layout():
     assert "LAYER=ghg_mmv_main&" in url
     assert "STYLE=gxg%3Agxg" in url or "STYLE=gxg:gxg" in url
     assert "LEGEND_OPTIONS=" in url and "columns" in url
-    assert "LEGEND_OPTIONS" not in layout.wms_legend_url(entry, "")
+    assert "LEGEND_OPTIONS" not in prefetch.wms_legend_url(entry, "")
 
 
 def test_a_legend_that_cannot_be_fetched_is_reported_not_swallowed(qgs_app, tmp_path):
@@ -496,13 +496,13 @@ def test_a_legend_that_cannot_be_fetched_is_reported_not_swallowed(qgs_app, tmp_
     from desktopstudie.core import catalogue
     from desktopstudie.core.logging_util import Log
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     entry = replace(catalogue.by_id("gxg_ghg"), wms_url="http://127.0.0.1:9/wms")
     lines = []
     client = HttpClient(cache_dir=None, timeout=1.0, retries=0, sleep=lambda _s: None)
 
-    assert layout.fetch_legend(entry, tmp_path, client, Log("layout", lines.append, scope="qgis")) is None
+    assert prefetch.fetch_legend(entry, tmp_path, client, Log("layout", lines.append, scope="qgis")) is None
     assert any("WARNING" in line for line in lines), lines
 
 
@@ -511,7 +511,7 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
     duizenden pixels binnenhalen die nergens op past."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     asked = []
     blob = _png(tmp_path / "bron.png").read_bytes()
@@ -522,23 +522,23 @@ def test_prepare_legends_skips_maps_without_a_legend(qgs_app, tmp_path):
             return blob
 
     entries = [catalogue.by_id("bodemkaart"), catalogue.by_id("tertiair")]
-    images, missing = layout.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
+    images, missing = prefetch.prepare_legends(entries, tmp_path, _Client(cache_dir=None))
 
     assert list(images) == ["tertiair"]
     assert missing == []
     assert len(asked) == 1 and "tertiair_50k" in asked[0][0]
     # Een legenda is één plaatje uit een reeks: een korte adem, net als een fiche. Drie keer een
     # volle minuut wachten op een dienst die plat ligt, kost het rapport zijn legendapagina's.
-    assert asked[0][1:] == (layout.LEGEND_TIMEOUT_S, layout.LEGEND_RETRIES)
+    assert asked[0][1:] == (prefetch.LEGEND_TIMEOUT_S, prefetch.LEGEND_RETRIES)
 
 
 @pytest.mark.live
 def test_live_the_gxg_legend_is_a_real_png(qgs_app, tmp_path):
     from desktopstudie.core import catalogue
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
-    path = layout.fetch_legend(catalogue.by_id("gxg_ghg"), tmp_path, HttpClient(cache_dir=None))
+    path = prefetch.fetch_legend(catalogue.by_id("gxg_ghg"), tmp_path, HttpClient(cache_dir=None))
 
     assert path is not None and path.exists()
     assert path.stat().st_size > 1024
@@ -580,7 +580,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     from desktopstudie.core.logging_util import Log
     from desktopstudie.core.report_content import profile_image_key, sheet_image_key
     from desktopstudie.core.services.http import HttpClient, HttpError
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
     asked = []
@@ -595,7 +595,7 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     lines = []
     result = _quartair_result(gent_zone, ["22026", "22010", "22026", "22098"])
 
-    images, _unpublished = layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+    images, _unpublished = prefetch.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
                                                Log("layout", lines.append, scope="qgis"))
 
     # Een kopstrook per profieltype, en de eenhedentabel een keer voor het hele kaartblad.
@@ -610,8 +610,8 @@ def test_the_profile_type_drawings_are_fetched_once_per_type(qgs_app, tmp_path, 
     # Ruimer dan een GetLegendGraphic-stempel, want dit is een bestand uit een documentportaal:
     # 168 kB haalt vijftien seconden op een trage dag niet. Wel begrensd - een dienst die plat
     # ligt mag het rapport geen drie volle minuten kosten.
-    assert asked[0][1:] == (layout.DRAWING_TIMEOUT_S, layout.LEGEND_RETRIES)
-    assert layout.DRAWING_TIMEOUT_S > layout.LEGEND_TIMEOUT_S
+    assert asked[0][1:] == (prefetch.DRAWING_TIMEOUT_S, prefetch.LEGEND_RETRIES)
+    assert prefetch.DRAWING_TIMEOUT_S > prefetch.LEGEND_TIMEOUT_S
     assert any("WARNING" in line for line in lines), lines
 
 
@@ -623,7 +623,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
 
     from desktopstudie.core.report_content import profile_image_key
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
 
@@ -631,7 +631,7 @@ def test_the_header_strip_is_cut_above_the_units_table(qgs_app, tmp_path, gent_z
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = prefetch.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     header = QImage(str(images[profile_image_key("22026")]))
@@ -650,7 +650,7 @@ def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone
 
     from desktopstudie.core.report_content import profile_image_key, sheet_image_key
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
 
@@ -658,7 +658,7 @@ def test_the_sheet_drawing_loses_the_profile_header(qgs_app, tmp_path, gent_zone
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return blob
 
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = prefetch.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     whole = QImage(str(tmp_path / "bron.png"))
@@ -676,7 +676,7 @@ def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_p
     volgende run bederven - dus wordt er nog een keer gevraagd, langs de cache heen."""
     from desktopstudie.core.report_content import profile_image_key
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
     asked = []
@@ -686,7 +686,7 @@ def test_an_answer_that_is_no_image_is_asked_again_past_the_cache(qgs_app, tmp_p
             asked.append(cache_mode)
             return b"<html><body>DSpace</body></html>" if len(asked) == 1 else blob
 
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = prefetch.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images
@@ -697,13 +697,13 @@ def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path,
     """Blijft de dienst haar webpagina geven, dan komt er geen bestand en geen figuurpagina - een
     mislukte bron, geen leeg kader."""
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             return b"<html><body>Service unavailable</body></html>"
 
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = prefetch.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert images == {}
@@ -713,13 +713,13 @@ def test_an_answer_that_is_never_an_image_is_not_saved_as_one(qgs_app, tmp_path,
 def test_a_study_without_quartair_rows_asks_for_nothing(qgs_app, tmp_path, gent_zone):
     from desktopstudie.core.model import StudyResult
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     class _Client(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             raise AssertionError(f"niets op te halen, en toch gevraagd: {url}")
 
-    assert layout.prepare_zone_legend_images(
+    assert prefetch.prepare_zone_legend_images(
         StudyResult(zone=gent_zone, created_at="t"), tmp_path, _Client(cache_dir=None)) == ({}, set())
 
 
@@ -731,7 +731,7 @@ def test_a_profile_type_the_wfs_gives_no_drawing_link_for_counts_as_unpublished(
     niet-gevonden-pagina: DOV publiceert hier geen tekening."""
     from desktopstudie.core.model import MapFact, StudyResult
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
     from tests import quartair
 
     class _Client(HttpClient):
@@ -742,7 +742,7 @@ def test_a_profile_type_the_wfs_gives_no_drawing_link_for_counts_as_unpublished(
     result.map_facts = [MapFact("quartair", quartair.TITLE,
                                 [{"profieltype": "13064", "legende": None}])]
 
-    images, unpublished = layout.prepare_zone_legend_images(result, tmp_path,
+    images, unpublished = prefetch.prepare_zone_legend_images(result, tmp_path,
                                                             _Client(cache_dir=None))
 
     assert images == {}
@@ -1324,7 +1324,7 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
     from desktopstudie.core.logging_util import Log
     from desktopstudie.core.model import MapFact, StudyResult
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
     from tests import quartair
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
@@ -1338,7 +1338,7 @@ def test_a_row_without_a_drawing_url_is_named_in_the_log(qgs_app, tmp_path, gent
         quartair.rows(["22026"])[0], {"profieltype": "22099", "legende": None}])]
     lines = []
 
-    layout.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
+    prefetch.prepare_zone_legend_images(result, tmp_path, _Client(cache_dir=None),
                                       Log("layout", lines.append, scope="qgis"))
 
     assert any("22099" in line and "WARNING" in line for line in lines), lines
@@ -1392,18 +1392,18 @@ def test_every_map_page_asks_for_one_image_at_the_size_it_will_be_printed(projec
     rapport wacht daarop. Dus wordt elk kaartbeeld vooraf als een enkele GetMap opgehaald, op de
     extent en de pixelmaat waarop het blad het toch afdrukt."""
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     pages = [MapPage("grb", "Ligging", scale=2500), MapPage("ferraris", "Ferraris", scale=25000)]
 
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+    requests = prefetch.plan_map_images(_report(pages), gent_zone.ring, {})
 
     assert [request.map_id for request in requests] == ["grb", "ferraris"]
     first = requests[0]
     # 180 x 200 mm op de exportresolutie, en nooit meer dan de dienst aankan
-    assert first.width == int(round(layout.MAP_W / 25.4 * layout.MAP_IMAGE_DPI))
-    assert first.height == int(round(layout.MAP_H / 25.4 * layout.MAP_IMAGE_DPI))
-    assert max(first.width, first.height) <= layout.MAP_IMAGE_MAX_PX
+    assert first.width == int(round(layout.MAP_W / 25.4 * prefetch.MAP_IMAGE_DPI))
+    assert first.height == int(round(layout.MAP_H / 25.4 * prefetch.MAP_IMAGE_DPI))
+    assert max(first.width, first.height) <= prefetch.MAP_IMAGE_MAX_PX
     assert first.extent == layout.map_extent(gent_zone.ring, 2500, 3.0)
 
 
@@ -1411,12 +1411,12 @@ def test_two_pages_of_the_same_map_at_the_same_extent_share_one_image(project, g
     """De GRB-basiskaart staat op vier bladen. Waar de uitsnede dezelfde is, hoeft ze maar een keer
     opgehaald te worden; waar ze verschilt (hoofdstuk 5 rekt open voor de zoekstraal) niet."""
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     pages = [MapPage("grb", "Ligging", scale=2500), MapPage("grb", "Nog eens", scale=2500),
              MapPage("grb", "Overzicht", scale=5000, extent_factor=1.0)]
 
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+    requests = prefetch.plan_map_images(_report(pages), gent_zone.ring, {})
 
     assert len(requests) == 2, [request.key for request in requests]
     assert len({request.key for request in requests}) == 2
@@ -1426,7 +1426,7 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
     """Een PNG zonder wereldbestand ligt nergens: de layout moet hem op de meter kunnen plaatsen."""
     from desktopstudie.core.report_content import MapPage
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
     asked = []
@@ -1436,14 +1436,14 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
             asked.append((url, timeout, retries))
             return blob
 
-    requests = layout.plan_map_images(_report([MapPage("grb", "Ligging", scale=2500)]),
+    requests = prefetch.plan_map_images(_report([MapPage("grb", "Ligging", scale=2500)]),
                                       gent_zone.ring, {})
 
-    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
+    images, empty, _backdrops = prefetch.prepare_map_images(requests, tmp_path,
                                                           _Client(cache_dir=None))
 
     path = images[requests[0].key]
-    assert path.parent.name == layout.MAP_IMAGE_DIR and path.suffix == ".png"
+    assert path.parent.name == prefetch.MAP_IMAGE_DIR and path.suffix == ".png"
     world = path.with_suffix(".pgw")
     assert world.exists()
     lines = world.read_text(encoding="utf-8").splitlines()
@@ -1453,7 +1453,7 @@ def test_a_fetched_map_image_lands_next_to_its_world_file(qgs_app, gent_zone, tm
     assert float(lines[4]) == pytest.approx(extent.xMinimum() + float(lines[0]) / 2, rel=1e-6)
     assert empty == set()
     assert "REQUEST=GetMap" in asked[0][0] and "VERSION=1.1.1" in asked[0][0]
-    assert asked[0][1:] == (layout.MAP_IMAGE_TIMEOUT_S, layout.MAP_IMAGE_RETRIES)
+    assert asked[0][1:] == (prefetch.MAP_IMAGE_TIMEOUT_S, prefetch.MAP_IMAGE_RETRIES)
 
 
 def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_path):
@@ -1463,7 +1463,7 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
     blijft het blad, zonder eenheden vervalt het - en niet hier."""
     from desktopstudie.core.report_content import MapPage
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     leeg = _solid_png(tmp_path / "leeg.png", 64, 64).read_bytes()
 
@@ -1473,9 +1473,9 @@ def test_an_empty_map_image_is_the_coverage_answer_too(qgs_app, gent_zone, tmp_p
 
     pages = [MapPage("popp", "Popp", scale=5000), MapPage("watertoets_pluviaal", "Watertoets",
                                                           scale=10000)]
-    requests = layout.plan_map_images(_report(pages), gent_zone.ring, {})
+    requests = prefetch.plan_map_images(_report(pages), gent_zone.ring, {})
 
-    _images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path,
+    _images, empty, _backdrops = prefetch.prepare_map_images(requests, tmp_path,
                                                            _Client(cache_dir=None))
 
     assert empty == {request.key for request in requests}, "elke lege tegel, per kader gemeten"
@@ -1492,7 +1492,7 @@ def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
     from qgis.core import QgsRectangle
 
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     blob = _drawn_png(tmp_path / "tegel.png", 40, 40).read_bytes()
 
@@ -1501,9 +1501,9 @@ def test_the_same_map_request_always_gets_the_same_file_name(qgs_app, tmp_path):
             return blob
 
     extent = QgsRectangle(104226.0, 192406.0, 104426.0, 192606.0)
-    request = layout.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
+    request = prefetch.MapRequest(layout.map_image_key("grb", extent), "grb", extent, 40, 40)
 
-    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path,
+    images, _empty, _backdrops = prefetch.prepare_map_images([request], tmp_path,
                                                            _Client(cache_dir=None))
 
     assert request.key == "grb:104226:192406:104426:192606"
@@ -1514,17 +1514,17 @@ def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, ge
     from desktopstudie.core.logging_util import Log
     from desktopstudie.core.report_content import MapPage
     from desktopstudie.core.services.http import HttpClient, HttpError
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     class _Down(HttpClient):
         def get(self, url, params=None, timeout=None, retries=None, cache_mode=None):
             raise HttpError(url, 500, "dienst plat")
 
-    requests = layout.plan_map_images(_report([MapPage("popp", "Popp", scale=5000)]),
+    requests = prefetch.plan_map_images(_report([MapPage("popp", "Popp", scale=5000)]),
                                       gent_zone.ring, {})
     lines = []
 
-    images, empty, _backdrops = layout.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
+    images, empty, _backdrops = prefetch.prepare_map_images(requests, tmp_path, _Down(cache_dir=None),
                                               Log("layout", lines.append, scope="qgis"))
 
     assert images == {} and empty == set(), "een mislukte ophaling zegt niets over dekking"
@@ -1626,7 +1626,7 @@ def test_a_page_widens_for_the_study_boxes_it_was_given_not_for_its_layers(proje
     from qgis.core import QgsLayoutItemLabel
 
     from desktopstudie.core.report_content import MapPage
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     boxes = layout.overlay_boxes(_gent_result(gent_zone))
     page = MapPage(MAP_ID, "Overzicht", legend=False, scale=5000, extent_factor=1.0,
@@ -1637,7 +1637,7 @@ def test_a_page_widens_for_the_study_boxes_it_was_given_not_for_its_layers(proje
 
     texts = [lbl.text() for lbl in _items_of(lay, 1, QgsLayoutItemLabel)]
     assert any("schaal 1:10 000" in text for text in texts), texts
-    planned = layout.plan_map_images(_report([page]), gent_zone.ring, boxes)
+    planned = prefetch.plan_map_images(_report([page]), gent_zone.ring, boxes)
     assert planned[0].extent == layout.map_extent(gent_zone.ring, 5000, 1.0, boxes["investigations"])
 
 
@@ -1659,7 +1659,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
     kwam ze er bij elke volgende run zonder netwerk weer uit."""
     from desktopstudie.core.report_content import profile_image_key
     from desktopstudie.core.services.http import HttpClient
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     blob = _profile_drawing(tmp_path / "bron.png").read_bytes()
     link = ("https://datasets-services.omgeving.vlaanderen.be/server/api/core/bitstreams/"
@@ -1676,7 +1676,7 @@ def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path,
             forgotten.append(url)
             return True
 
-    images, _unpublished = layout.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
+    images, _unpublished = prefetch.prepare_zone_legend_images(_quartair_result(gent_zone, ["22026"]), tmp_path,
                                                _Client(cache_dir=None))
 
     assert profile_image_key("22026") in images, (
@@ -2210,11 +2210,11 @@ class _TileClient:
 
 def _one_request(map_id, gent_zone):
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import layout, prefetch
 
     entry = catalogue.by_id(map_id)
     extent = layout.map_extent(gent_zone.ring, entry.scale, 3.0)
-    return layout.MapRequest(layout.map_image_key(map_id, extent), map_id, extent, 40, 40)
+    return prefetch.MapRequest(layout.map_image_key(map_id, extent), map_id, extent, 40, 40)
 
 
 def _pixels(path):
@@ -2229,14 +2229,14 @@ def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_pat
     """Een thema dat bijna niets tekent, levert op wit papier een leeg blad. Het beeld dat de
     pagina afdrukt draagt daarom de basiskaart eronder: straten en gebouwen onder het thema."""
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     theme_id = "grondverschuiving_gekarteerd"
     tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0), alpha=0),
              catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
     request = _one_request(theme_id, gent_zone)
 
-    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path,
+    images, _empty, backdrops = prefetch.prepare_map_images([request], tmp_path,
                                                           _TileClient(tiles))
 
     assert backdrops == {theme_id: ""}, "de ondergrond hoort als eigen bron gemeld te worden"
@@ -2248,13 +2248,13 @@ def test_a_sparse_theme_is_painted_over_the_base_map(qgs_app, gent_zone, tmp_pat
 def test_a_map_that_fills_the_sheet_itself_asks_for_no_base_map(qgs_app, gent_zone, tmp_path):
     """De bodemkaart bedekt de hele uitsnede; een ondergrond eronder is werk dat niemand ziet."""
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     tiles = {catalogue.by_id("bodemkaart").wms_layer: _tile((0, 200, 0))}
     request = _one_request("bodemkaart", gent_zone)
     client = _TileClient(tiles)
 
-    images, _empty, backdrops = layout.prepare_map_images([request], tmp_path, client)
+    images, _empty, backdrops = prefetch.prepare_map_images([request], tmp_path, client)
 
     assert backdrops == {}
     assert client.asked == [catalogue.by_id("bodemkaart").wms_layer], client.asked
@@ -2267,7 +2267,7 @@ def test_a_backdrop_that_fails_costs_the_theme_its_background_not_its_page(qgs_a
     bronnenlijst zegt dat de ondergrond ontbrak."""
     from desktopstudie.core import catalogue
     from desktopstudie.core.logging_util import Log
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     theme_id = "watertoets_pluviaal"
     base = catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer
@@ -2275,7 +2275,7 @@ def test_a_backdrop_that_fails_costs_the_theme_its_background_not_its_page(qgs_a
     request = _one_request(theme_id, gent_zone)
     lines = []
 
-    images, _empty, backdrops = layout.prepare_map_images(
+    images, _empty, backdrops = prefetch.prepare_map_images(
         [request], tmp_path, _TileClient(tiles, failing={base}),
         Log("kaarten", lines.append))
 
@@ -2288,14 +2288,14 @@ def test_the_theme_keeps_its_own_colours_over_the_backdrop(qgs_app, gent_zone, t
     """Waar het thema wel tekent, blijft het thema zichtbaar - de basiskaart schemert eronder door
     met de doorzichtigheid die de catalogus voor die kaart kiest."""
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     theme_id = "grondverschuiving_gekarteerd"
     tiles = {catalogue.by_id(theme_id).wms_layer: _tile((255, 0, 0)),
              catalogue.by_id(catalogue.BASE_MAP_ID).wms_layer: _tile((0, 0, 255))}
     request = _one_request(theme_id, gent_zone)
 
-    images, _empty, _backdrops = layout.prepare_map_images([request], tmp_path, _TileClient(tiles))
+    images, _empty, _backdrops = prefetch.prepare_map_images([request], tmp_path, _TileClient(tiles))
 
     drawn = _pixels(images[request.key]).pixelColor(20, 20)
     assert drawn.red() > drawn.blue(), "het thema hoort bovenop te liggen"
@@ -2582,12 +2582,12 @@ def test_a_map_that_brings_its_own_lettering_sends_it_along(qgs_app):
     from qgis.core import QgsRectangle
 
     from desktopstudie.core import catalogue
-    from desktopstudie.qgis import layout
+    from desktopstudie.qgis import prefetch
 
     box = QgsRectangle(100000.0, 190000.0, 104500.0, 195000.0)
 
-    with_sld = layout.wms_map_url(catalogue.by_id("quartair_dikte"), box, 1063, 1181)
-    without = layout.wms_map_url(catalogue.by_id("bodemkaart"), box, 1063, 1181)
+    with_sld = prefetch.wms_map_url(catalogue.by_id("quartair_dikte"), box, 1063, 1181)
+    without = prefetch.wms_map_url(catalogue.by_id("bodemkaart"), box, 1063, 1181)
 
     assert "SLD_BODY=" in with_sld and "Halo" in urllib.parse.unquote(with_sld)
     assert "SLD_BODY" not in without
