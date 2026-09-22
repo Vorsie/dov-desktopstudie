@@ -57,7 +57,6 @@ from qgis.core import (
     QgsProject,
     QgsProperty,
     QgsRectangle,
-    QgsTextFormat,
 )
 from qgis.PyQt.QtCore import Qt
 from qgis.PyQt.QtGui import (
@@ -91,7 +90,7 @@ from ..core.report_content import (
 from ..core.services.dov_portal import PNG_MAGIC, content_link, says_not_found
 from ..core.services.http import DATA_DIR, HttpClient, HttpError, build_url
 from . import layers
-from .compat import house_font, point_mm, size_mm
+from .compat import house_font, point_mm, size_mm, text_format
 from .export import PDF_DPI, refresh_data_defined
 from .layers import CRS_AUTHID
 
@@ -318,20 +317,6 @@ _METRICS = {PORTRAIT: PageMetrics(PORTRAIT, CONTENT_W, CONTENT_H, FOOTER_Y),
 
 def _page_metrics(orientation=PORTRAIT) -> PageMetrics:
     return _METRICS[orientation]
-
-
-def _text_format(size: float, bold: bool = False) -> QgsTextFormat:
-    """The text format for a label, a table or a scale bar.
-
-    `QgsLayoutItemLabel.setFont` and `QgsLayoutTable.setContentFont` are already deprecated in 3.34
-    and go away in 4.x; the text format is the spelling that survives. It carries its own size, so
-    the size is set twice on purpose - the one on the QFont only decides which face gets loaded.
-    """
-    text_format = QgsTextFormat()
-    text_format.setFont(house_font(size, bold))
-    text_format.setSize(size)
-    text_format.setSizeUnit(Qgis.RenderUnit.Points)
-    return text_format
 
 
 def _segment_length(scale: int) -> float:
@@ -1515,7 +1500,7 @@ class LayoutBuilder:
         if html:
             item.setMode(QgsLayoutItemLabel.Mode.ModeHtml)
         item.setText(text)
-        item.setTextFormat(_text_format(size, bold))
+        item.setTextFormat(text_format(size, bold))
         item.setFrameEnabled(frame)
         self.layout.addLayoutItem(item)
         item.attemptMove(point_mm(x, y), page=page)
@@ -1533,7 +1518,7 @@ class LayoutBuilder:
         shown = [part for part in lines if part]
         item = QgsLayoutItemLabel(self.layout)
         item.setText("\n".join(shown))
-        item.setTextFormat(_text_format(size))
+        item.setTextFormat(text_format(size))
         item.setMargin(INFO_MARGIN_MM)
         item.setFrameEnabled(True)
         item.setBackgroundEnabled(True)
@@ -1639,7 +1624,7 @@ class LayoutBuilder:
         bar.applyDefaultSize(Qgis.DistanceUnit.Meters)
         bar.setUnits(Qgis.DistanceUnit.Meters)
         bar.setUnitLabel("m")
-        bar.setTextFormat(_text_format(7))  # the bar prints its own numbers; keep them house-size
+        bar.setTextFormat(text_format(7))  # the bar prints its own numbers; keep them house-size
         bar.setNumberOfSegments(SCALE_BAR_SEGMENTS)
         bar.setNumberOfSegmentsLeft(0)
         bar.setUnitsPerSegment(_segment_length(real_scale))  # refreshes and re-fits the bar itself
@@ -2169,8 +2154,8 @@ class LayoutBuilder:
         # With fixed widths a long sentence has to break inside its column; without this QGIS
         # writes it straight through the next column and off the sheet.
         table.setWrapBehavior(QgsLayoutTable.WrapBehavior.WrapText)
-        table.setContentTextFormat(_text_format(TABLE_FONT_PT))
-        table.setHeaderTextFormat(_text_format(TABLE_FONT_PT, bold=True))
+        table.setContentTextFormat(text_format(TABLE_FONT_PT))
+        table.setHeaderTextFormat(text_format(TABLE_FONT_PT, bold=True))
         # The rows go in last: every setter above re-measures whatever the table holds, and a
         # table of a hundred and thirty rows measured five times over is a second of nothing.
         table.setContents(rows)
@@ -2301,7 +2286,7 @@ class LayoutBuilder:
         """
         plain = " ".join(TAGS.sub(" ", html).split())
         probe = QgsLayoutItemLabel(self.layout)
-        probe.setTextFormat(_text_format(TEXT_FONT_PT))
+        probe.setTextFormat(text_format(TEXT_FONT_PT))
         self.layout.addLayoutItem(probe)
         try:
             _width, height, _rows = _fit_box(probe, [plain], width, 0.0)
