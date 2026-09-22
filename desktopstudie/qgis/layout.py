@@ -1,9 +1,12 @@
 """Builds one multi-page QgsPrintLayout from the core's Report tree.
 
-The core decides *what* the report says (chapters -> MapPage / FigurePage / TablePage / TextPage);
-this module decides only where it lands on the paper. A4 portrait, 15 mm margins, one layout page
-per report page, a title page in front, and separate legend pages behind every map that asks for
-one.
+The core decides *what* the report says (chapters -> MapPage / FigurePage / LegendPage /
+TablePage / TextPage); this module decides only where it lands on the paper. A4, 15 mm margins,
+a title page in front, and separate legend sheets behind a map only when the caller asks for them
+- they are off by default. A report page is NOT a sheet: a sheet keeps taking pieces of content
+while they still fit (`_start`), so two short tables share one and a long table runs over three.
+Portrait, except for the pieces that cannot be read that way - a table whose columns will not
+fit (`_fits_portrait`) and a figure wider than it is tall get a landscape sheet.
 
 Two things here are less obvious than they look.
 
@@ -286,7 +289,7 @@ HEADER_FALLBACK_ROWS = 110
 # gave the PNG minutes earlier), and that answer is not an error the HTTP client can see - so the
 # bytes are checked here and a bad answer is asked again, past the cache.
 ZONE_LEGEND_TRIES = 2
-# One legend out of fourteen, same reasoning as a fiche in the core: a short breath, because three
+# One legend out of a batch, same reasoning as a fiche in the core: a short breath, because three
 # full-minute waits on a service that is down cost the report every legend page behind it.
 LEGEND_TIMEOUT_S = 15.0
 # Een profieltypetekening is geen GetLegendGraphic-stempel maar een bestand uit een documentportaal
@@ -645,7 +648,7 @@ def prepare_legends(entries: Sequence[MapEntry], out_dir, client: HttpClient,
 
     Fetched here rather than by the layout so that one failing service costs one legend page, not
     the report, and so the shell can run this phase with its own progress and cancellation. The
-    fourteen legends are independent downloads from three services, so they go out in parallel;
+    legends are independent downloads from several services, so they go out in parallel;
     each still fails on its own, and the caller gets the misses back to record as failed sources.
 
     The client comes from the caller, always: one study has one disk cache and one cache mode
@@ -1139,9 +1142,12 @@ def prepare_map_images(requests: Sequence[MapRequest], out_dir, client: HttpClie
     the network. Here every page's background is one GetMap, they go out together, and the layout
     then draws local files.
 
-    Emptiness comes for free with the picture, so the separate coverage probe is gone. It is only
-    trusted for maps WITHOUT facts: the watertoets answers Gent with a fully transparent tile
-    because no flood zone lies there - data, not a hole in the mosaic - and its own table says so.
+    Emptiness comes for free with the picture, so the separate coverage probe is gone, and it is
+    asked of EVERY map - the ones that carry facts included. What an empty tile COSTS is decided
+    later, where the legend that would stand under the sheet is known
+    (`pipeline._pages_without_an_image`): the watertoets answers Gent with a fully transparent tile
+    because no flood zone lies there - data, not a hole in the mosaic - and the units beside it
+    keep the sheet.
 
     Emptiness is reported per REQUEST, not per map: one map carries several framings (the GRB base
     map three), and a mosaic that has no sheet for the wide frame may well cover the narrow one.
