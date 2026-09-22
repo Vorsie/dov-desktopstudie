@@ -403,6 +403,10 @@ def is_ordinary(word: str) -> bool:
     ordinary stem carrying a modifier - because a reader told us the remarks were drowning in
     adjectives ("kleuren niet vermelden, plantenresten ook niet roestkleurig ook niet").
     `ALWAYS_NOTABLE` is checked before all of it, so nothing he asked to see can be widened away.
+
+    The French of the old records runs through these same rules rather than a path of its own:
+    the accents come off first (`_plain`), the colours go through `_is_colour` and the feminine,
+    the plural and "-âtre" through `_french_stems`. Only the spellings differ, not the rule.
     """
     # Accent-free from here on: every list below is folded the same way, so "végétale" and
     # "vegetale" are one word and "grès" and "gres" are one word. See `_plain`.
