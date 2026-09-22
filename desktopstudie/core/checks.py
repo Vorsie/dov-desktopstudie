@@ -193,13 +193,22 @@ def check_flood(result: StudyResult) -> List[Signalering]:
     return out
 
 
+def _parcel_line(rows, field: str) -> str:
+    """"op N perceel/percelen in de zone: a; b" - the tail the two parcel maps share.
+
+    Erosion and OVAM both answer with one row per cadastral parcel, so both count parcels and
+    both list, once each, what was found on them; only the words in front of it differ.
+    """
+    distinct = sorted({str(row.get(field, "")) for row in rows})
+    return f"op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}."
+
+
 def check_erosion(result: StudyResult) -> List[Signalering]:
     rows = [r for r in _facts(result, "erosie") if "hoog" in str(r.get("Totale_erosie", "")).lower()]
     if rows:
-        distinct = sorted({str(r.get("Totale_erosie", "")) for r in rows})
         return [Signalering(
             "erosie",
-            f"Totale erosie op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
+            f"Totale erosie {_parcel_line(rows, 'Totale_erosie')}",
             "DOV erosiekaart",
             "Aandachtspunt voor het grondonderzoek: erosiegevoelige helling; stabiliteit en afwatering.")]
     return []
@@ -235,10 +244,9 @@ def check_shrink_swell(result: StudyResult) -> List[Signalering]:
 def check_ovam(result: StudyResult) -> List[Signalering]:
     rows = _facts(result, "ovam")
     if rows:
-        distinct = sorted({str(r.get("uitspraak", "")) for r in rows})
         return [Signalering(
             "ovam",
-            f"OVAM-uitspraken op {len(rows)} perceel/percelen in de zone: {'; '.join(distinct)}.",
+            f"OVAM-uitspraken {_parcel_line(rows, 'uitspraak')}",
             "OVAM via DOV",
             "Aandachtspunt voor het grondonderzoek: mogelijke bodemverontreiniging; "
             "bodemattest raadplegen en veiligheidsmaatregelen.")]
