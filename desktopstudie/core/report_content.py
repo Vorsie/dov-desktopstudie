@@ -432,17 +432,18 @@ def _zone_legend_for(entry: catalogue.MapEntry, result: StudyResult,
     if entry.id == QUARTAIR_ID:
         return _quartair_zone_legend(entry, result, images)
     rows_src = _fact_rows(entry, result)
+    if entry.id == ISOPACH_ID:
+        # No table at all: the thickness is printed on the lines by the service's own style, and a
+        # column of distances to lines the reader can see is furniture, not an answer. Decided
+        # before the cells are formatted, because none of them is ever printed.
+        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
+        return TablePage(entry.title, [], [], note)
     fields, headers = _zone_legend_columns(entry)
     rows: List[List[str]] = []
     for row in rows_src or []:
         cells = _cells(entry, row, fields)  # `_cells` already prints a bare URL in its short form
         if cells not in rows:
             rows.append(cells)
-    if entry.id == ISOPACH_ID:
-        # No table at all: the thickness is printed on the lines by the service's own style, and a
-        # column of distances to lines the reader can see is furniture, not an answer.
-        note = _isopach_note(result, rows_src, entry) or _rows_note(rows_src, entry)
-        return TablePage(entry.title, [], [], note)
     if entry.ramp:
         # A continuous field has no "classes in the zone": every sample point answers with its own
         # number, and nine near-identical rows cost two sheets while saying nothing the first row
