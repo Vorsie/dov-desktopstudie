@@ -401,7 +401,12 @@ class _Runner:
         rows.sort(key=lambda row: row[catalogue.DISTANCE_FIELD])
         return rows
 
-    def _fact_rows(self, entry: catalogue.MapEntry) -> List[dict]:
+    def _fetch_facts(self, entry: catalogue.MapEntry) -> List[dict]:
+        """Go and get this map's facts, from the WFS or from the drawn map itself.
+
+        Fetching, not reading: `model.facts_of` is the one that reads them back out of a finished
+        result, and the two used to share a name.
+        """
         if entry.fact_mode == "wfs":
             if entry.fact_within_m:
                 return self._nearest_rows(entry)
@@ -422,7 +427,7 @@ class _Runner:
 
         def fetch(entry: catalogue.MapEntry) -> None:
             try:
-                fetched[entry.id] = self._fact_rows(entry)
+                fetched[entry.id] = self._fetch_facts(entry)
             except StudyCancelled:
                 raise
             except Exception as exc:  # noqa: BLE001 - handed to `guarded` below, not swallowed
