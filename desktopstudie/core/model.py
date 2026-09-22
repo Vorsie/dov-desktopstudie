@@ -97,18 +97,18 @@ def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
     result.provenance.append(entry)
 
 
-# Waarom een Python-foutmelding nooit in het rapport mag: `study.guarded` bewaart de tekst van de
-# uitzondering, met klassenaam en al, zodat het log en studie.json weten wat er precies misging.
-# Diezelfde tekst kwam ongefilterd op papier terecht ("[Errno 11001] getaddrinfo failed"), en wie
-# een geotechnische studie leest komt geen errno tegen. Vertaald wordt er hier, aan de rand naar
-# het rapport: de rauwe tekst blijft staan waar ze thuishoort.
+# Why a Python error message may never reach the report: `study.guarded` keeps the text of the
+# exception, class name and all, so that the log and studie.json know exactly what went wrong.
+# That same text ended up on paper unfiltered ("[Errno 11001] getaddrinfo failed"), and nobody
+# reading a geotechnical study meets an errno. The translation happens HERE, at the edge towards
+# the report: the raw text stays where it belongs.
 #
-# Toelaten in plaats van verbieden, net als bij de woordenschat van de boorbeschrijvingen: een
-# bericht ZONDER klassenaam ervoor is door de plugin zelf geschreven, voor de lezer, en gaat
-# ongewijzigd door. Alles met een klassenaam ervoor is ontwikkelaarstaal en krijgt een van de
-# zinnen hieronder - ook een uitzondering die nog niemand heeft gezien.
+# Allow rather than forbid, the same way round as the vocabulary of the borehole descriptions: a
+# message WITHOUT a class name in front of it was written by the plugin itself, for the reader,
+# and passes through unchanged. Anything with a class name in front is developer language and gets
+# one of the sentences below - including an exception nobody has seen yet.
 EXCEPTION_PREFIX = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(Error|Exception|Cancelled|Source):\s")
-# Waaraan een onbereikbare dienst te herkennen is, in de woorden van de uitzondering zelf.
+# How an unreachable service is recognised, in the words of the exception itself.
 UNREACHABLE_MARKS = ("getaddrinfo", "name or service not known", "temporary failure in name",
                      "connection refused", "connection reset", "connection aborted",
                      "timed out", "timeout", "netwerkfout", "unreachable", "ssl", "certificate")
@@ -119,10 +119,10 @@ UNEXPECTED = "de dienst antwoordde niet zoals verwacht"
 
 
 def plain_reason(message: str) -> str:
-    """Wat er in het rapport staat over een bron die niet gelukt is.
+    """What the report says about a source that did not come through.
 
-    De technische tekst blijft in `Provenance.message`, in studie.json en in het log; dit is wat
-    een lezer ervan te zien krijgt.
+    The technical text stays in `Provenance.message`, in studie.json and in the log; this is what
+    a reader gets to see of it.
     """
     text = message.strip()
     if not text or not EXCEPTION_PREFIX.match(text):
