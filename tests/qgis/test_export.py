@@ -145,7 +145,7 @@ def test_a_cancel_between_two_runs_stops_the_export_and_leaves_no_half_report(th
     """De bladen gaan in runs naar de exporter, en tussen twee runs mag een gebruiker stoppen: de
     export eindigt binnen die ene run en er blijft geen halve PDF achter die voor een rapport kan
     doorgaan."""
-    from desktopstudie.core.study import StudyCancelled
+    from desktopstudie.core.parallel import Cancelled
     from desktopstudie.qgis import export
 
     polled = []
@@ -154,7 +154,7 @@ def test_a_cancel_between_two_runs_stops_the_export_and_leaves_no_half_report(th
         polled.append(True)
         return len(polled) > 1
 
-    with pytest.raises(StudyCancelled):
+    with pytest.raises(Cancelled):
         export.export_pdf(three_pages, tmp_path / "half.pdf", pages_per_run=1,
                           should_cancel=stop_after_the_first_run)
 
