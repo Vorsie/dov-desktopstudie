@@ -42,7 +42,7 @@ from desktopstudie.core.report_content import ReportMeta  # noqa: E402
 from desktopstudie.core.services.http import CACHE_MODES, DATA_DIR  # noqa: E402
 from desktopstudie.core.study import Settings  # noqa: E402
 from desktopstudie.qgis import compat, pipeline  # noqa: E402
-from desktopstudie.qgis.layout import MAP_IMAGE_DIR  # noqa: E402
+from desktopstudie.qgis.prefetch import MAP_IMAGE_DIR  # noqa: E402
 
 # De omhullende van Vlaanderen in Lambert 72, ruim genomen. Binnen deze doos ligt ook Nederland,
 # Wallonie en de Noordzee, dus elk punt wordt bij de gemeentegrenzen nagevraagd voor het telt.
