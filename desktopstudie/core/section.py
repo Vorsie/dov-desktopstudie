@@ -3,10 +3,9 @@ profile query stacked on the modelled surface (its own datum, with the anchors a
 investigations projected onto the line when they lie within the corridor."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Sequence, Tuple
+from typing import Callable, List, Optional, Sequence, Tuple
 
-from . import geometry
+from . import geometry, parallel
 from .logging_util import Log
 from .model import (
     Borehole,
@@ -46,24 +45,25 @@ def _project(kind: str, label: str, x: float, y: float, z: Optional[float], dept
 
 
 def _fetch_points(client, points: Sequence[Point], model: str, max_workers: int,
-                  log: Optional[Log]) -> Tuple[List[VirtualBorehole], int]:
+                  log: Optional[Log],
+                  should_cancel: Optional[Callable[[], bool]]) -> Tuple[List[VirtualBorehole], int]:
     """Fetch one doorprik per point in parallel; a failing point is skipped and counted rather
     than aborting the whole section. Order of the returned boreholes follows `points`, not the
-    order in which the threads finished."""
+    order in which the threads finished: the anchors are read by chainage further down.
+
+    This is the longest run of network calls the section phase makes, so it is also where a
+    cancel has to be heard - `load_each` polls between items.
+    """
     results: List[Optional[VirtualBorehole]] = [None] * len(points)
-    failed = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
-        future_to_index = {pool.submit(fetch_virtual_borehole, client, x, y, model): i
-                           for i, (x, y) in enumerate(points)}
-        for future in as_completed(future_to_index):
-            i = future_to_index[future]
-            try:
-                results[i] = future.result()
-            except Exception as exc:  # isolate: one bad point must not kill the whole section
-                failed += 1
-                x, y = points[i]
-                if log:
-                    log.warning(f"virtuele boring op {x:.0f}/{y:.0f} mislukt: {type(exc).__name__}: {exc}")
+
+    def fetch(item) -> None:
+        index, (x, y) = item
+        results[index] = fetch_virtual_borehole(client, x, y, model)
+
+    failed = parallel.load_each(
+        list(enumerate(points)), fetch,
+        lambda item: f"virtuele boring op {item[1][0]:.0f}/{item[1][1]:.0f}",
+        max_workers, log, should_cancel)
     return [vb for vb in results if vb is not None], failed
 
 
@@ -102,10 +102,11 @@ def _build_profile(client, line: Tuple[Point, Point], anchors: Sequence[VirtualB
 def build_section(client, line: Tuple[Point, Point], zone: StudyZone, cpts: Sequence[Cpt],
                   boreholes: Sequence[Borehole], filters: Sequence[GwFilter], n_points: int,
                   corridor_m: float, model: str, log: Optional[Log] = None, max_workers: int = 4,
-                  with_profile: bool = True) -> Section:
+                  with_profile: bool = True,
+                  should_cancel: Optional[Callable[[], bool]] = None) -> Section:
     length = geometry.distance(line[0], line[1])
     points = geometry.sample_line(line[0], line[1], n_points)
-    vbs, failed = _fetch_points(client, points, model, max_workers, log)
+    vbs, failed = _fetch_points(client, points, model, max_workers, log, should_cancel)
     # The profile is tried even when every anchor failed: it carries both the layers and, through
     # its own datum, the elevations, so it alone is enough for a section. Only when both sources
     # are gone is there nothing left to draw.
