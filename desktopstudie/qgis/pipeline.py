@@ -7,8 +7,9 @@ plugin (its QgsTask); it is the whole of `prefetch.py` and none of `layout.py`, 
 that split is for; `finish` is everything that touches QGIS map layers, a layout and a project,
 which has to happen on the main thread, and it runs `prepare` itself when nobody did. What stays on
 the main thread yields between phases, between pages of the layout and between runs of the
-exporter, through the `should_cancel` it is handed. `run_pipeline` is all of it in one call; the
-headless script drives the halves itself, because it reports how long each took.
+exporter, through the `should_cancel` it is handed. Nobody runs the two halves through one call:
+the plugin has to put the second one on the main thread and the headless script reports how long
+each took, so both drive them separately with one `HttpClient` between them.
 
 Four things are easy to get wrong here and are therefore done in one place.
 
@@ -680,7 +681,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     """Main-thread part: relief, layers, files, report, layout, exports - on what `prepare` fetched.
 
     `prepared` is the network half, already done on a worker thread by the plugin; left None it is
-    done here first, on the calling thread (the headless script, `run_pipeline`). Either way the
+    done here first, on the calling thread (the headless script). Either way the
     phase table covers both halves.
 
     `project` is the project the layers and the layout go into - the one the user has open in the
@@ -821,18 +822,3 @@ def part_of(progress: Optional[Callable[[float, str], None]], low: float, high: 
     if progress is None:
         return None
     return lambda fraction, message: progress(low + (high - low) * fraction, message)
-
-
-def run_pipeline(zone: StudyZone, settings: Settings, meta: ReportMeta, out_dir, project: QgsProject,
-                 log: Log, progress: Optional[Callable[[float, str], None]] = None,
-                 should_cancel: Optional[Callable[[], bool]] = None, cache_mode: str = "use",
-                 legends: bool = False, pngs: bool = False) -> PipelineResult:
-    """One study from zone to PDF, on the calling thread. The client is made once so both halves
-    share the same disk cache."""
-    out_dir = Path(out_dir)
-    client = make_client(out_dir, log, cache_mode)
-    result = run_core(zone, settings, out_dir, log, part_of(progress, 0.0, CORE_SHARE),
-                      should_cancel, cache_mode, client)
-    return finish(project, result, meta, out_dir, log, part_of(progress, CORE_SHARE, 1.0),
-                  legends=legends, should_cancel=should_cancel, client=client, cache_mode=cache_mode,
-                  pngs=pngs, compact=settings.compact)
