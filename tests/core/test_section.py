@@ -161,7 +161,7 @@ def test_the_profile_carries_the_section_when_every_doorprik_anchor_fails(gent_r
     # with no anchor to take an order from, the units stack on their numeric suffix
     codes = [layer.code for layer in sec.profile.columns[2].layers]
     assert codes == sorted(codes, key=lambda code: int(code.rsplit("_", 1)[-1]))
-    assert any("mislukt" in m for m in messages)
+    assert sum("virtuele boring" in m for m in messages) == 5, messages
 
 
 def test_the_section_raises_only_when_both_the_anchors_and_the_profile_are_gone(gent_ring):
