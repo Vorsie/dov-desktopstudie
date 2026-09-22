@@ -109,6 +109,17 @@ INFO_MARGIN_MM = 1.0
 # What `adjustSizeToText` reports and what the renderer puts on paper differ by a hair, and the
 # hair is what pushed the last line onto the border. A box a fraction too tall costs nothing.
 BOX_SLACK_MM = 1.0
+# The WIDTH needs a share, not a hair. The renderer breaks lines with its own metrics, and it makes
+# a row wider than `adjustSizeToText` does by a constant PART of its length - so a fixed millimetre
+# covers a stamp and not a licence line. Measured 2026-09-22 by growing the reserve until the
+# renderer stopped adding a row to a source box: in `qgis/qgis:release-3_34` 2,50 mm on a box of
+# 52,34 mm, 2,00 mm on 42,65 mm and 1,50 mm on 31,49 mm - 4,8 % three times over, and the threshold
+# lands on 5 % for nine of the ten boxes in the catalogue; on Windows (QGIS 3.40.15, same Arial)
+# 4 %. Eight per cent holds on both with room over, and this defect has now come back once: the
+# cost of being generous is that four source boxes wrap their licence line and grow one row
+# (~2,3 mm taller, over the foot of the map), the cost of being tight is the last line on the
+# border again.
+ROW_SLACK = 0.08
 ARROW_XY, ARROW_WH = (183.0, 32.0), 12.0
 LEGEND_VARIABLE = "legendas"
 FOOTER_ID = "voettekst"
@@ -403,24 +414,26 @@ def _measured_width(item: QgsLayoutItemLabel, text: str) -> float:
     return item.rect().width()
 
 
-def _wrapped(item: QgsLayoutItemLabel, lines: Sequence[str], width: float,
-             margin: float) -> List[str]:
+def _wrapped(item: QgsLayoutItemLabel, lines: Sequence[str], width: float) -> List[str]:
     """The rows this text really becomes inside `width`, broken on spaces the way a reader reads.
 
     Wrapping here rather than leaving it to the renderer is the whole point: a label that is handed
     one long licence line is measured as one row and then drawn as two, and the second row lands on
     and through the bottom border - which is exactly what a reader found on a printed sheet. Break
     it ourselves and the box is measured on the same rows it will draw.
+
+    A row is held against the box in the unit the box itself is measured in - what
+    `_measured_width` returns is exactly the width a box would need to hold that one row - and it
+    has to stay `ROW_SLACK` under it. That reserve is what keeps the renderer, which breaks lines
+    with its own metrics, from finding a row too wide that we already counted as one (`_fit_box`).
     """
-    # A hair narrower than the box really is: the row has to stay inside when the RENDERER
-    # measures it, and that is not the same measurement (see `_fit_box`).
-    inner = max(width - 2 * margin - BOX_SLACK_MM, 1.0)
+    limit = width * (1.0 - ROW_SLACK)
     rows: List[str] = []
     for line in lines:
         words, current = line.split(), ""
         for word in words:
             candidate = f"{current} {word}".strip()
-            if current and _measured_width(item, candidate) - 2 * margin > inner:
+            if current and _measured_width(item, candidate) > limit:
                 rows.append(current)
                 current = word
             else:
@@ -439,21 +452,21 @@ def _fit_box(item: QgsLayoutItemLabel, lines: Sequence[str], max_w: float,
     `adjustSizeToText` does count - and the caller draws those same rows. Measured and drawn are
     then the same thing, which is the only way this stays true when a title or a licence changes.
 
-    And the box is a hair WIDER than its longest row, the same hair `BOX_SLACK_MM` already gave
-    the height. Without it the width is the longest line's own measurement and that line is then
-    checked against itself: it fits to the micrometre, with nothing to spare. The renderer does
-    its own word-wrap with its own metrics, and in the PDF export - a different paint engine from
-    the one that draws a preview image - that hair falls the other way: the row we counted as one
-    is broken into two, the box draws a row more than it was measured for, and the last line lands
-    on the bottom border. Measured in a user's report (77 sheets, 2026-09-22): source boxes of
-    10,33 mm with four rows of text in them on seventeen sheets; replayed through our own PDF
-    export, seven of the ten source boxes in the catalogue, while a raster render of the same box
-    kept three rows and looked fine.
+    And the box is WIDER than its longest row by `ROW_SLACK`. Without that reserve the width is
+    the longest line's own measurement and that same line is then checked against it: it fits to
+    the micrometre, with nothing to spare. The renderer does its own word-wrap with its own
+    metrics, so it finds the row a few per cent wider, breaks it in two, and the box draws a row
+    more than it was measured for - the last line landing on the bottom border. Measured in a
+    user's report (77 sheets, 2026-09-22): source boxes of 10,33 mm with four rows of text in them
+    on seventeen sheets; replayed through our own PDF export, seven of the ten source boxes in the
+    catalogue, and in `qgis/qgis:release-3_34` eight of them even in a raster render - which is
+    why a Windows raster render alone said everything was fine.
     """
     if not lines:
         return max_w, 2 * margin, []
-    width = min(max(_measured_width(item, line) for line in lines) + BOX_SLACK_MM, max_w)
-    rows = _wrapped(item, lines, width, margin)
+    widest = max(_measured_width(item, line) for line in lines)
+    width = min(widest / (1.0 - ROW_SLACK), max_w)
+    rows = _wrapped(item, lines, width)
     item.setText("\n".join(rows))
     item.adjustSizeToText()
     height = item.rect().height()
