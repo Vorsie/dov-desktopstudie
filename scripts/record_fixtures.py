@@ -123,15 +123,16 @@ FIXTURES: list[tuple[str, str]] = [
     ("wfs_sonderingen_dwithin.json", wfs("dov-pub:Sonderingen", dwithin(500))),
     ("wfs_sonderingen_page2.json",
      wfs("dov-pub:Sonderingen", dwithin(500), 5, {"startIndex": "5"})),
-    # boringen met een lithologische beschrijving, zodat de interpretatie-fixture er zeker bij past
+    # boreholes that carry a lithology description, so the interpretation fixture is sure to match
     ("wfs_boringen_dwithin.json",
      wfs("dov-pub:Boringen", dwithin(500, "lithologische_beschrijving=true"))),
-    # alle interpretaties binnen 500 m (count 200 > aantal), zodat elke boring hierboven matcht
+    # every interpretation within 500 m (count 200 > the number there are), so each borehole above
+    # finds its own
     ("wfs_lithologische_beschrijvingen_dwithin.json",
      wfs("interpretaties:lithologische_beschrijvingen", dwithin(500), 200)),
     ("wfs_gecodeerde_lithologie_dwithin.json",
      wfs("interpretaties:gecodeerde_lithologie", dwithin(500), 200)),
-    # peilputten die effectief peilmetingen hebben
+    # peilputten that actually carry level measurements
     ("wfs_grondwaterlocaties_dwithin.json",
      wfs("gw_meetnetten:grondwaterlocaties_met_metingen",
          dwithin(2500, "peilmetingen_tot IS NOT NULL"), 10)),
