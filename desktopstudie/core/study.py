@@ -295,7 +295,8 @@ class _Runner:
         section = build_section(
             self.client, self.zone.section_line, self.zone, self.result.cpts, self.result.boreholes,
             self.result.gw_filters, self.s.n_section_points, self.s.corridor_m, self.s.model_section,
-            log=self.log.child("section"), max_workers=self.s.max_workers, with_profile=self.s.with_profile)
+            log=self.log.child("section"), max_workers=self.s.max_workers,
+            with_profile=self.s.with_profile, should_cancel=self.should_cancel)
         # The dense profile is a source of its own: losing it costs the fine columns and leaves
         # only the handful of anchors, which the reader has to be told about. Not reported when
         # the caller asked for no profile at all - nothing was tried, so nothing failed.
