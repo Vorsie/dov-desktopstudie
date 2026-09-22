@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.qgis.conftest import pdf_pages, write_png
 from tests.qgis.conftest import report_meta as _meta
-from tests.qgis.conftest import write_png
 
 MAP_ID = "grb"  # een echte catalogusentry: de layout leest er titel, attributie en licentie uit
 HEADER_TOP_MM, HEADER_BOTTOM_MM = 8.0, 24.0  # de band met de hoofdstukkop en de paginatitel
@@ -18,13 +18,6 @@ A4_HEIGHT_MM = 297.0
 # zwart (alleen de kern van de letters; de rest is antialiasing), zonder 20,2 % - de blokjes zijn
 # dicht. De grens ligt daartussen, dicht genoeg bij de echte waarde om de storing te vangen.
 BLACK_SHARE = 0.05
-
-
-def _pdf_pages(path):
-    """Het aantal pagina's in een PDF. Elke pagina is een object met /Type /Page; de paginaboom
-    zelf draagt /Type /Pages en die telt niet mee."""
-    data = path.read_bytes()
-    return data.count(b"/Type /Page") - data.count(b"/Type /Pages")
 
 
 def _page_content(path, page):
@@ -89,7 +82,7 @@ def test_the_pdf_holds_every_page_of_the_layout(three_pages, tmp_path):
 
     assert pdf.exists() and pdf.stat().st_size > 5000
     assert pdf.read_bytes()[:4] == b"%PDF"
-    assert _pdf_pages(pdf) == 3
+    assert pdf_pages(pdf) == 3
 
 
 def test_the_legend_switch_is_evaluated_before_the_pdf_is_written(three_pages, tmp_path):
@@ -103,7 +96,7 @@ def test_the_legend_switch_is_evaluated_before_the_pdf_is_written(three_pages, t
 
     pdf = export.export_pdf(three_pages, tmp_path / "zonder.pdf")
 
-    assert _pdf_pages(pdf) == 2
+    assert pdf_pages(pdf) == 2
 
 
 def test_the_text_in_the_pdf_is_text_a_reader_can_select_not_outlines(three_pages, tmp_path):
@@ -137,7 +130,7 @@ def test_the_sheets_go_to_the_exporter_a_few_at_a_time_and_the_pdf_is_the_same(t
     at_once = tmp_path / "eens.pdf"
     assert QgsLayoutExporter(three_pages).exportToPdf(str(at_once), settings) == export.SUCCESS
 
-    assert _pdf_pages(in_runs) == _pdf_pages(at_once) == 3
+    assert pdf_pages(in_runs) == pdf_pages(at_once) == 3
     for page in range(3):
         # Wat op het blad staat, vergeleken als beeld: de inhoudsstromen zelf verschillen in de
         # nummering van de lettertype-subsets (de volgorde waarin Qt glyphs registreert).
