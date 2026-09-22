@@ -65,7 +65,7 @@ from qgis.PyQt.QtGui import (
 )
 
 from ..core import catalogue, geometry, parallel
-from ..core.geometry import BBox
+from ..core.geometry import CRS, BBox
 from ..core.model import StudyResult
 from ..core.report_content import (
     Chapter,
@@ -84,7 +84,6 @@ from .images import (
     blank_rows,
     cut_row,
 )
-from .layers import CRS_AUTHID
 
 LAYOUT_NAME = "DOV Desktopstudie"
 
@@ -1034,7 +1033,7 @@ class LayoutBuilder:
         if overleaf:
             height = MAP_H
         map_item = QgsLayoutItemMap(self.layout)
-        map_item.setCrs(QgsCoordinateReferenceSystem(CRS_AUTHID))
+        map_item.setCrs(QgsCoordinateReferenceSystem(CRS))
         map_item.setLayers(self._map_layers(page, key))
         map_item.setFrameEnabled(True)
         self.layout.addLayoutItem(map_item)
