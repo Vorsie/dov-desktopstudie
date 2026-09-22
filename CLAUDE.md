@@ -255,10 +255,10 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   Een ondergrond die mislukt kost het thema zijn achtergrond, nooit zijn blad, en krijgt een eigen
   bronregel (`pipeline._record_backdrops`).
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
-  staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
+  staat het profieltype zelf (kleurvlak, code, omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
-  de kop eraf (`images.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
-  snijdt diezelfde rij van boven van de eenhedentabel (`images.crop_sheet_units`, anders leest die tabel
+  de kop eraf (`images.crop_profile_header`), snijdt diezelfde rij van boven van de eenhedentabel
+  (`images.crop_sheet_units`, anders leest die tabel
   als die van het ene profieltype waarmee ze binnenkwam) en levert `profieltype:<code>` en
   `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**: de
   kaartpagina, met onder het kader per profieltype de regel "Profieltype <code> - kaartblad <nn>"
@@ -268,6 +268,28 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   een lezer niets - maar `LegendEntry` houdt code en kaartblad als data, dus de feiten blijven
   machineleesbaar. Een tekening die niet binnenkwam laat de regel staan met "tekening niet
   opgehaald".
+- **De snede tussen de kop en de eenhedentabel is de horizontale lijn, niet de witte band.** DOV
+  maakt haar kaartbladen niet gelijk op. Kaartblad 22 zet titel, kleurvlak, lettercode en één regel
+  omschrijving (980 x 703); kaartblad 07 zet een klein genummerd kleurvlak met VIER regels
+  omschrijving en daaronder een rij textuurvlakjes (1648 x 1200) - en heeft in zijn eerste 240
+  rijen geen énkele gekleurde pixel, dus de aanname dat een kleurvlak de kop aanwijst houdt daar
+  geen stand. De eerste volledig witte rij valt er vlak onder het woord "Profieltype", en dat is
+  precies wat er in het rapport van een gebruiker op de strook stond: dat woord en verder niets
+  (2026-09-22). Wat beide opmaken wél delen is de lijn boven de eenhedentabel. `images.rule_row`
+  zoekt de eerste rij die één ONONDERBROKEN donkere loop over meer dan 55 % van de bemonsterde
+  kolommen is (elke derde kolom, component < 140). Ononderbroken is het hele onderscheid: een regel
+  tekst maakt op kaartblad 07 tot 54 % van die kolommen donker, maar haar langste loop is 2 % tegen
+  90 % voor de lijn; tellen alleen zou de drempel op een halve procent laten balanceren. Gemeten
+  rijen: 22010 rij 145 van 703, 07020 en 07029 rij 189 van 1200, elk precies waar de kop eindigt.
+  De witte band onder `HEADER_MIN_ROWS` blijft staan als terugval voor een tekening zonder lijn.
+  `crop_profile_header` en `crop_sheet_units` snijden op diezelfde rij en bewegen dus altijd samen;
+  de lijn zelf blijft bij de tabel, als haar bovenrand. De drie tekeningen staan als fixture in
+  `tests/qgis/fixtures/` (de bovenste 260 rijen, pixels onaangeroerd, met bron-URL en datum in de
+  README ernaast) - een nagebouwde tekening bewijst niets over een dienst die haar bladen niet
+  gelijk opmaakt, en dat is waarom de vorige regel op één tekening afgeregeld was. Eén gevolg om te
+  kennen: op kaartblad 22 staat de titel "Eenheden op kaartblad 22" bóven de lijn en eindigt de
+  strook er dus mee, op kaartblad 07 staat ze eronder. Het eenhedenblad drukt die titel zelf af
+  (`report_content`), dus geen van beide bladen mist iets.
 - **De legenda-URL van een profieltype is een downloadlink van een documentportaal.** Ze eindigt op
   `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug. Wat
   `prefetch._drawing_bytes` daarmee doet, en waar de grens ligt, staat één keer beschreven: zie
