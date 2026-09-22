@@ -30,9 +30,9 @@ def feature_xy(feature: Feature) -> Tuple[float, float]:
 
 
 class DovWfs:
-    def __init__(self, client, url: str = DOV_WFS_URL, page_size: int = 500, log: Optional[Log] = None):
+    def __init__(self, client, page_size: int = 500, log: Optional[Log] = None):
         self.client = client
-        self.url = url
+        self.url = DOV_WFS_URL
         self.page_size = page_size
         self.log = log
         self._geom_cache: Dict[str, str] = {}
