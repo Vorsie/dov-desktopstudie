@@ -2,6 +2,23 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [0.4.2] - 2026-09-22
+
+### Opgelost
+- **De kopstrook van een profieltype was op sommige kaartbladen leeg.** Ze werd afgesneden bij de
+  eerste volledig witte rij, en op kaartblad 07 ligt die vlak onder het woord "Profieltype" - de
+  lezer kreeg dat woord en niets meer. De aanname dat een kleurvlak de kop markeert gaat daar ook
+  niet op: in de bovenste 240 rijen van die tekening staat geen enkele gekleurde pixel. De snede
+  volgt nu de horizontale scheidingslijn boven de eenhedentabel, die in beide layouts op de juiste
+  plaats staat (gemeten: rij 145 van 703 op kaartblad 22, rij 189 van 1200 op kaartblad 07).
+
+### Gewijzigd
+- **De CI draait niet langer alles dubbel.** Beide workflows reageerden op `push` en op
+  `pull_request`, zodat elke commit op een tak met een open pull request de volledige reeks twee
+  keer draaide. `push` is nu beperkt tot `main` en `dev`, de live studie draait wekelijks in plaats
+  van bij elke commit, en een nieuwe push annuleert de vorige run van dezelfde tak. De containers en
+  de volledige matrix blijven: die hebben drie keer een fout gevangen die lokaal onzichtbaar was.
+
 ## [0.4.1] - 2026-09-22
 
 ### Opgelost
@@ -341,7 +358,8 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...v0.3.0

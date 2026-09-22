@@ -72,6 +72,24 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   `python-qgis-ltr.bat -m pytest tests/qgis`; in CI in `qgis/qgis:release-3_34` en
   `qgis/qgis:latest` (`ci-qgis.yml`). Geen stubs of mocks van `qgis.core` in de venv: een
   4.x-API-breuk hoort in een echte QGIS zichtbaar te worden, niet in een namaak.
+- **CI draait niets twee keer, en de live studie draait wekelijks.** De minuten van een account
+  zijn eindig (de gebruiker zat op 90 % toen dit geschreven werd), en beide workflows stonden op
+  `on: [push, pull_request]`: elke commit op een branch met een openstaande pull request bouwde
+  twee keer, dezelfde commit en dezelfde uitkomst. `push` staat nu op `[main, dev]` - de branches
+  die geen pull request van zichzelf hebben - en `pull_request` dekt de rest; tags vallen er
+  gratis mee weg, want de release-zip komt uit `build_zip.py`. `concurrency` met
+  `cancel-in-progress` alléén voor een pull request: een afgebroken run op `main` laat de branch
+  zonder groen stempel. `headless-live` (een volledige studie tegen de echte diensten, al
+  `continue-on-error` en geen verplichte check) hangt aan `schedule` en `workflow_dispatch`, niet
+  aan elke commit; `shell` blijft wél op elke commit staan met beide images en de hele matrix,
+  want dat is wat de 3.34-segfault, het Qt6-labelverschil en de speling op het infovak gevangen
+  heeft. Twee dingen die je moet weten voor je hier iets bijschaaft. **`paths-ignore` hoort alleen
+  op `push`**: een workflow die een padfilter overslaat meldt haar checks nóóit, en `core (3.9)`,
+  `core (3.12)` en de twee `shell`-jobs zijn verplichte checks op `main` - een pull request met
+  alleen documentatie zou eeuwig blijven wachten. En **`README.md` mag er niet in**, want hij zit
+  in de plugin-zip en `tests/scripts/test_build_zip.py` controleert dat; `.github/workflows/**`
+  evenmin, want `tests/scripts/test_ci_containers.py` leest `ci-qgis.yml`. Die suite bewaakt nu
+  ook de triggers zelf.
 - **Compatibel met QGIS 3.34 t/m 4.x.** `qgisMinimumVersion=3.34`, `supportsQt6=True`. Alleen
   API's die in 3.34 bestaan. Imports via `qgis.PyQt`. Qt-enums altijd scoped
   (`Qt.AlignmentFlag.AlignRight`, `QDialog.DialogCode.Accepted`). Python-syntaxis ≥ 3.9: geen
@@ -255,10 +273,10 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   Een ondergrond die mislukt kost het thema zijn achtergrond, nooit zijn blad, en krijgt een eigen
   bronregel (`pipeline._record_backdrops`).
 - **De legenda van het Quartair is een tekening, en die tekening bestaat uit twee delen.** Bovenaan
-  staat het profieltype zelf (kleurvlak, lettercode, een regel omschrijving), daaronder de
+  staat het profieltype zelf (kleurvlak, code, omschrijving), daaronder de
   eenhedentabel van het hele kaartblad - voor elk profieltype van dat blad dezelfde. De schil snijdt
-  de kop eraf (`images.crop_profile_header`: eerste volledig witte rij onder rij 60, anders 110),
-  snijdt diezelfde rij van boven van de eenhedentabel (`images.crop_sheet_units`, anders leest die tabel
+  de kop eraf (`images.crop_profile_header`), snijdt diezelfde rij van boven van de eenhedentabel
+  (`images.crop_sheet_units`, anders leest die tabel
   als die van het ene profieltype waarmee ze binnenkwam) en levert `profieltype:<code>` en
   `kaartblad:<nn>` aan `build_report(..., zone_legend_images=...)`. Het blok is **twee bladen**: de
   kaartpagina, met onder het kader per profieltype de regel "Profieltype <code> - kaartblad <nn>"
@@ -268,6 +286,28 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   een lezer niets - maar `LegendEntry` houdt code en kaartblad als data, dus de feiten blijven
   machineleesbaar. Een tekening die niet binnenkwam laat de regel staan met "tekening niet
   opgehaald".
+- **De snede tussen de kop en de eenhedentabel is de horizontale lijn, niet de witte band.** DOV
+  maakt haar kaartbladen niet gelijk op. Kaartblad 22 zet titel, kleurvlak, lettercode en één regel
+  omschrijving (980 x 703); kaartblad 07 zet een klein genummerd kleurvlak met VIER regels
+  omschrijving en daaronder een rij textuurvlakjes (1648 x 1200) - en heeft in zijn eerste 240
+  rijen geen énkele gekleurde pixel, dus de aanname dat een kleurvlak de kop aanwijst houdt daar
+  geen stand. De eerste volledig witte rij valt er vlak onder het woord "Profieltype", en dat is
+  precies wat er in het rapport van een gebruiker op de strook stond: dat woord en verder niets
+  (2026-09-22). Wat beide opmaken wél delen is de lijn boven de eenhedentabel. `images.rule_row`
+  zoekt de eerste rij die één ONONDERBROKEN donkere loop over meer dan 55 % van de bemonsterde
+  kolommen is (elke derde kolom, component < 140). Ononderbroken is het hele onderscheid: een regel
+  tekst maakt op kaartblad 07 tot 54 % van die kolommen donker, maar haar langste loop is 2 % tegen
+  90 % voor de lijn; tellen alleen zou de drempel op een halve procent laten balanceren. Gemeten
+  rijen: 22010 rij 145 van 703, 07020 en 07029 rij 189 van 1200, elk precies waar de kop eindigt.
+  De witte band onder `HEADER_MIN_ROWS` blijft staan als terugval voor een tekening zonder lijn.
+  `crop_profile_header` en `crop_sheet_units` snijden op diezelfde rij en bewegen dus altijd samen;
+  de lijn zelf blijft bij de tabel, als haar bovenrand. De drie tekeningen staan als fixture in
+  `tests/qgis/fixtures/` (de bovenste 260 rijen, pixels onaangeroerd, met bron-URL en datum in de
+  README ernaast) - een nagebouwde tekening bewijst niets over een dienst die haar bladen niet
+  gelijk opmaakt, en dat is waarom de vorige regel op één tekening afgeregeld was. Eén gevolg om te
+  kennen: op kaartblad 22 staat de titel "Eenheden op kaartblad 22" bóven de lijn en eindigt de
+  strook er dus mee, op kaartblad 07 staat ze eronder. Het eenhedenblad drukt die titel zelf af
+  (`report_content`), dus geen van beide bladen mist iets.
 - **De legenda-URL van een profieltype is een downloadlink van een documentportaal.** Ze eindigt op
   `_png` maar geeft met HTTP 200 ook wel eens de webpagina van dat portaal terug. Wat
   `prefetch._drawing_bytes` daarmee doet, en waar de grens ligt, staat één keer beschreven: zie

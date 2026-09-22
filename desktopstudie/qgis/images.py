@@ -8,8 +8,8 @@ without a layout: a legend graphic is a legend graphic whatever sheet it later l
 Three kinds of question are asked here.
 
 *What is this picture made of?* `ramp_rect` finds the colour band inside a legend graphic and
-`header_rows` finds where a profile-type drawing stops being a header - both by reading the pixels,
-because neither service documents its own layout and both have moved before.
+`rule_row` / `header_rows` find where a profile-type drawing stops being a header - both by reading
+the pixels, because neither service documents its own layout and both have moved before.
 
 *Cut it.* `ramp_strip`, `crop_profile_header` and `crop_sheet_units` write the piece that is
 wanted as a file of its own, so the layout only ever places a picture and never crops one.
@@ -36,10 +36,24 @@ WHITE_RGB = bytes((255, 255, 255))
 ZONE_LEGEND_PREFIX = "quartair_"
 ZONE_LEGEND_SHEET = "kaartblad_"
 HEADER_SUFFIX = "_kop"
-# A DOV profile-type drawing starts with the type itself - colour swatch, letter code and one line
-# of description - and continues with the units table of the whole map sheet. The two are separated
-# by a white band, and the first white row BELOW the swatch is the cut. Above HEADER_MIN_ROWS there
-# is another white band (under the word "Profieltype"), which is why the search starts there.
+# A DOV profile-type drawing starts with the type itself and continues with the units table of the
+# whole map sheet, and the two are separated by a horizontal rule. That rule is the cut, because it
+# is the only thing the sheets have in common: DOV does not draw them all alike.
+#   22010: 980 x 703, header = title, colour swatch, letter code, one line of description.
+#   07020 and 07029: 1648 x 1200, header = title, a small numbered swatch with FOUR lines of
+#   description, then a row of texture patches - and not one coloured pixel in the first 240 rows,
+#   so a search for the swatch finds nothing at all there.
+# Measured on those three drawings (2026-09-22, they are in tests/qgis/fixtures): the first row
+# that is one unbroken dark run over more than RULE_MIN_SHARE of the sampled columns is row 145 of
+# 703 on 22010 and row 189 of 1200 on both 07 sheets, each exactly where the header ends. The run
+# has to be UNBROKEN: a line of body text darkens up to 54 % of the sampled columns on the 07
+# sheets, but its longest run is 2 %, against 90-100 % for the rule. Re-check with those fixtures.
+RULE_DARK_MAX = 140      # per colour component; the rule is black, the grey of a texture is not
+RULE_SAMPLE_STEP = 3     # a rule is solid over hundreds of pixels, so every third column finds it
+RULE_MIN_SHARE = 0.55
+# Fallback for a drawing without such a rule: the first fully white row below the swatch, which is
+# the band before "Eenheden op kaartblad <nn>". Above HEADER_MIN_ROWS there is another white band
+# (under the word "Profieltype"), which is why that search starts there.
 HEADER_MIN_ROWS = 60
 HEADER_FALLBACK_ROWS = 110
 
@@ -116,13 +130,49 @@ def ramp_strip(legend_png, target, flip: bool = False) -> Optional[Path]:
     return target if band.save(str(target)) else None
 
 
+def rule_row(image: QImage) -> Optional[int]:
+    """The first pixel row that is a horizontal rule: one unbroken dark run over most of the width.
+
+    That rule is what separates the header of a profile-type drawing from the units table under
+    it. Unbroken is the whole discriminator - a line of text darkens as many columns as a rule
+    does, just never in a row - so this does not count dark pixels, it measures the longest run
+    of them.
+
+    None when the drawing holds no such row, and then `header_rows` falls back to the white band.
+    """
+    rgba = image.convertToFormat(QImage.Format.Format_ARGB32)
+    width, height, stride = rgba.width(), rgba.height(), rgba.bytesPerLine()
+    buffer = rgba.constBits()
+    buffer.setsize(height * stride)
+    data = bytes(buffer)
+    columns = range(0, width, RULE_SAMPLE_STEP)
+    needed = len(columns) * RULE_MIN_SHARE
+    for y in range(height):
+        row = data[y * stride:y * stride + width * 4]
+        run = 0
+        for x in columns:
+            pixel = row[x * 4:x * 4 + 4]
+            if pixel[3] != 0 and max(pixel[0], pixel[1], pixel[2]) < RULE_DARK_MAX:
+                run += 1
+                if run > needed:
+                    return y
+            else:
+                run = 0
+    return None
+
+
 def header_rows(image: QImage) -> int:
     """How many pixel rows of a profile-type drawing are its header.
 
-    The answer is the first fully white row under the colour swatch: that band is the gap before
-    "Eenheden op kaartblad <nn>". A drawing without such a band falls back to a fixed strip, which
-    is still a strip rather than a whole sheet of units table.
+    The answer is the horizontal rule between the type header and the units table: everything
+    above it is what differs per profile type, and the rule itself stays with the table as its
+    top border. A drawing without such a rule falls back to the first fully white row under the
+    swatch, and one without that to a fixed strip - still a strip rather than a whole sheet of
+    units table.
     """
+    rule = rule_row(image)
+    if rule is not None:
+        return rule
     flags = blank_rows(image)
     for row in range(min(HEADER_MIN_ROWS, len(flags)), len(flags)):
         if flags[row]:
@@ -167,10 +217,14 @@ def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
             log.warning(f"Eenhedentabel overgeslagen: {exc}")
         return None
     target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{named}.png")
-    return _cropped(path, target,
-                    lambda image: (0, header_rows(image), image.width(),
-                                   image.height() - header_rows(image)),
-                    "Eenhedentabel", log)
+
+    def below_the_header(image: QImage) -> Tuple[int, int, int, int]:
+        # One call, not two: `header_rows` scans the pixels, and asking it twice for the same
+        # image is the whole scan twice over.
+        cut = header_rows(image)
+        return (0, cut, image.width(), image.height() - cut)
+
+    return _cropped(path, target, below_the_header, "Eenhedentabel", log)
 
 
 def crop_profile_header(path, log=None) -> Optional[Path]:

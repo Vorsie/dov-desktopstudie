@@ -231,11 +231,33 @@ het hier thuis.
    extra; het is de controle die de echte fouten vindt.
 6. **Open een pull request** naar `main` en vul het sjabloon in: wat er verandert en waarom,
    welke suites je gedraaid hebt, of je een echte studie bekeken hebt. CI draait `ci` (de kern op
-   Python 3.9 en 3.12) en `ci-qgis` (de schil in de twee containers, plus één live studie voor
-   Gent waarvan de bladen als artefact bewaard worden). Een rode CI die niet aan een platliggende
-   dienst ligt, is een rode CI.
+   Python 3.9 en 3.12) en `ci-qgis` (de schil in de twee containers). Een rode CI die niet aan een
+   platliggende dienst ligt, is een rode CI.
 7. **De onderhouder kijkt na en merget.** Blijft het stil, stuur gerust na een week een duwtje in
    het issue.
+
+### Wanneer CI draait
+
+De minuten van een account zijn eindig, dus draait er niets twee keer.
+
+| wanneer | wat |
+|---|---|
+| een commit op je branch, met een openstaande pull request | `ci` + de twee containers van `ci-qgis` |
+| een nieuwe commit terwijl de vorige run nog bezig is | de vorige wordt afgebroken (`concurrency`) |
+| een push op `main` of `dev` | dezelfde twee, tenzij je alleen documentatie raakte |
+| elke maandagochtend, en op de knop *Run workflow* | `headless-live`: één volledige studie voor Gent tegen de echte diensten, met de bladen als artefact |
+
+Wat er **niet** gebeurt: een push op een gewone branch draait niets (de pull request dekt hem al),
+een tag draait niets (de release-zip komt uit `scripts/build_zip.py`), en `headless-live` draait
+niet op je pull request. Die laatste is `continue-on-error` en geen verplichte check - een DOV dat
+plat ligt is geen rode repository - maar draai hem wel met de hand vóór een release en na elke
+wijziging aan een service-URL, een parser of de catalogus.
+
+`paths-ignore` staat alleen op `push`, niet op `pull_request`: een workflow die een padfilter
+overslaat meldt haar checks nooit, en `core (3.9)`, `core (3.12)` en de twee `shell`-jobs zijn
+verplichte checks op `main`. Een pull request met alleen documentatie zou dan eeuwig blijven
+wachten. `README.md` staat er om dezelfde reden niet in als de andere `.md`-bestanden: hij zit in
+de plugin-zip en `tests/scripts/test_build_zip.py` controleert dat.
 
 Een kaart toevoegen is meestal één entry in `core/catalogue.py` en geen regel code elders. Dat is
 met opzet zo: moet je er wél code voor schrijven, dan is er iets anders aan de hand en is het
