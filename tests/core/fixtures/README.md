@@ -31,10 +31,10 @@ Echte antwoorden van de services, opgenomen met `scripts/record_fixtures.py`.
 | `interpretatie_2016-252456.xml` | <https://www.dov.vlaanderen.be/data/interpretatie/2016-252456.xml> | 2026-09-15 |
 | `interpretatie_2024-382762.xml` | <https://www.dov.vlaanderen.be/data/interpretatie/2024-382762.xml> | 2026-09-15 |
 | `filter_1985-007948.xml` | <https://www.dov.vlaanderen.be/data/filter/1985-007948.xml> | 2026-09-15 |
-| `vb_g3dv3_F.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_F?x=104326&y=192506&crs=EPSG:31370> | 2026-09-15 |
-| `vb_g3dv3_L.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_L?x=104326&y=192506&crs=EPSG:31370> | 2026-09-15 |
-| `vb_g3dv3_P.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_P?x=104326&y=192506&crs=EPSG:31370> | 2026-09-15 |
-| `vb_hcovv2_S.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/hcovv2_S?x=104326&y=192506&crs=EPSG:31370> | 2026-09-15 |
+| `vb_g3dv3_F.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_F?x=104326&y=192506&crs=EPSG%3A31370> | 2026-09-15 |
+| `vb_g3dv3_L.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_L?x=104326&y=192506&crs=EPSG%3A31370> | 2026-09-15 |
+| `vb_g3dv3_P.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/g3dv3_P?x=104326&y=192506&crs=EPSG%3A31370> | 2026-09-15 |
+| `vb_hcovv2_S.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/virtueleprofielen/doorprik/hcovv2_S?x=104326&y=192506&crs=EPSG%3A31370> | 2026-09-15 |
 | `vb_profile_g3dv3_F.json` | <https://services.dov.vlaanderen.be/virtueleboringserver/base/lagenmodel/g3dv3_F/profielbevraging/lagen?xValues=104126.00%2C104526.00&yValues=192506.00%2C192506.00&resolution=100> | 2026-09-15 |
 | `gxg_ghg_hit.json` | <https://www.dov.vlaanderen.be/geoserver/gxg/wms?service=WMS&version=1.1.1&request=GetFeatureInfo&layers=gxg%3Aghg_mmv_main&query_layers=gxg%3Aghg_mmv_main&styles=gxg%3Agxg&srs=EPSG%3A31370&bbox=104301.8%2C192481.7%2C104351.8%2C192531.7&width=101&height=101&x=50&y=50&info_format=application%2Fjson&feature_count=5> | 2026-09-17 |
 | `gxg_glg_hit.json` | <https://www.dov.vlaanderen.be/geoserver/gxg/wms?service=WMS&version=1.1.1&request=GetFeatureInfo&layers=gxg%3Aglg_mmv_main&query_layers=gxg%3Aglg_mmv_main&styles=gxg%3Agxg&srs=EPSG%3A31370&bbox=104301.8%2C192481.7%2C104351.8%2C192531.7&width=101&height=101&x=50&y=50&info_format=application%2Fjson&feature_count=5> | 2026-09-17 |
