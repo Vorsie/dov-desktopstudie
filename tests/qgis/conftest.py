@@ -40,6 +40,14 @@ def rings_close(ring, other, tolerance):
         abs(a[0] - b[0]) < tolerance and abs(a[1] - b[1]) < tolerance for a, b in zip(ring, other))
 
 
+def report_of(pages):
+    """Een rapportboom van een hoofdstuk met deze pagina's erin - genoeg om een layout te bouwen
+    of een reeks kaartbeelden uit te plannen, en wat beide testmodules ervoor nodig hebben."""
+    from desktopstudie.core.report_content import Chapter, Report
+
+    return Report(title="Desktopstudie testproject", meta={}, chapters=[Chapter(1, "Test", pages)])
+
+
 def report_meta():
     """De `report.meta` die een layout verwacht: alles wat op het titelblad en in de voettekst
     terechtkomt. Hier en niet in twee testbestanden, want twee kopieën van dezelfde dict drijven
