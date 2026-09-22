@@ -14,7 +14,7 @@ import os
 import sys
 from typing import Optional
 
-from qgis.core import Qgis, QgsLayoutPoint, QgsLayoutSize
+from qgis.core import Qgis, QgsLayoutPoint, QgsLayoutSize, QgsTextFormat
 from qgis.PyQt.QtGui import QFont
 
 MM = Qgis.LayoutUnit.Millimeters
@@ -72,6 +72,26 @@ def house_font(size: float, bold: bool = False) -> QFont:
         font.setFamilies(FONT_FAMILIES)
     font.setBold(bold)
     return font
+
+
+def text_format(size: float, bold: bool = False) -> QgsTextFormat:
+    """House lettering at `size` points, as a fresh `QgsTextFormat` every call.
+
+    `QgsLayoutItemLabel.setFont`, `QgsLayoutTable.setContentFont` and `setHeaderFont` are already
+    deprecated in 3.34 and go away in 4.x; a text format is the spelling that survives. It carries
+    its own size, so the size is set twice on purpose - the one on the QFont only decides which
+    face gets loaded.
+
+    It lives here for the same reason `house_font` does: the layout and the map labels both need
+    it and neither module may import the other. Fresh each call, because a caller adds to it -
+    `layers._label_format` hangs a halo on its copy, and a shared object would put that halo on
+    every table in the report.
+    """
+    fmt = QgsTextFormat()
+    fmt.setFont(house_font(size, bold))
+    fmt.setSize(size)
+    fmt.setSizeUnit(Qgis.RenderUnit.Points)
+    return fmt
 
 
 def enum_name(holder, value) -> str:
