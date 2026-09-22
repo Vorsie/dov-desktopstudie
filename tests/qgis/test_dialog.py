@@ -550,3 +550,14 @@ def test_one_line_in_the_layer_is_the_section_line(qgs_app, tmp_path):
                    for text in texts), texts
     finally:
         QgsProject.instance().removeMapLayer(layer.id())
+
+
+def test_a_lambert_72_coordinate_is_not_a_distance(qgs_app, tmp_path):
+    """X en Y zijn een coordinaat, geen afstand: achter 104326 hoort geen " m". Ze deelden de
+    spinbox-helper met de buffer en de zoekstraal, en die zet meters achter elk getal."""
+    dialog = _dialog(tmp_path)
+
+    assert dialog.x_spin.suffix() == ""
+    assert dialog.y_spin.suffix() == ""
+    assert dialog.buffer_spin.suffix() == " m", "een afstand houdt haar eenheid"
+    assert dialog.radius_spin.suffix() == " m"
