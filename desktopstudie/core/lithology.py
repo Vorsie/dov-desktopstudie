@@ -97,15 +97,14 @@ alluvial alluviale alluvion alluvions als alsmede altéré alternance alternance
 amas amorphe analogue ancienne andere apparaît apparence apparentes apparents après aquifère argile
 argiles argileuse argileuses argileux argilo arguleux arm arrêtée arrondis aspect asse assez assze
 atteindre au autour autre autres aux avais avec avex bande bas base basis basisklei beaucoup beetje
-beige belle bepaalde berm beschrijving bevatten bewaarde bien bifurcation bigarré bigarrée
-bigarrées bij bijna bijzonder bistre bistres bistrés blanc blanchâtre blanche blauw blauwachtige
-blauwe blauwgrijs blauwgrijze blauwgroen blauwgroenwit bleek bleekgeel bleekgeelgroen bleekgrijs
-bleekgrijsgroen bleekgrijze bleke blekere bleu bleuâtre bleue blijft blokken bombée boom
-boorbeschrijving boormeester boring bosse bouleversé bouleversée bouleversées bouleversés bouwlaag
-bouwvoor bouwzand boven bovenaan bovengrond bovenste brede breed brillants brisées brokje brokjes
-brokkelig brokkelige brokken brokstukken brosse broyée bruin bruinachtig bruinachtige bruine
-bruingeel bruingeelachtig bruingrijs bruingrijsachtig bruingrijze bruingroen bruingroenachtig brun
-brunâtre brune brusquement buntsandstein caché calcaires calcareuse calcareuses calcareux
+belle bepaalde berm beschrijving bevatten bewaarde bien bifurcation bigarré bigarrée bigarrées bij
+bijna bijzonder blauw blauwachtige blauwe blauwgrijs blauwgrijze blauwgroen blauwgroenwit bleek
+bleekgeel bleekgeelgroen bleekgrijs bleekgrijsgroen bleekgrijze bleke blekere blijft blokken bombée
+boom boorbeschrijving boormeester boring bosse bouleversé bouleversée bouleversées bouleversés
+bouwlaag bouwvoor bouwzand boven bovenaan bovengrond bovenste brede breed brillants brisées brokje
+brokjes brokkelig brokkelige brokken brokstukken brosse broyée bruin bruinachtig bruinachtige
+bruine bruingeel bruingeelachtig bruingrijs bruingrijsachtig bruingrijze bruingroen
+bruingroenachtig brusquement buntsandstein caché calcaires calcareuse calcareuses calcareux
 calcarifère caractéristiques carrière cas ce celle celui cependent certains ces cette ceux champ
 chargé château chemin chocolat chocolaté citadel clacareuses clair claire clairement clairs cm
 coherent cohérent coherente coin colen colline comme commence commencement compact compacte complex
@@ -133,75 +132,74 @@ geroerd gerold gerolde gesorteerd gespikkeld gestippeld gevlekt gewassen gijze g
 glaiseuse glauconie glimmer glimmerachtig glimmerhoudend glimmerplaatjes glimmerrijk glimmers goed
 grains grand grande grandes gras graveleuse graveleuses graveleux gravir grens grenu grenue grenzen
 grijs grijsachtig grijsachtige grijsbeige grijsblauw grijsbruin grijsbruine grijsgeel grijsgroen
-grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere grind grindboring grindje gris
-grisâte grisâtre grisclair grise groen groenachtig groenachtige groenblauw groenbruin groene
-groengeel groengrijs groengrijsachtig groengrijze groenig grof grofzand grond groot gros grosse
-grosses grossier grossière grote grotere grove grover grovere gruis half halffijn halfstijve hard
-harde hauptmuschelkalk haut hebben heeft heel helft henis hénis hesbayen het heterogeen heterogene
+grijsgroenachtig grijsgroene grijswit grijze grijzer grijzere grind grindboring grindje grisâte
+grisclair groen groenachtig groenachtige groenblauw groenbruin groene groengeel groengrijs
+groengrijsachtig groengrijze groenig grof grofzand grond groot gros grosse grosses grossier
+grossière grote grotere grove grover grovere gruis half halffijn halfstijve hard harde
+hauptmuschelkalk haut hebben heeft heel helft henis hénis hesbayen het heterogeen heterogene
 hétérogène heteromorf hettangien hier hoekig hoeveelheden hoger homogeen homogène hoofdzakelijk
 horizontaal horizontale horizontalement horizontales hors houdend hsc humeus humeuze humide humique
 humiques humus ici idem ieper ieperiaan iets immédiatement impossible impur impuretés in
 inclinaison inclinaisons incliné inclinés indéterminables indiqué inf inférieur inférieure
-insluitsel insluitsels intercalaties intercalation intercalations irrégulière is isolés jaunâtre
-jaune jurassique jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk
-kalkrijke keitjes kern kernboor kerniel keupérien kist klei kleiachtig kleiachtige kleibrokjes
-kleibrokken kleigehalte kleihoudend kleihoudende kleiig kleiïg kleiige kleiiger kleiigere
-kleilaagje kleilaagjes kleilagen kleilensjes kleilenzen klein kleine kleiner kleirijk kleur komen
-korrel korrelgrootte korrelig korrels kwartair kwarts kwartsachtig kwartszand la laag laagje
-laagjes laagsgewijs labours lagen lamellaire landenien landenienne lang latérales lavage le lediaan
-leem leemachtig leemhoudend leemrijke légende légère légèrement lemig lemige lengte lensjes
-lentille lentilles lenzen les lesquelles lesquels licht lichtbeige lichtbruin lichte lichtgrijs
-lichtgroen lichtjes lid ligne lijkt limon limoneuse limoneuses limoneux limoniteux linéole linéoles
-lit lithotheek lits locaux loin lokaal lokale long loodrecht lorsqu los losse losser lossere lui
-luisants maar mais maldegem marbré marbrée mare marin marmoréen marmoréens massa masse massief
-massive mate materiaal matières matig medium meer meerdere meestal mélange mélangé mêlé même met
-meter meters mètres meuble mica micacé micacée micacées middelfijn middelgrof middelmatig
-middelmatige min mince minces minder mm moderne modernes modifiée moins mois molle monster monsters
-montée montre montrent mooi mooie morceaux mou mouches moucheté moulage mouvant moyen moyenne na
-naar nat neerepen neerrepenien nesten nettement neutraal neutraalbruin neutraalgrijs niet niveau
-niveau_onbekend nog nogal noir noirâtre noire noirs nombreuses nombreux non normaal normale
-nouvelle nu nulle oblique ocreuse ocreuses ocreux of om omstreeks onbekend onder onderaan onderste
-ondulé ondulée ondulées ongeveer ongle onregelmatig onregmatig ontbreekt ook ookpaniseliaan op
-opnieuw oranje oranjebruin organisch organische over overgaat overgang overvloed overwegend paar
-pailleté paillété pailletée paillettes pâle panaché paniseliaan paquet paquets par paraissant
-paraît parfois parmi partie parties partout pas passant peine pense pente percé percer percés petit
-petite petites petits peu peut peux pied pieds plaats plaatselijk plaatselijke plaatsen place
-places plant plantaardig plantaardige planten plantje plaque plaques plasticité plastique plastisch
-plastische plastischer plat plateau platte pleine pleistocène pliocène pliocènes plis plus poche
-poches point pointillé pointillée points polder polderienne poldérienne polders polis polit pont
-poreuse position pour pouvoir précédent premier première prendre près présentant presque prmière
-produites profondeur prouve provenant provoqué puis puissance puits pulsboring pur pure quartair
-quarts quartseux quartzeux quaternaire quaternaires que quelques qui quitté quoi racine racines
-radicelle radicelles ramène ramkernsondering rapidement rare rarement rares ravinement rayant
-recent recente recherches recueilli recueillir redevenir reeds remonte remplissage repose resten
-restent retrouvent rijk rivières rode roestbruin roetzwart rond ronde rood roodachtig roodbruin
-rose rosé röth rouge rougeâtre roulé roulées roulés route roux rude ruines rupeliaan rupélien sable
-sables sableuse sableuses sableux sablière sablonneuse sablonneux sale samenhangend sans saturé
-scaldisien scaldisiennes schelp schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend
-schelpjes schelpstukken scherp scherpe schijn schilferachtig schilferig schilferige schuin sec sein
-semblable sens sensiblement séparées serait seulement siliceuse siliceux sillonnés silt silteus
-silteuse silteux silteuze silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht
-smalle sol somme sommet sommige soms sondage sonde sondé sont sort sous souterraines souvent
-spikkels spoelboring sporadisch sporadische sporen staal stabilisatiezand stalen steeds steekboor
-steen steentjes stenen sterk stevig stevige stijf stijgt stijve stippels stippen stoffen
-stratification stratifié stratifiés striée striés stuk stukje stukjes stukken substraat successifs
-suite sup supérieur supérieure sur surfaces surmonté surmontée surtout taai taaie taches tacheté
-talrijk talrijke tamelijk tapissées te teelaarde teeltaarde teinte teintes tendre tendres terrain
-terrains terrasse terre terres tertiair tertiaire terug tiers toch toe tongres tongrien top tot
-tournant tous tout toutefois toutes trace traces tranche tranchée traversé traversée traverser tres
-très trés triturées trous tubulations tussen type typisch uit uiterst un une unes uns van vanaf
-varient vase vaseuse vaseux vast vaste veel vegetale végétale végétales végétaux veine veinée
-veines veinules vele verbrijzeld verbrijzelde verdâtre verdâtres verdieping vergruisde verhard
-véritable véritables verkleurend verkleurende verkleuring vermengd vermiculations vermiculées
-vermoedelijk vers verschillende verspreid verspreide vert verte verticaal verticale verweerd
-verweerde verwering verzadigd vet vette vettig vient violacé visible visibles vite vlekjes vlekken
-vochtig voici voisin voit vol volgens volledig voor vooral voorkomen voornamelijk voorwerk vormen
-vrij waaronder waarschijnlijk was wat water waterzand weer weinig weke wellenkalk wemmeliaan werd
-wit witachtig witachtige witgeel witgrijs witgrijze witte wordt wortel wortels worteltjes zacht
-zachte zand zandachtig zandachtige zanden zandhoudend zandhoudende zandig zandige zandiger
-zandigere zandlaagjes zandlagen zandleem zavel zavelgrond zeer zelfde zijn zoet zoetwater
-zoetwaterschelpen zonaire zonder zone zoné zonée zones zônes zwak zwakke zware zwart zwartbruin
-zwartdonkergroene zwarte zwartgrijs
+insluitsel insluitsels intercalaties intercalation intercalations irrégulière is isolés jurassique
+jusqu kakikleurig kalk kalkarm kalkhoudend kalkhoudende kalkloos kalkrijk kalkrijke keitjes kern
+kernboor kerniel keupérien kist klei kleiachtig kleiachtige kleibrokjes kleibrokken kleigehalte
+kleihoudend kleihoudende kleiig kleiïg kleiige kleiiger kleiigere kleilaagje kleilaagjes kleilagen
+kleilensjes kleilenzen klein kleine kleiner kleirijk kleur komen korrel korrelgrootte korrelig
+korrels kwartair kwarts kwartsachtig kwartszand la laag laagje laagjes laagsgewijs labours lagen
+lamellaire landenien landenienne lang latérales lavage le lediaan leem leemachtig leemhoudend
+leemrijke légende légère légèrement lemig lemige lengte lensjes lentille lentilles lenzen les
+lesquelles lesquels licht lichtbeige lichtbruin lichte lichtgrijs lichtgroen lichtjes lid ligne
+lijkt limon limoneuse limoneuses limoneux limoniteux linéole linéoles lit lithotheek lits locaux
+loin lokaal lokale long loodrecht lorsqu los losse losser lossere lui luisants maar mais maldegem
+marbré marbrée mare marin marmoréen marmoréens massa masse massief massive mate materiaal matières
+matig medium meer meerdere meestal mélange mélangé mêlé même met meter meters mètres meuble mica
+micacé micacée micacées middelfijn middelgrof middelmatig middelmatige min mince minces minder mm
+moderne modernes modifiée moins mois molle monster monsters montée montre montrent mooi mooie
+morceaux mou mouches moucheté moulage mouvant moyen moyenne na naar nat neerepen neerrepenien
+nesten nettement neutraal neutraalbruin neutraalgrijs niet niveau niveau_onbekend nog nogal
+nombreuses nombreux non normaal normale nouvelle nu nulle oblique ocreuse ocreuses ocreux of om
+omstreeks onbekend onder onderaan onderste ondulé ondulée ondulées ongeveer ongle onregelmatig
+onregmatig ontbreekt ook ookpaniseliaan op opnieuw oranje oranjebruin organisch organische over
+overgaat overgang overvloed overwegend paar pailleté paillété pailletée paillettes pâle panaché
+paniseliaan paquet paquets par paraissant paraît parfois parmi partie parties partout pas passant
+peine pense pente percé percer percés petit petite petites petits peu peut peux pied pieds plaats
+plaatselijk plaatselijke plaatsen place places plant plantaardig plantaardige planten plantje
+plaque plaques plasticité plastique plastisch plastische plastischer plat plateau platte pleine
+pleistocène pliocène pliocènes plis plus poche poches point pointillé pointillée points polder
+polderienne poldérienne polders polis polit pont poreuse position pour pouvoir précédent premier
+première prendre près présentant presque prmière produites profondeur prouve provenant provoqué
+puis puissance puits pulsboring pur pure quartair quarts quartseux quartzeux quaternaire
+quaternaires que quelques qui quitté quoi racine racines radicelle radicelles ramène
+ramkernsondering rapidement rare rarement rares ravinement rayant recent recente recherches
+recueilli recueillir redevenir reeds remonte remplissage repose resten restent retrouvent rijk
+rivières rode roestbruin roetzwart rond ronde rood roodachtig roodbruin rose rosé röth roulé
+roulées roulés route rude ruines rupeliaan rupélien sable sables sableuse sableuses sableux
+sablière sablonneuse sablonneux sale samenhangend sans saturé scaldisien scaldisiennes schelp
+schelpen schelpengruis schelpfragmenten schelpgruis schelphoudend schelpjes schelpstukken scherp
+scherpe schijn schilferachtig schilferig schilferige schuin sec sein semblable sens sensiblement
+séparées serait seulement siliceuse siliceux sillonnés silt silteus silteuse silteux silteuze
+silthoudend silthoudende siltig siltrijk situ situé slap slappe slecht smalle sol somme sommet
+sommige soms sondage sonde sondé sont sort sous souterraines souvent spikkels spoelboring
+sporadisch sporadische sporen staal stabilisatiezand stalen steeds steekboor steen steentjes stenen
+sterk stevig stevige stijf stijgt stijve stippels stippen stoffen stratification stratifié
+stratifiés striée striés stuk stukje stukjes stukken substraat successifs suite sup supérieur
+supérieure sur surfaces surmonté surmontée surtout taai taaie taches tacheté talrijk talrijke
+tamelijk tapissées te teelaarde teeltaarde teinte teintes tendre tendres terrain terrains terrasse
+terre terres tertiair tertiaire terug tiers toch toe tongres tongrien top tot tournant tous tout
+toutefois toutes trace traces tranche tranchée traversé traversée traverser tres très trés
+triturées trous tubulations tussen type typisch uit uiterst un une unes uns van vanaf varient vase
+vaseuse vaseux vast vaste veel vegetale végétale végétales végétaux veine veinée veines veinules
+vele verbrijzeld verbrijzelde verdieping vergruisde verhard véritable véritables verkleurend
+verkleurende verkleuring vermengd vermiculations vermiculées vermoedelijk vers verschillende
+verspreid verspreide verticaal verticale verweerd verweerde verwering verzadigd vet vette vettig
+vient violacé visible visibles vite vlekjes vlekken vochtig voici voisin voit vol volgens volledig
+voor vooral voorkomen voornamelijk voorwerk vormen vrij waaronder waarschijnlijk was wat water
+waterzand weer weinig weke wellenkalk wemmeliaan werd wit witachtig witachtige witgeel witgrijs
+witgrijze witte wordt wortel wortels worteltjes zacht zachte zand zandachtig zandachtige zanden
+zandhoudend zandhoudende zandig zandige zandiger zandigere zandlaagjes zandlagen zandleem zavel
+zavelgrond zeer zelfde zijn zoet zoetwater zoetwaterschelpen zonaire zonder zone zoné zonée zones
+zônes zwak zwakke zware zwart zwartbruin zwartdonkergroene zwarte zwartgrijs
 """)
 
 # Words that surface whatever else the sentence says, because a geotechnician asked for them by
