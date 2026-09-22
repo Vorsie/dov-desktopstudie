@@ -2,6 +2,22 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [0.4.0] - 2026-09-22
+
+### Gewijzigd
+- **De Franse beschrijvingen worden geklasseerd zoals de Nederlandse.** Een kwart van de gemeten
+  lagen (874 van 3630) staat in het Frans - de oude records vooral - en daar vlagden 615 van de
+  893 woorden, tegen 140 nu. De kleuren en alles wat erop gebouwd is, schelpen en plantenresten
+  als bijmenging, de gewone matrix met haar modificatoren en de vertelling van een handgeschreven
+  boorstaat zijn gewone grond; cailloux, tourbe, grès, silex, gypse, schiste, marne en de bank
+  blijven vlaggen. Een opmerkingsregel onder een Franse boring telt daardoor drie termen in plaats
+  van negentien, en negen van de 145 getelde boringen houden er geen meer over. **Er wordt niets
+  vertaald**: een gevlagde term blijft het Franse woord zelf.
+  Accenten tellen niet meer mee bij de vergelijking (DOV heeft "vegetale" naast "végétale" en
+  "gres" naast "grès"), en de vrouwelijke, de meervouds- en de "-âtre"-vorm zijn uitgangen die er
+  vóór de opzoeking afgaan in plaats van losse woorden. De richting van de regel blijft staan: de
+  lijst zegt alleen wat GEWOON is, al de rest vlagt.
+
 ## [0.3.0] - 2026-09-22
 
 Tweede gebruikersronde. De Locatie-tab zegt wat ze ziet, de lagenboom zet het eigen werk bovenaan,
@@ -307,7 +323,8 @@ Eerste release: kern, QGIS-schil en plugin. QGIS 3.34 t/m 4.x, geen extra packag
 - Gecodeerde lithologiecodes (FZ, SI, ...) worden rauw getoond.
 - De lagenfase kost in de plugin circa 8 s op de hoofdthread (het lagenpaneel), headless circa 1 s.
 
-[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/Vorsie/dov-desktopstudie/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/Vorsie/dov-desktopstudie/releases/tag/v0.1.0
