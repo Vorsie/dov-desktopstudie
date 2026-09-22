@@ -343,6 +343,17 @@ class StudyResult:
         Path(path).write_text(text, encoding="utf-8")
 
 
+def facts_of(result: StudyResult, map_id: str) -> Optional[List[Dict[str, Any]]]:
+    """The rows the study found for one catalogue map: `[]` when the zone holds none, `None` when
+    the source never answered.
+
+    Telling those two apart is the whole point of the Optional, and it is why this lookup lives
+    in one place: the report has to say "geen kaarteenheden" for the first and "bron niet
+    beschikbaar" for the second, while the rules only care whether there is a row.
+    """
+    return next((fact.rows for fact in result.map_facts if fact.map_id == map_id), None)
+
+
 def _jsonable(value: Any) -> Any:
     """json.dumps(default=...) hook: paths become their string form, numpy scalars and arrays
     (which carry a .tolist() but are not one of json's native types) unwrap to plain Python."""
