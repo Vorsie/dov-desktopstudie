@@ -47,7 +47,7 @@ from qgis.core import QgsMapLayer, QgsProject
 from ..core import catalogue, checks
 from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
-from ..core.model import Provenance, StudyResult, StudyZone, now_iso
+from ..core.model import StudyResult, StudyZone, record_source
 from ..core.report_content import (
     MapPage,
     MapPageKey,
@@ -83,7 +83,6 @@ PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
 GPKG_NAME = "studie.gpkg"
 JSON_NAME = "studie.json"
-RELIEF_SOURCE = "DHMV II relief"
 # Marks the copies the report maps draw with. They live outside the layer tree, so nobody can
 # remove them by hand; the flag lets a second run clean up after the first.
 REPORT_OVERLAY_FLAG = "desktopstudie/report_overlay"
@@ -140,20 +139,22 @@ def run_core(zone: StudyZone, settings: Settings, out_dir: Path, log: Log, progr
 
 # --- the sources the shell consults ---------------------------------------------------------------
 
-def record_source(result: StudyResult, source: str, url: str, ok: bool = True,
-                  message: str = "") -> None:
-    """Record (or replace) what the shell consulted, so `check_sources` can report on it.
-
-    Replacing rather than appending keeps a second `finish` on the same result honest: the plugin
-    can re-run a study after a service comes back up, and two contradicting lines about the same
-    source in the sources chapter would be worse than none.
-    """
-    entry = Provenance(source, url, now_iso(), ok, message)
-    for index, existing in enumerate(result.provenance):
-        if existing.source == source:
-            result.provenance[index] = entry
-            return
-    result.provenance.append(entry)
+# How every source the shell records is named, in one block, because these strings are read back
+# elsewhere: `checks.check_sources` groups on them and `checks.DRAWING_PREFIXES` repeats the two
+# drawing ones on the core side of the boundary, where this module cannot reach. All but the
+# relief carry the title of the map behind them ("Kaartlaag Bodemkaart van Vlaanderen"), so the
+# space belongs to the f-string, not to the constant. The recording itself is `record_source`,
+# which lives in the core beside `Provenance`: replacing rather than appending is what keeps a
+# second `finish` on the same result from leaving two contradicting lines.
+RELIEF_SOURCE = "DHMV II relief"
+MAP_LAYER_SOURCE = "Kaartlaag"
+LEGEND_SOURCE = "Legenda"
+PROFILE_LEGEND_SOURCE = "Legenda profieltype"
+SHEET_UNITS_SOURCE = "Eenhedentabel kaartblad"
+CLASS_KEY_SOURCE = "Klassensleutel"
+RAMP_SOURCE = "Kleurschaal"
+MAP_IMAGE_SOURCE = "Kaartbeeld"
+BACKDROP_SOURCE = "Ondergrond"
 
 
 class PhaseClock:
@@ -307,10 +308,10 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
             layer = layers.wms_layer(entry)
             if not layer.isValid():
                 log.warning(f"WMS-laag niet geldig: {entry.id} ({entry.wms_url})")
-                record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, False,
+                record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, False,
                               "WMS-laag ongeldig; kaartpagina zonder ondergrond")
                 continue
-            record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, True)
+            record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, True)
             layers_by_map[entry.id] = [layer]
             group_layers.append(layer)
         group = layers.add_group(project, title, group_layers, visible=False, parent=study)
@@ -332,7 +333,7 @@ def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: 
         if not entry.legend:
             continue
         found = entry.id in images
-        record_source(result, f"Legenda {entry.title}",
+        record_source(result, f"{LEGEND_SOURCE} {entry.title}",
                       layout_mod.wms_legend_url(entry, entry.legend_options), found,
                       "" if found else "legenda niet opgehaald; kaart zonder legendapagina")
     return images
@@ -354,21 +355,21 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
         # en geldt de regel als "ok": er valt niets op te halen, en "niet opgehaald" zou de lezer
         # aanzetten het nog eens te proberen.
         if code in unpublished:
-            record_source(result, f"Legenda profieltype {code}", url, True,
+            record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", url, True,
                           NO_DRAWING_PUBLISHED)
             continue
-        record_source(result, f"Legenda profieltype {code}", url, found,
+        record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", url, found,
                       "" if found else "tekening van het profieltype niet opgehaald of niet leesbaar")
     # A type the WFS gave no link for has no URL to loop over, so it would leave the sources
     # chapter silent while the legend line under the map points the reader straight at it.
     for code in sorted(unpublished - set(targets.values())):
-        record_source(result, f"Legenda profieltype {code}", "", True, NO_DRAWING_PUBLISHED)
+        record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", "", True, NO_DRAWING_PUBLISHED)
     # The units table of a map sheet is a page of its own, cut from the same drawing but by a
     # second step that can fail on its own (`crop_sheet_units` returns None). Without a line per
     # sheet, that page can disappear from the report with nothing in the sources chapter about it.
     for sheet, sheet_url in _sheets_of(targets).items():
         found = sheet_image_key(sheet) in images
-        record_source(result, f"Eenhedentabel kaartblad {sheet}", sheet_url, found,
+        record_source(result, f"{SHEET_UNITS_SOURCE} {sheet}", sheet_url, found,
                       "" if found else "eenhedentabel van het kaartblad niet opgehaald of niet leesbaar")
     return ({key: path.relative_to(out_dir).as_posix() for key, path in images.items()},
             unpublished)
@@ -384,10 +385,6 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
     for url, code in targets.items():
         sheets.setdefault(quartair_sheet(code), url)
     return sheets
-
-
-RAMP_SOURCE = "Kleurschaal"
-CLASS_KEY_SOURCE = "Klassensleutel"
 
 
 def _ramp_entries(result: StudyResult):
@@ -445,9 +442,6 @@ NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
-MAP_IMAGE_SOURCE = "Kaartbeeld"
-
-
 def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest], out_dir: Path,
                       client: HttpClient, log: Log, should_cancel) -> Tuple[Dict[str, Path], Set[str]]:
     """Every map page's background, fetched up front: {key -> PNG on disk}, and the maps that
@@ -478,9 +472,6 @@ def _fetch_map_images(result: StudyResult, requests: List[layout_mod.MapRequest]
                       layout_mod.wms_map_url(entry, told.extent, told.width, told.height),
                       not failed, message)
     return images, empty
-
-
-BACKDROP_SOURCE = "Ondergrond"
 
 
 def _record_backdrops(result: StudyResult, requests: List[layout_mod.MapRequest],
@@ -767,7 +758,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
         # the only place that sees an unreachable service. Naming it here keeps `studie.qgz` and
         # the sources chapter telling the same story.
         for entry in dropped:
-            record_source(result, f"Kaartlaag {entry.title}", entry.wms_url, False,
+            record_source(result, f"{MAP_LAYER_SOURCE} {entry.title}", entry.wms_url, False,
                           "WMS-laag ongeldig; kaart niet in studie.qgz")
         project_file = _guarded("Projectbestand schrijven", failures, log,
                                 lambda: export.write_project(standalone, out_dir / PROJECT_NAME))
