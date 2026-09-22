@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ..geometry import CRS
 from ..logging_util import Log
 
 GRID = 101  # beeldpunten over de doos; oneven, zodat het gevraagde punt het middelste is
@@ -50,7 +51,7 @@ def feature_info_at_point(client, wms_url: str, layer: str, x: float, y: float,
             f"{x + HALF_SIZE_M:.2f},{y + HALF_SIZE_M:.2f}")
     payload = client.get_json(wms_url, {
         "service": "WMS", "version": "1.3.0", "request": "GetFeatureInfo",
-        "layers": layer, "query_layers": layer, "styles": "", "crs": "EPSG:31370",
+        "layers": layer, "query_layers": layer, "styles": "", "crs": CRS,
         "bbox": bbox, "width": size, "height": size, "i": size // 2, "j": size // 2,
         "format": "image/png", "info_format": info_format, "feature_count": 10})
     rows: List[Dict[str, Any]] = []
