@@ -550,3 +550,40 @@ def test_a_source_guarded_twice_leaves_one_row_and_it_is_the_last(gent_ring):
 
 def _boom() -> None:
     raise RuntimeError("502")
+
+
+def test_a_hostile_permkey_cannot_write_outside_the_figures_folder(gent_ring, tmp_path):
+    """De permkey is het laatste stuk van een DOV-URL en wordt de naam van een figuur. Komt daar
+    een pad uit, dan bepaalt het antwoord van de dienst WAAR de plugin schrijft - dat mag niet,
+    ook niet wanneer het een gekaapte DOV kost om het te laten gebeuren."""
+    from desktopstudie.core.model import Borehole, LithologyLayer, StudyResult, StudyZone
+
+    runner = study._Runner.__new__(study._Runner)
+    runner.out = tmp_path
+    runner.log = Log("test", sink=lambda _line: None)
+    runner.result = StudyResult(zone=StudyZone(ring=gent_ring, name="z"), created_at="2026-09-22")
+    # Drie niveaus omhoog: "cpt_.." en de eerste ".." heffen elkaar op, dus twee is niet genoeg
+    # om de figurenmap uit te komen en drie wel (gemeten: het bestand landde in de runmap).
+    runner.result.cpts = [_cpt_with_profile("../../../ontsnapt")]
+    runner.result.boreholes = [Borehole(
+        permkey="../../../ook-ontsnapt", number="B1", x=0.0, y=0.0, z_mtaw=10.0, depth_m=5.0,
+        date=None, method=None, purpose=None, contractor=None, url="", distance_m=0.0,
+        lithology=[LithologyLayer(0.0, 5.0, "bruin zand")])]
+
+    runner.figures()
+
+    figures = (tmp_path / "figuren").resolve()
+    written = [path for path in tmp_path.rglob("*.png")]
+    assert len(written) == 2, written
+    for path in written:
+        assert path.resolve().parent == figures, path
+
+
+def _cpt_with_profile(permkey: str):
+    from desktopstudie.core.model import Cpt, CptProfile
+
+    cpt = Cpt(permkey=permkey, number="GEO-1", x=0.0, y=0.0, z_mtaw=8.0, depth_m=20.0, date=None,
+              method=None, cone=None, contractor=None, project=None, url="", distance_m=0.0)
+    cpt.profile = CptProfile(depth_m=[1.0, 2.0], qc_mpa=[1.0, 2.0],
+                             fs_kpa=[10.0, 12.0], u_kpa=[0.0, 1.0])
+    return cpt
