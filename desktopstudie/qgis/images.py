@@ -24,6 +24,8 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 from qgis.PyQt.QtGui import QImage, QPainter, QTransform
 
+from ..core.paths import safe_segment
+
 # A colour ramp is a solid band against the left edge of its legend graphic. Less than this is a
 # swatch, not a ramp, and then no strip is cut at all - see `ramp_rect`.
 RAMP_MIN_ROWS = 10
@@ -155,7 +157,16 @@ def crop_sheet_units(path, sheet: str, log=None) -> Optional[Path]:
     whichever type happened to be fetched first sits above it and the table reads as that one
     type's. The source line under the table is part of the drawing and stays.
     """
-    target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{sheet}.png")
+    # The sheet is the first two characters of a WFS profile-type code, so it is external text
+    # and ".." is two characters: `with_name("..")` would write into the parent folder. A sheet
+    # that leaves no name behind gets no units page, which is what every other failure here does.
+    try:
+        named = safe_segment(sheet)
+    except ValueError as exc:
+        if log:
+            log.warning(f"Eenhedentabel overgeslagen: {exc}")
+        return None
+    target = Path(path).with_name(f"{ZONE_LEGEND_PREFIX}{ZONE_LEGEND_SHEET}{named}.png")
     return _cropped(path, target,
                     lambda image: (0, header_rows(image), image.width(),
                                    image.height() - header_rows(image)),
