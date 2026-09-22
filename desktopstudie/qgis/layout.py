@@ -148,10 +148,13 @@ MAX_TABLE_REFLOW = 20  # a table still growing after this many passes is a bug, 
 # to 75 mm (0.44), because its columns are sentences that are MEANT to wrap - it stays portrait.
 TABLE_MAX_SQUEEZE = 0.65
 # QGIS' own defaults for a text table, spelled out so the orientation can be decided before a table
-# exists. `_new_table` reads them off the table itself and the two must agree; the check below
-# fails loudly if a QGIS release ever moves them.
+# exists. `_new_table` reads them off the table itself and the two must agree, so they are pinned
+# against a bare QgsLayoutItemTextTable in `test_layout.py`
+# (`test_the_table_furniture_is_exactly_what_qgis_gives_a_bare_table`) rather than by an assert
+# that would only fire halfway through building a report. Measured 0.5 mm on 3.34, 3.40 and 4.x -
+# the 0.3 that stood here gave `_fits_portrait` two millimetres it did not have.
 TABLE_CELL_MARGIN = 1.0
-TABLE_GRID_WIDTH = 0.3
+TABLE_GRID_WIDTH = 0.5
 UNBOUNDED_WIDTH = 10_000.0  # no cap: what the columns WANT, not what they are allowed
 # The shortest a figure may be squeezed to in order to share a sheet. Below this a qc diagram over
 # thirty-five metres is a smudge, and white paper beats an unreadable drawing.
