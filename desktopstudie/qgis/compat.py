@@ -74,11 +74,6 @@ def house_font(size: float, bold: bool = False) -> QFont:
     return font
 
 
-def qgis_version() -> str:
-    """The running QGIS version, e.g. "3.40.15-Bratislava"."""
-    return Qgis.QGIS_VERSION
-
-
 def enum_name(holder, value) -> str:
     """The name QGIS gives an enum value, e.g. "LayerTypeWrong" or "FileError".
 
