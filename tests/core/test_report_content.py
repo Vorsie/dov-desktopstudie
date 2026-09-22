@@ -186,9 +186,9 @@ def _profile_images(*codes, sheets=("22",)):
     return images
 
 
-def _geologie(result, zone_legend_images=None):
+def _geologie(result, report_images=None):
     return rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
-                           zone_legend_images=zone_legend_images).chapters[2]
+                           report_images=report_images).chapters[2]
 
 
 def _zone_legend(chapter, title_part):
@@ -231,7 +231,7 @@ def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
     niet "zie hierna": de kopstrook van DOV staat op de legendapagina zelf, met code en kaartblad
     ernaast."""
     geo = _geologie(_with_quartair(_result(gent_ring)),
-                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+                    report_images=_profile_images("22026", "22010", "22098"))
 
     legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert isinstance(legend, rc.LegendPage)
@@ -245,7 +245,7 @@ def test_the_quartair_zone_legend_carries_a_strip_per_profile_type(gent_ring):
 def test_a_profile_type_whose_drawing_failed_keeps_its_line(gent_ring):
     """De kern haalt niets op. Kreeg ze geen pad voor een profieltype, dan blijft de regel staan -
     code en kaartblad kloppen nog - alleen de tekening ontbreekt, en de bronnenlijst zegt waarom."""
-    geo = _geologie(_with_quartair(_result(gent_ring)), zone_legend_images=_profile_images("22026"))
+    geo = _geologie(_with_quartair(_result(gent_ring)), report_images=_profile_images("22026"))
 
     legend = _zone_legend(geo, "Quartairgeologische kaart 1/50 000")
     assert [(e.code, e.image_path) for e in legend.entries] == [
@@ -257,7 +257,7 @@ def test_the_quartair_block_is_two_pages_not_four(gent_ring):
     de eenhedentabel - is er twee te veel. De strookjes horen op de legendapagina; wat overblijft is
     die pagina plus de eenhedentabel van het kaartblad."""
     geo = _geologie(_with_quartair(_result(gent_ring)),
-                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+                    report_images=_profile_images("22026", "22010", "22098"))
 
     titles = [p.title for p in geo.pages]
     assert not any(title.startswith("Profieltype ") for title in titles), titles
@@ -271,7 +271,7 @@ def test_the_sheet_units_page_names_what_it_is_valid_for(gent_ring):
     """De eenhedentabel geldt voor elk profieltype van dat blad; dat hoort onder de tekening te
     staan, anders leest ze als de tabel van het profieltype dat er toevallig boven stond."""
     geo = _geologie(_with_quartair(_result(gent_ring)),
-                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+                    report_images=_profile_images("22026", "22010", "22098"))
 
     units = next(p for p in geo.pages if p.title == "Eenheden op kaartblad 22")
     assert isinstance(units, rc.FigurePage)
@@ -469,7 +469,7 @@ def test_the_quartair_zone_legend_takes_its_drawings_under_the_map_too(gent_ring
     die gaan onder de kaart mee; alleen de eenhedentabel van het kaartblad blijft een eigen blad,
     want dat is een tekening van een halve A4."""
     geo = _geologie(_with_quartair(_result(gent_ring)),
-                    zone_legend_images=_profile_images("22026", "22010", "22098"))
+                    report_images=_profile_images("22026", "22010", "22098"))
 
     quartair_map = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "quartair")
     legend = quartair_map.zone_legend
@@ -500,7 +500,7 @@ def test_the_dem_map_carries_a_colour_ramp_with_the_zone_values_under_it(gent_ri
     result.relief = (6.84, 9.40, 8.12)
 
     report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
-                             zone_legend_images={rc.ramp_image_key("dhmv_dtm"):
+                             report_images={rc.ramp_image_key("dhmv_dtm"):
                                                  "legendas/dhmv_dtm_schaal.png"})
 
     dtm = next(p for p in report.chapters[0].pages
@@ -805,7 +805,7 @@ def test_no_report_text_addresses_the_developer(gent_ring):
     rapport van een klant heeft ze niets te zoeken."""
     report = rc.build_report(_with_quartair(_result(gent_ring)),
                              rc.ReportMeta(project="P", author="A", company="C"),
-                             zone_legend_images=_profile_images("22026"))
+                             report_images=_profile_images("22026"))
 
     forbidden = ("wms_url", "wms_layer", "enabled", "=True", "=False", "None", "catalogus",
                  ".py", "TODO", "FIXME", "parameter", "True", "False")
@@ -875,7 +875,7 @@ def test_the_groundwater_map_carries_its_value_and_its_colour_bar(gent_ring):
     result = _with_gxg(_result(gent_ring))
     result.relief = (12.52, 16.25, 14.74)
 
-    geo = _geologie(result, zone_legend_images={rc.ramp_image_key("gxg_ghg"):
+    geo = _geologie(result, report_images={rc.ramp_image_key("gxg_ghg"):
                                                 "legendas/gxg_ghg_schaal.png"})
 
     ghg = next(p for p in geo.pages if isinstance(p, rc.MapPage) and p.map_id == "gxg_ghg")
@@ -1281,7 +1281,7 @@ def test_the_shrink_swell_map_carries_the_key_to_its_own_colours(gent_ring):
     Zonder opgehaalde sleutel worden er geen kleuren verzonnen."""
     result = _result(gent_ring)
     report = rc.build_report(result, rc.ReportMeta(project="P1", author="A", company="C"),
-                             zone_legend_images={rc.class_key_image_key("krimp_zwel"):
+                             report_images={rc.class_key_image_key("krimp_zwel"):
                                                  "legendas/krimp_zwel.png"})
     page = next(p for p in report.chapters[2].pages
                 if isinstance(p, rc.MapPage) and p.map_id == "krimp_zwel")
