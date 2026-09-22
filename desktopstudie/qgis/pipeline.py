@@ -348,9 +348,9 @@ def _fetch_zone_legends(result: StudyResult, targets: Dict[str, str], out_dir: P
         result, out_dir, client, log.child("legendas"), should_cancel)
     for url, code in targets.items():
         found = profile_image_key(code) in images
-        # Twee verschillende dingen. Publiceert DOV hier niets, dan is dat een feit over de bron
-        # en geldt de regel als "ok": er valt niets op te halen, en "niet opgehaald" zou de lezer
-        # aanzetten het nog eens te proberen.
+        # Two different things. Where DOV publishes nothing, that is a fact about the source and
+        # the row counts as "ok": there is nothing to fetch, and "niet opgehaald" would send the
+        # reader off to try again.
         if code in unpublished:
             record_source(result, f"{PROFILE_LEGEND_SOURCE} {code}", url, True,
                           NO_DRAWING_PUBLISHED)
@@ -627,9 +627,10 @@ def prepare(result: StudyResult, meta: ReportMeta, out_dir, log: Log,
     report_images: Dict[str, str] = {}
     unpublished: Set[str] = set()
     targets = prefetch.zone_legend_targets(result)
-    # Ook zonder een enkele bruikbare URL: een profieltype waarvoor de WFS geen link geeft is precies het
-    # geval waarin de legendaregel onder de kaart naar hoofdstuk Bronnen verwijst, en dan moet daar
-    # een regel over staan. Hangt deze fase aan "zijn er URL's?", dan draait ze juist dan niet.
+    # Even without a single usable URL: a profieltype the WFS gives no link for is exactly the case
+    # where the legend line under the map points the reader at the sources chapter, and then there
+    # has to be a row about it there. Hang this phase on "are there URLs?" and it skips precisely
+    # the case that needs it.
     if targets or prefetch.codes_without_a_drawing(result, targets):
         stop_if(should_cancel)
         clock.begin(0.12, "Tekeningen van de profieltypes")
