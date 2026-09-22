@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..catalogue import DOV_WFS_URL
+from ..geometry import CRS
 from ..logging_util import Log
 
 Feature = Dict[str, Any]
@@ -69,7 +70,7 @@ class DovWfs:
                 break
             payload = self.client.get_json(self.url, {
                 "service": "WFS", "version": "2.0.0", "request": "GetFeature", "typeNames": typename,
-                "outputFormat": "application/json", "srsName": "EPSG:31370", "CQL_FILTER": cql,
+                "outputFormat": "application/json", "srsName": CRS, "CQL_FILTER": cql,
                 "count": count, "startIndex": start})
             feats = payload.get("features", [])
             fetched += len(feats)
