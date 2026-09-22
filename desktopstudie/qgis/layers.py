@@ -198,11 +198,11 @@ def _label_format() -> QgsTextFormat:
     over water in the middle of the overview map and read as a smudge. The halo costs nothing and
     makes them legible over any backdrop.
     """
-    # Via `compat.text_format`, dus met het huisfont: zonder expliciet lettertype kiest Qt er zelf
-    # een, en offscreen tekende die "kb12d37w-B19" als "kb12d37-N- B19" - de w en het koppelteken
-    # werden losse streepjes. Hetzelfde font als het rapport, zodat een boornummer op de kaart
-    # leest zoals in de tabel. De halo hieronder hangt aan DEZE kopie: `text_format` geeft elke
-    # oproeper een eigen object, anders droeg elke tabel in het rapport deze halo.
+    # Through `compat.text_format`, so with the house face: without an explicit font Qt picks one
+    # itself, and offscreen that one drew "kb12d37w-B19" as "kb12d37-N- B19" - the w and the hyphen
+    # became loose dashes. The same face as the report, so a borehole number on the map reads the
+    # way it does in the table. The halo below hangs on THIS copy: `text_format` gives every caller
+    # an object of its own, or every table in the report would carry this halo too.
     fmt = text_format(LABEL_SIZE_PT)
     buffer = QgsTextBufferSettings()
     buffer.setEnabled(True)
