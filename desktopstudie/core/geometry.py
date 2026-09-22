@@ -5,6 +5,11 @@ from __future__ import annotations
 import math
 from typing import List, Optional, Sequence, Tuple
 
+# The one coordinate reference system this project computes in: Lambert 72. Every service is
+# asked in it, every figure is drawn in it and every layer is set to it, so the string belongs
+# with the geometry rather than with the QGIS layers - a name for a CRS is not a QGIS import.
+CRS = "EPSG:31370"
+
 Point = Tuple[float, float]
 Ring = List[Point]
 BBox = Tuple[float, float, float, float]
