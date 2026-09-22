@@ -70,6 +70,7 @@ from ..core.study import JSON_NAME, JSON_RELATIVE, Settings, orchestrator_signal
 from ..core.study import run as run_study
 from . import compat, dem, export, layers, prefetch
 from . import layout as layout_mod
+from .layout import NO_DRAWING_PUBLISHED
 
 # chapter in the catalogue -> the group title in the project. These three ARE chapters of the
 # report and carry its numbers, so the layer panel reads in the same order as the PDF. The study's
@@ -436,7 +437,6 @@ def _fetch_ramps(result: StudyResult, entries, out_dir: Path, client: HttpClient
     return strips
 
 
-NO_DRAWING_PUBLISHED = "DOV publiceert geen tekening voor dit profieltype"
 NO_COVERAGE_MESSAGE = "geen dekking op deze locatie"
 
 
