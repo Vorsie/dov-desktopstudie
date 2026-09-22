@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.qgis.conftest import write_png
+from tests.qgis.conftest import pdf_pages, write_png
 
 LIVE_OUT = Path(__file__).resolve().parents[2] / "uitvoer" / "pipeline_live2"
 CPT_KEY = "k1"
@@ -34,11 +34,6 @@ def _log(lines=None):
     from desktopstudie.core.logging_util import Log
 
     return Log("pipeline", lines.append if lines is not None else (lambda _m: None), scope="qgis")
-
-
-def _pdf_pages(path):
-    data = path.read_bytes()
-    return data.count(b"/Type /Page") - data.count(b"/Type /Pages")
 
 
 @pytest.fixture
@@ -143,7 +138,7 @@ def test_finish_delivers_the_study_and_leaves_the_project_usable(project, core_r
     assert out.pdf == tmp_path / "rapport.pdf" and out.pdf.exists()
     assert out.failures == []
     assert len(out.report.chapters) == 8
-    pages = _pdf_pages(out.pdf)
+    pages = pdf_pages(out.pdf)
     assert pages >= len(out.report.chapters) + 1, f"{pages} pagina's voor 8 hoofdstukken"
     assert [path.name for path in out.page_pngs[:2]] == ["pagina.png", "pagina_2.png"]
     assert len(out.page_pngs) == pages
@@ -691,7 +686,7 @@ def test_live_pipeline_for_gent(project, tmp_path):
 
     elapsed = time.monotonic() - started
     core_done = marks.get("Relief uit DHMV", started) - started
-    pages = _pdf_pages(out.pdf)
+    pages = pdf_pages(out.pdf)
     print(f"\nlive pijplijn Gent: {elapsed:.0f} s totaal ({core_done:.0f} s kern, "
           f"{elapsed - core_done:.0f} s schil), {pages} pagina's, {len(out.page_pngs)} PNG's "
           f"-> {LIVE_OUT}")
