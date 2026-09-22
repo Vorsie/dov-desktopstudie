@@ -15,12 +15,12 @@ from .model import (
     Cpt,
     GwFilter,
     MapFact,
-    Provenance,
     Section,
     Signalering,
     StudyResult,
     StudyZone,
     now_iso,
+    record_source,
 )
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
@@ -148,18 +148,23 @@ class _Runner:
         self.progress(fraction, message)
 
     def guarded(self, source: str, url: str, fn: Callable[[], None]) -> None:
+        """One stage, isolated: a failure becomes a failed source and the run goes on.
+
+        Through `record_source`, so a source consulted twice leaves one row rather than two that
+        contradict each other - the same rule the shell records its own sources by.
+        """
         try:
             fn()
-            self.result.provenance.append(Provenance(source, url, _now(), True))
+            record_source(self.result, source, url, True)
         except StudyCancelled:
             raise  # a cancelled run is not a broken source
         except EmptySource as exc:
             self.log.warning(f"{source}: {exc}")
-            self.result.provenance.append(Provenance(source, url, _now(), False, str(exc)))
+            record_source(self.result, source, url, False, str(exc))
         except Exception as exc:  # noqa: BLE001 - isolate every source
             self.log.warning(f"{source} niet beschikbaar: {exc}")
-            self.result.provenance.append(
-                Provenance(source, url, _now(), False, f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}"))
+            record_source(self.result, source, url, False,
+                          f"{type(exc).__name__}: {str(exc)[:MESSAGE_CHARS]}")
 
     def _load_each(self, items: Sequence[Any], load_one: Callable[[Any], None], label: str,
                    max_workers: Optional[int] = None) -> int:
@@ -301,9 +306,9 @@ class _Runner:
         # only the handful of anchors, which the reader has to be told about. Not reported when
         # the caller asked for no profile at all - nothing was tried, so nothing failed.
         if self.s.with_profile and section.profile is None:
-            self.result.provenance.append(Provenance(
-                "Doorsnede - profielbevraging", catalogue.VB_PROFILE_URL.format(model=self.s.model_section),
-                _now(), False, "profiel niet beschikbaar; alleen doorprik-ankers"))
+            record_source(self.result, "Doorsnede - profielbevraging",
+                          catalogue.VB_PROFILE_URL.format(model=self.s.model_section), False,
+                          "profiel niet beschikbaar; alleen doorprik-ankers")
         if not has_geology(section):
             raise EmptySource("geen modellagen langs de lijn")
         self.result.section = section
