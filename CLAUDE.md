@@ -605,6 +605,13 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   rapporttekst af en bewaakt het.
 - **Rapporttekst in het Nederlands**, code-identifiers in het Engels; DOV-vaktermen (sondering,
   boring, peilput) blijven Nederlands in identifiers waar dat de koppeling met DOV verduidelijkt.
+- **Commentaar en docstrings in het Engels.** Elke uitleg IN de code - wat een functie doet, wat er
+  gemeten is, waarom een omweg er staat - is Engels, in dezelfde taal als de identifiers eromheen.
+  Twee uitzonderingen, allebei omdat het CITATEN zijn en geen uitleg: een string die op papier of
+  in de GUI terechtkomt blijft Nederlands, en een DOV-vakterm (sondering, boring, peilput,
+  profieltype, kaartblad) blijft Nederlands ook midden in een Engelse zin - vertaald verliest ze de
+  koppeling met wat de dienst zelf zegt. CLAUDE.md, de plannen en de ontwerpen blijven Nederlands:
+  dat zijn documenten, geen code.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
   `main` draagt de releases (tag `vX.Y.Z`, de zip uit `build_zip.py` als release-asset).
 
