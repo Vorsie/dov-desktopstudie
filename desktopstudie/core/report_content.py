@@ -398,10 +398,11 @@ def _isopach_note(result: StudyResult, rows: Optional[List[Dict[str, Any]]],
     spread = sorted({float(row[THICKNESS_FIELD]) for row in rows or []
                      if row.get(THICKNESS_FIELD) is not None})
     if not spread and _quartair_model_layer(result) is not None:
-        # Geen contour in beeld EN de dikte staat al in de periodetabel van hoofdstuk 4: dan heeft
-        # dit blad niets eigens meer te zeggen. Een lege bladzijde met een modelzin erop leest als
-        # een fout, dus valt de kaart weg en komt ze op de gebundelde pagina achteraan te staan.
-        # Ontbreekt die tabel wel, dan is deze zin het enige dat de dikte nog noemt en blijft ze.
+        # No contour in view AND the thickness already stands in the period table of chapter 4:
+        # then this sheet has nothing of its own left to say. An empty page carrying one modelled
+        # sentence reads as a fault, so the map drops out and lands on the bundled page at the
+        # back. Where that table is missing, this sentence is the only thing still naming the
+        # thickness and it stays.
         return ""
     if spread:
         seen = (f"{spread[0]:.1f} tot {spread[-1]:.1f} m" if spread[0] != spread[-1]
