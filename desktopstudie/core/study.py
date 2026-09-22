@@ -22,6 +22,7 @@ from .model import (
     now_iso,
     record_source,
 )
+from .parallel import Cancelled
 from .section import build_section, section_line
 from .services import dov_xml, wms_gfi
 from .services.dov_wfs import DovWfs, feature_xy
@@ -48,11 +49,6 @@ JSON_RELATIVE = f"{DATA_DIR}/{JSON_NAME}"
 TRUNCATION_CODE = "wfs_afgekapt"
 SECTION_CODE = "doorsnede_onvolledig"
 ORCHESTRATOR_CODES = (TRUNCATION_CODE, SECTION_CODE)
-
-
-# The same class under the name the rest of the code knows: `parallel.load_each` raises it from
-# inside a batch, and `except StudyCancelled` has to catch exactly that.
-StudyCancelled = parallel.Cancelled
 
 
 class EmptySource(Exception):
@@ -158,7 +154,7 @@ class _Runner:
         try:
             fn()
             record_source(self.result, source, url, True)
-        except StudyCancelled:
+        except Cancelled:
             raise  # a cancelled run is not a broken source
         except EmptySource as exc:
             self.log.warning(f"{source}: {exc}")
@@ -428,7 +424,7 @@ class _Runner:
         def fetch(entry: catalogue.MapEntry) -> None:
             try:
                 fetched[entry.id] = self._fetch_facts(entry)
-            except StudyCancelled:
+            except Cancelled:
                 raise
             except Exception as exc:  # noqa: BLE001 - handed to `guarded` below, not swallowed
                 # Stored, not re-raised: `guarded` records and logs it on the main thread, and
@@ -539,6 +535,6 @@ def run(zone: StudyZone, settings: Settings, client, out_dir: Path, progress: Op
     own object is updated, so the shell can draw exactly the line that was used.
 
     `should_cancel` is polled between stages and around every per-item fetch; when it returns True
-    the run raises `StudyCancelled` and writes no JSON.
+    the run raises `Cancelled` and writes no JSON.
     """
     return _Runner(zone, settings, client, Path(out_dir), progress, log or Log("study"), should_cancel).run()
