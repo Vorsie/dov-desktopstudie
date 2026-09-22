@@ -64,7 +64,13 @@ from ..core.report_content import (
     sheet_image_key,
 )
 from ..core.services.http import DATA_DIR, HttpClient, study_client
-from ..core.study import JSON_RELATIVE, Settings, StudyCancelled, orchestrator_signals
+from ..core.study import (
+    JSON_NAME,
+    JSON_RELATIVE,
+    Settings,
+    StudyCancelled,
+    orchestrator_signals,
+)
 from ..core.study import run as run_study
 from . import compat, dem, export, layers
 from . import layout as layout_mod
@@ -84,7 +90,6 @@ PDF_NAME = "rapport.pdf"
 PAGES_DIR = "paginas"
 PROJECT_NAME = "studie.qgz"
 GPKG_NAME = "studie.gpkg"
-JSON_NAME = "studie.json"
 # Marks the copies the report maps draw with. They live outside the layer tree, so nobody can
 # remove them by hand; the flag lets a second run clean up after the first.
 REPORT_OVERLAY_FLAG = "desktopstudie/report_overlay"
@@ -730,7 +735,7 @@ def finish(project: QgsProject, result: StudyResult, meta: ReportMeta, out_dir, 
     result.signaleringen = checks.validate(checks.run_all(result) + orchestrator_signals(result))
     json_path = out_dir / DATA_DIR / JSON_NAME
     json_path.parent.mkdir(parents=True, exist_ok=True)  # nothing below creates a folder for us
-    record_source(result, "studie.json", JSON_RELATIVE)  # stamped before the write it describes
+    record_source(result, JSON_NAME, JSON_RELATIVE)  # stamped before the write it describes
     result.write_json(json_path)
     # The pages of maps that have no picture are left out: the sources chapter says per map that
     # it was tried and what came back, which is where a reader looks for that - not a sheet with
