@@ -430,6 +430,65 @@ def test_a_map_image_that_fails_leaves_no_file_and_no_coverage_claim(qgs_app, ge
     assert any("WARNING" in line for line in lines), lines
 
 
+def test_a_map_service_that_stutters_twice_still_hands_over_its_sheet(qgs_app, gent_zone, tmp_path):
+    """Een hapering bij de kaartdienst kost geen blad meer.
+
+    Uit een echte run, twee keer gezien: "Bron niet beschikbaar: kaartbeeld niet opgehaald;
+    kaartpagina zonder ondergrond - Kaartbeeld Orthofoto (meest recent)". Diezelfde URL uit zijn
+    `studie.json` daarna drie keer nagespeeld: HTTP 200, image/jpeg, 338 kB, telkens in een halve
+    seconde. De vraag klopte dus en de dienst stotterde. Een kaartbeeld is de grootste ophaling
+    van een studie en er lopen er acht tegelijk, dus een openbare dienst onder last laat er af en
+    toe een vallen: drie pogingen, met de adem van de client ertussen.
+    """
+    from desktopstudie.core.report_content import MapPage
+    from desktopstudie.core.services.http import BACKOFF_S, HttpClient, HttpError
+    from desktopstudie.qgis import prefetch
+
+    blob = drawn_png(tmp_path / "tegel.png", 120, 130).read_bytes()
+    attempts, slept = [], []
+
+    def stuttering(url, timeout, agent):
+        attempts.append(timeout)
+        if len(attempts) < 3:
+            raise HttpError(url, 502, "Bad Gateway")
+        return blob
+
+    requests = prefetch.plan_map_images(report_of([MapPage("grb", "Ligging", scale=2500)]),
+                                        gent_zone.ring, {})
+    client = HttpClient(cache_dir=None, fetch=stuttering, sleep=slept.append)
+
+    images, empty, _backdrops = prefetch.prepare_map_images(requests, tmp_path, client)
+
+    assert list(images) == [requests[0].key] and empty == set()
+    assert len(attempts) == 3, "twee haperingen overleefd"
+    # Wat een kaartbeeld in het ergste geval kost: drie keer de volle wachttijd plus de adem
+    # ertussen. Gemeten in plaats van afgeleid, want het is het getal in de commentaar bij
+    # MAP_IMAGE_RETRIES.
+    assert set(attempts) == {prefetch.MAP_IMAGE_TIMEOUT_S}
+    assert slept == [BACKOFF_S, BACKOFF_S * 2]
+    assert sum(attempts) + sum(slept) == 94.5
+
+
+def test_only_the_map_image_gets_that_third_attempt(qgs_app, tmp_path):
+    """Een legenda is een postzegel en haar kaartblad wordt ook zonder haar gedrukt, dus die houdt
+    haar twee pogingen: drie volle ademtochten per legenda kosten een rapport meer dan ze
+    opleveren."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.core.services.http import HttpClient, HttpError
+    from desktopstudie.qgis import prefetch
+
+    attempts = []
+
+    def down(url, timeout, agent):
+        attempts.append(url)
+        raise HttpError(url, 502, "Bad Gateway")
+
+    client = HttpClient(cache_dir=None, fetch=down, sleep=lambda _s: None)
+
+    assert prefetch.fetch_legend(catalogue.by_id("tertiair"), tmp_path, client) is None
+    assert len(attempts) == 2
+
+
 def test_a_portal_page_is_followed_to_the_file_and_never_kept(qgs_app, tmp_path, gent_zone):
     """Stuurt het portaal zijn eigen webpagina in plaats van de tekening, dan wijst die pagina zelf
     naar het bestand: die link wordt gevolgd. En de pagina blijft niet in de cache staan, want dan
