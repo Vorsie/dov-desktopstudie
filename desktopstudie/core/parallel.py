@@ -29,7 +29,7 @@ class Cancelled(Exception):
     """The caller's should_cancel() asked the run to stop.
 
     Not a source failure: it is never recorded as one and never swallowed by an isolating
-    handler. `study.StudyCancelled` is this same class under the name the rest of the code knows.
+    handler, and every module that catches it imports it from here - one name for one thing.
     """
 
 
