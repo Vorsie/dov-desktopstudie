@@ -68,7 +68,7 @@ body:
     attributes:
       label: Versie van de plugin
       description: "Plugins > Plugins beheren en installeren > Geïnstalleerd, of het titelblad van het rapport."
-      placeholder: "0.3.0"
+      placeholder: "0.4.2"
     validations:
       required: true
 
