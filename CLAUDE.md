@@ -713,6 +713,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   dat zijn documenten, geen code.
 - **Git**: Conventional Commits, één bestand per commit; werk op een `feat/`-branch per plan,
   `main` draagt de releases (tag `vX.Y.Z`, de zip uit `build_zip.py` als release-asset).
+- **Het versienummer staat op drie plaatsen en nergens anders**: `pyproject.toml` (bepaalt de
+  naam van de zip), `desktopstudie/metadata.txt` (wat QGIS in de pluginbeheerder toont) en de
+  invulhint van het bugformulier. Die drie verhuizen samen bij een release, en
+  `tests/scripts/test_versie_in_docs.py` wordt rood zodra er één achterblijft. In lopende tekst
+  hoort GEEN nummer: README.md en SECURITY.md zeiden nog v0.3.0 toen v0.4.2 al uit was, omdat een
+  release-commit die bestanden niet aanraakt. Verwijs daar naar de releasebadge of de
+  releasepagina. Een nummer dat over het verleden gaat - de changelog, of een gemeten vergelijking
+  als "115 bladen in v0.1.0" - is geschiedenis en blijft staan.
 - **De gemeenschapsbestanden zeggen dezelfde regels tegen wie van buiten komt.**
   `CONTRIBUTING.md` (omgeving, huisregels, de vier suites, commits, bug melden, PR openen),
   `SECURITY.md` (privé meldpunt en het echte aanvalsoppervlak), `.github/ISSUE_TEMPLATE/`
