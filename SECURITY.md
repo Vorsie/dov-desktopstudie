@@ -11,8 +11,10 @@ identificatie.
 
 ## Welke versies herstellingen krijgen
 
-Alleen de laatste release, op dit ogenblik **v0.3.0**. Er zijn geen onderhoudstakken voor oudere
-versies: een herstelling landt op `main` en komt mee in de eerstvolgende release.
+Alleen de jongste release - welke dat is, staat op de
+[releasepagina](https://github.com/Vorsie/dov-desktopstudie/releases/latest) en in de badge bovenaan
+de [README](README.md). Er zijn geen onderhoudstakken voor oudere versies: een herstelling landt op
+`main` en komt mee in de eerstvolgende release.
 
 ## Een kwetsbaarheid melden
 
