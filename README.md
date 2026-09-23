@@ -17,9 +17,10 @@ PDF-rapport, uitsluitend uit open data van [DOV](https://www.dov.vlaanderen.be) 
 berichtenbalk, de lagen die in de boom verschijnen, en op het einde de melding met **Open PDF**.
 Van Start tot rapport: ruim een minuut.*
 
-**Status:** v0.3.0. Kern en QGIS-schil zijn compleet: dialoog, lagen in het geopende project,
-PDF-rapport, headless script. Twee rondes gebruikersfeedback zijn verwerkt; de plugin staat nog
-als *experimenteel* gemarkeerd in `metadata.txt`.
+**Status:** kern en QGIS-schil zijn compleet: dialoog, lagen in het geopende project, PDF-rapport,
+headless script. Meerdere rondes gebruikersfeedback zijn verwerkt; de plugin staat nog als
+*experimenteel* gemarkeerd in `metadata.txt`. Welke versie de jongste is, zegt de releasebadge
+hierboven; wat er per versie veranderde staat in [CHANGELOG.md](CHANGELOG.md).
 
 ## Wat je krijgt
 
