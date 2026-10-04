@@ -140,3 +140,35 @@ def test_live_paging_returns_all_matches():
     assert len(feats) > 100
     assert len({f["id"] for f in feats}) == len(feats)
     assert len(feats) > wfs.page_size
+
+
+# Twee van de kaarten uit de collegalijst hebben hun eigen WFS: de archeologienota's staan op
+# `geo.onroerenderfgoed.be` en de waterlopen op `VHAWaterlopen`. De client kende maar een adres.
+EIGEN_WFS = "https://geo.onroerenderfgoed.be/geoserver/wfs"
+
+
+def _lege_dienst() -> FixtureClient:
+    return FixtureClient([("request=DescribeFeatureType", "wfs_describe_tertiair_50k.json"),
+                          ("request=GetFeature", b'{"type":"FeatureCollection","features":[]}')])
+
+
+def test_een_feature_type_op_een_andere_dienst_wordt_op_die_dienst_gevraagd():
+    """Vraag je de archeologienota's aan de WFS van DOV, dan komt er geen fout maar een lege
+    tabel - en het rapport zegt dan dat er geen nota's liggen waar er 193 liggen."""
+    client = _lege_dienst()
+
+    DovWfs(client, url=EIGEN_WFS).intersecting("vioe_geoportaal:archeologienotas", ZONE)
+
+    assert client.calls, "er is niets gevraagd"
+    assert all(url.startswith(EIGEN_WFS) for url in client.calls), client.calls
+
+
+def test_zonder_eigen_adres_blijft_het_de_wfs_van_dov():
+    """De negenentwintig bestaande kaarten mogen hier niets van merken."""
+    from desktopstudie.core.services.dov_wfs import DOV_WFS_URL
+
+    client = _lege_dienst()
+
+    DovWfs(client).intersecting("bodemkaart:bodemtypes", ZONE)
+
+    assert all(url.startswith(DOV_WFS_URL) for url in client.calls), client.calls
