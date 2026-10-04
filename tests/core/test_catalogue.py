@@ -145,7 +145,8 @@ def test_every_dov_map_asks_the_service_of_its_own_workspace_by_the_layers_own_n
     2026-09-16: 0,03 s per map, identical GetMap and GetLegendGraphic bytes). The WFS typename
     keeps its prefix: that is the global WFS."""
     dov = [e for e in c.CATALOGUE if "dov.vlaanderen.be/geoserver" in e.wms_url]
-    assert len(dov) == 18  # + de drie geulenkaarten uit de dijken-workspace
+    # 15 van voor de collegalijst, + 3 geulenkaarten, + 112 platen van de grondmechanische kaart.
+    assert len(dov) == 130
     for entry in dov:
         workspace = entry.wms_url.rsplit("/geoserver/", 1)[1].split("/")[0]
         assert entry.wms_url == c.DOV_WORKSPACE_WMS_URL.format(workspace=workspace), entry.id

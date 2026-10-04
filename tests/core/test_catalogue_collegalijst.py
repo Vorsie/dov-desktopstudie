@@ -160,9 +160,10 @@ def test_niet_elk_orthofotojaar_staat_standaard_aan():
     assert len(c.ORTHO_DEFAULT_IDS) == 6
 
 
-def test_alles_behalve_de_extra_orthofotojaren_staat_standaard_aan():
-    """Een kaart uitzetten is een keuze; een kaart die stil uitstaat is een gat in het rapport."""
-    uit = {e.id for e in c.entries() if not e.on_by_default}
+def test_alleen_orthofotojaren_en_platen_staan_standaard_uit():
+    """Een kaart uitzetten is een keuze; een kaart die stil uitstaat is een gat in het rapport.
+    De platen van de grondmechanische kaart staan uit omdat de zone bepaalt welke meekomt."""
+    uit = {e.id for e in c.entries() if not e.on_by_default and not e.per_sheet}
 
     assert uit == set(c.ORTHO_WINTER_IDS + c.ORTHO_SUMMER_IDS) - set(c.ORTHO_DEFAULT_IDS)
 

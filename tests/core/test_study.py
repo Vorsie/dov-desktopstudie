@@ -622,7 +622,8 @@ def test_de_studie_zoekt_het_kaartblad_van_de_grondmechanische_kaart_bij_de_zone
     assert result.gmk_sheet == "22.1.6"
     assert result.gmk_sheet_name == "Gent-Sint-Pieters"
     plates = [e.id for e in result.built_maps]
-    assert plates == ["gmk_documentatie", "gmk_aanvulling", "gmk_zonering"]
+    assert plates == ["gmk_22_1_6_documentatie", "gmk_22_1_6_aanvulling", "gmk_22_1_6_zonering"]
+    assert all(plate in result.map_ids for plate in plates), "de platen horen bij de kaartkeuze"
     assert all(e.wms_layer.startswith("kb_22_1_6_") for e in result.built_maps)
 
 

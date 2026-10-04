@@ -43,7 +43,7 @@ def test_de_platen_van_een_blad_worden_als_gewone_kaarten_gebouwd():
     gebouwd. Het blijven gewone entries, zodat de pijplijn en de layout er niets van merken."""
     entries = c.gmk_entries("22.1.6", ("documentatie", "zonering"))
 
-    assert [e.id for e in entries] == ["gmk_documentatie", "gmk_zonering"]
+    assert [e.id for e in entries] == ["gmk_22_1_6_documentatie", "gmk_22_1_6_zonering"]
     for entry in entries:
         assert entry.chapter == "geologie"
         assert entry.wms_url == c.GMK_WMS_URL
@@ -55,7 +55,7 @@ def test_de_platen_van_een_blad_worden_als_gewone_kaarten_gebouwd():
 def test_een_thema_dat_dit_blad_niet_heeft_levert_geen_kaart():
     entries = c.gmk_entries("22.1.2", ("zonering", "kwartairbasis"))
 
-    assert [e.id for e in entries] == ["gmk_zonering"]
+    assert [e.id for e in entries] == ["gmk_22_1_2_zonering"]
 
 
 def test_de_thema_s_komen_in_de_volgorde_van_de_keuzelijst_en_niet_van_de_gebruiker():
@@ -97,26 +97,24 @@ def test_elke_laagnaam_hoort_bij_het_blad_waar_hij_onder_staat(nummer):
         assert laag.startswith(f"kb_{plat}_"), f"{nummer}: {laag}"
 
 
-def test_de_gebouwde_platen_komen_mee_als_kaarten_van_de_studie():
-    """De platen staan niet in de catalogus, dus elke plek die de catalogus doorloopt - de
-    rapportbladen, de bronnenlijst, de lagen, de kaartbeelden - moet ze er bij krijgen. Anders
-    staat de plaat in het project maar niet in het rapport, of omgekeerd."""
-    gebouwd = c.gmk_entries("22.1.6", c.GMK_DEFAULT_THEMES)
+def test_de_platen_staan_in_de_catalogus_maar_niet_in_de_dialoog():
+    """De hele schil zoekt een kaart op met `catalogue.by_id` - de layout, de prefetcher, de
+    ondergrondcode - dus een kaart die alleen binnen een resultaat bestaat is er een die de helft
+    van de code niet vindt. De platen staan daarom in de catalogus. Maar niet in de vinklijst:
+    honderdvijftien platen laten de gebruiker precies kiezen waar hij zich niet mee hoeft bezig te
+    houden."""
+    platen = [e for e in c.entries() if e.per_sheet]
 
-    alles = c.entries(extra=gebouwd)
-    geologie = c.entries("geologie", extra=gebouwd)
-    historisch = c.entries("historisch", extra=gebouwd)
-
-    assert [e.id for e in gebouwd] == [e.id for e in alles if e.id.startswith("gmk_")]
-    assert [e.id for e in gebouwd] == [e.id for e in geologie if e.id.startswith("gmk_")]
-    assert not [e for e in historisch if e.id.startswith("gmk_")], "een plaat hoort bij de geologie"
+    assert len(platen) == 112, "23 bladen, 112 platen - 22.1.2 mist er een"
+    for plaat in platen:
+        assert plaat.chapter == "geologie", plaat.id
+        assert not plaat.on_by_default, plaat.id
+    assert c.by_id("gmk_22_1_6_zonering").per_sheet
 
 
-def test_een_keuze_van_kaarten_laat_de_gebouwde_platen_staan():
-    """`only` is de vinklijst van de gebruiker, en daar staan de platen niet in: ze bestaan pas
-    als de zone bekend is. Een lege keuze mag ze dus niet wegfilteren."""
-    gebouwd = c.gmk_entries("15.3.6", ("zonering",))
+def test_de_keuze_van_de_gebruiker_bevat_geen_platen():
+    """Wat de dialoog aanvinkt, en dus `default_map_ids`, laat de platen buiten: welke plaat
+    meekomt volgt uit de zone en wordt door de studie toegevoegd."""
+    standaard = set(c.default_map_ids())
 
-    gekozen = c.entries(only=["bodemkaart"], extra=gebouwd)
-
-    assert [e.id for e in gekozen] == ["bodemkaart", "gmk_zonering"]
+    assert not {i for i in standaard if i.startswith("gmk_")}
