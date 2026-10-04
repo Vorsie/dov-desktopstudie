@@ -100,3 +100,43 @@ def test_the_fields_can_be_read_off_the_class(qgs_app):
 
     assert PluginSettings.radius_m.key == "straal"
     assert PluginSettings.legends.key == "legendas"
+
+
+def test_de_gekozen_platen_van_de_grondmechanische_kaart_komen_terug(qgs_app, tmp_path):
+    """Welke platen in het rapport komen is een voorkeur en geen keuze per studie: wie de zonering
+    altijd wil, wil ze elke keer."""
+    from desktopstudie.core import catalogue
+    from desktopstudie.qgis.settings import PluginSettings
+
+    first = PluginSettings(_store(tmp_path))
+
+    assert first.gmk_themes == catalogue.GMK_DEFAULT_THEMES
+
+    first.gmk_themes = ("zonering", "kwartairbasis")
+    first.sync()
+
+    assert PluginSettings(_store(tmp_path)).gmk_themes == ("zonering", "kwartairbasis")
+
+
+def test_een_plaatthema_dat_niet_meer_bestaat_wordt_overgeslagen(qgs_app, tmp_path):
+    """Een bewaarde voorkeur overleeft de plugin die hem schreef. Verdwijnt een thema uit de
+    catalogus, dan mag een oude instelling geen kaart aanvragen die niet bestaat."""
+    from desktopstudie.qgis.settings import PluginSettings
+
+    first = PluginSettings(_store(tmp_path))
+    first.gmk_themes = ("zonering", "bestaat_niet")
+    first.sync()
+
+    assert PluginSettings(_store(tmp_path)).gmk_themes == ("zonering",)
+
+
+def test_geen_enkel_plaatthema_blijft_geen_enkel_plaatthema(qgs_app, tmp_path):
+    """Alles afvinken is een geldige keuze: dan komt er geen grondmechanische plaat in het
+    rapport. Dat mag niet stil terugvallen op de standaardkeuze."""
+    from desktopstudie.qgis.settings import PluginSettings
+
+    first = PluginSettings(_store(tmp_path))
+    first.gmk_themes = ()
+    first.sync()
+
+    assert PluginSettings(_store(tmp_path)).gmk_themes == ()
