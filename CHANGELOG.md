@@ -2,6 +2,33 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
+## [Niet uitgebracht]
+
+### Toegevoegd
+- **De kaartlagen uit de collegalijst** (cursus grondonderzoek, doorgestuurd 2026-09-23): 21
+  orthofotojaren (winter 2012-2025 en de 10 cm-opname 2013-2015, zomer 2009/12/15/18/21/24), de
+  bekrachtigde archeologienota's, drie geulenkaarten van de Scheldedijken, de waterlopen van de
+  Vlaamse Hydrografische Atlas, de peilmeetstations voor waterstand, en de watertoets vanuit de
+  zee - die laatste stond in het oorspronkelijke ontwerp maar was nooit opgenomen. Alle laagnamen
+  uit GetCapabilities en alle veldnamen uit DescribeFeatureType, live bevraagd op 2026-10-04; vier
+  lagen uit de doorgestuurde tabel bleken niet te bestaan.
+- **De grondmechanische kaart** voor Gent en Antwerpen: 23 kaartbladen, 112 platen. Het kaartblad
+  volgt uit de zone - de gebruiker kiest alleen welke platen hij wil, op thema en niet op
+  plaatnummer, want Plaat X is op 14.5.8 de Basis van het Kwartair en op 14.6.5 Plaat VIII.
+- **Een kaart kan standaard uit staan.** Vijftien van de 21 orthofotojaren staan ongevinkt in de
+  dialoog: alle 21 aanzetten zou elk rapport twintig bladen dikker maken.
+
+### Opgelost
+- **Een WFS-laag die niet in Lambert 72 staat, gaf stil nul rijen.** GeoServer leest de coordinaten
+  van een CQL-filter in het stelsel van de LAAG en niet in dat van `srsName`, dus een polygoon in
+  Lambert 72 wees honderden kilometers de verkeerde kant op - zonder fout, met een lege tabel, en
+  het rapport meldde dan een afwezigheid. De archeologienota's staan in Lambert 2008 en kwamen zo
+  als "geen nota's" terug waar er 193 binnen bereik lagen. Het filter noemt nu zijn stelsel.
+
+### Gewijzigd
+- **`map_ids=None` betekent de standaardkeuze en niet "alles".** De keuze wordt uitgeschreven in
+  `studie.json`, zodat een lezer ziet welke kaarten de studie niet bekeken heeft.
+
 ## [0.4.2] - 2026-09-22
 
 ### Opgelost
