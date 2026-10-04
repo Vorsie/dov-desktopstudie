@@ -37,7 +37,7 @@ def test_within_distance_builds_dwithin_filter_and_pages():
     wfs = DovWfs(client, page_size=5)
     feats = wfs.within_distance("dov-pub:Sonderingen", ZONE, 500, max_features=10)
     assert len(feats) == 10
-    assert "CQL_FILTER=DWITHIN%28geom%2CPOLYGON" in client.calls[1]
+    assert "CQL_FILTER=DWITHIN%28geom%2CSRID%3D31370%3BPOLYGON" in client.calls[1]
     assert "BBOX=" not in client.calls[1]  # never combine BBOX and CQL_FILTER
     assert feats[0]["properties"]["sondeernummer"]
 
