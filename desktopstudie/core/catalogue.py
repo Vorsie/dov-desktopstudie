@@ -29,6 +29,16 @@ WATERINFO_WMS_URL = (
 )
 # Used by the shell: `dem.relief_of_zone` loads the DTM as a WCS coverage to fill
 # `StudyResult.relief`, and `pipeline` records that fetch as a source under this URL.
+# The two services of the list of 2026-09-23 that do not stand on DOV.
+#
+# Heritage comes from MERCATOR and not from the GeoServer of onroerenderfgoed.be, however
+# obviously the latter fits: that one declares "Deze service is enkel bedoeld voor intern gebruik"
+# in its own GetCapabilities and points at Mercator instead (read 2026-10-04). An open-source
+# plugin may not ship an internal service, whatever it would serve. Mercator publiek states the
+# Gratis Open Data Licentie Vlaanderen v1.2 and carries the same records.
+MERCATOR_WMS_URL = "https://www.mercator.vlaanderen.be/raadpleegdienstenmercatorpubliek/wms"
+MERCATOR_WFS_URL = "https://www.mercator.vlaanderen.be/raadpleegdienstenmercatorpubliek/wfs"
+VHA_WFS_URL = "https://geo.api.vlaanderen.be/VHAWaterlopen/wfs"
 DHMV_WCS_URL = "https://geo.api.vlaanderen.be/DHMV/wcs"
 DHMV_WCS_COVERAGE = "DHMVII_DTM_1m"
 # What the two ends of the DTM's colour ramp mean, in mTAW. Read off the service's own
@@ -57,6 +67,7 @@ REPRESENTATIVE_POINT = 0
 MAP_WIDTH_MM = 180.0
 
 
+MERCATOR_LICENCE = "Gratis Open Data Licentie Vlaanderen v1.2"
 DOV_LICENCE = "DOV, Vlaamse overheid - Modellicentie Gratis Hergebruik"
 GEOPUNT_LICENCE = "Digitaal Vlaanderen - Modellicentie Gratis Hergebruik"
 
@@ -240,6 +251,41 @@ GUIDE_WATERTOETS = (
     "dienst tussen rechte haken. "
     "Pluviaal gaat over water dat bij hevige regen blijft staan, fluviaal over water uit een "
     "waterloop die buiten haar oevers treedt.")
+# GeoServer prints a JSON boolean as `true`/`false`; a reader wants ja/nee, and the label table is
+# consulted on `str(value)`, so both spellings stand here.
+BOOLEAN_LABELS = {"true": "ja", "false": "nee", "True": "ja", "False": "nee"}
+GUIDE_ARCHEOLOGIE = (
+    "Een archeologienota wordt opgemaakt na een archeologisch vooronderzoek, meestal naar "
+    "aanleiding van een omgevingsvergunning. "
+    "De tabel geeft de nota's binnen 250 m van de zone, de dichtstbijzijnde eerst, met de datum "
+    "van indiening en de fiche op id.erfgoed.net. "
+    "Voor het grondonderzoek is vooral de kolom Opgraving van belang: waar is opgegraven, is de "
+    "bodem tot op zekere diepte verstoord, en het verslag beschrijft dezelfde lagen als deze "
+    "studie. "
+    "Geen nota binnen de straal zegt niets over de archeologische waarde van de grond, alleen dat "
+    "er nog geen onderzoek is aangemeld.")
+GUIDE_WATERLOPEN = (
+    "De Vlaamse Hydrografische Atlas nummert en categoriseert elke waterloop. "
+    "Categorie bevaarbaar en eerste categorie worden beheerd door de Vlaamse overheid, tweede en "
+    "derde categorie door de provincie en de gemeente; niet-geklasseerde waterlopen zijn "
+    "particulier. "
+    "De tabel geeft de waterlopen binnen 250 m van de zone, de dichtstbijzijnde eerst. "
+    "Een waterloop naast de zone is een aandachtspunt voor de grondwaterstand en voor de "
+    "stabiliteit van de oever.")
+GUIDE_GEULEN = (
+    "Geulenstelsels zijn de sporen van doorbraken in de Scheldedijken: waar een dijk bezweek, "
+    "sloeg het water een geul en bleef een wiel achter, dat later weer werd opgevuld. "
+    "De opvulling is slap en heterogeen en kan metersdiep zijn. "
+    "De kaart bestaat alleen voor de Scheldevallei en is afgeleid van luchtfoto's en van "
+    "historische bronnen van voor en na 1570.")
+GUIDE_MEETSTATIONS = (
+    "De kaart geeft de meetstations voor waterstand van de VMM en andere beheerders. "
+    "Het gemeten peil zelf staat niet op de kaartlaag: dat is een tijdreeks, te raadplegen op "
+    "waterinfo.be bij het station. "
+    "Een station in de buurt van de zone maakt het mogelijk de oppervlaktewaterstand in de "
+    "periode van het grondonderzoek na te gaan.")
+GEULEN_EMPTY = ("De zone ligt buiten het gekarteerde gebied van deze kaart; die bestaat alleen "
+                "voor de Scheldevallei.")
 GUIDE_EROSIE = (
     "De kaart geeft per landbouwperceel hoeveel bodem er in theorie kan wegspoelen of wegschuiven. "
     "Totale erosie is het eindoordeel voluit, van verwaarloosbaar tot zeer hoog. "
@@ -344,6 +390,13 @@ class MapEntry:
     # distance it was found at.
     fact_within_m: Optional[float] = None
     wfs_typename: Optional[str] = None
+    # Which WFS answers `wfs_typename`. Everything in the catalogue stood on the WFS of DOV until
+    # the list of 2026-09-23 brought two maps that do not: the archeologienotas are served by
+    # `geo.onroerenderfgoed.be` and the waterlopen by `VHAWaterlopen`. The default is therefore
+    # what every existing entry already got. Asked at the wrong service a type name does not fail
+    # - GeoServer answers an empty FeatureCollection - so the sheet would report an absence where
+    # 193 records lie, which is the one kind of wrong a desktop study may not be.
+    wfs_url: str = DOV_WFS_URL
     fact_fields: Tuple[str, ...] = ()
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
@@ -455,6 +508,39 @@ def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png",
                     attribution="Digitaal Vlaanderen / geopunt", image_format=fmt, scale=scale)
 
 
+# The aerial photography of Flanders, year by year. Two series, because they are flown in two
+# seasons and a geotechnician wants the WINTER ones: bare fields show soil marks, old channels and
+# fill that a summer crop hides. The winter run is yearly; the summer run is not, so its years are
+# spelled out rather than ranged.
+# Both series live on one service each, with the year IN the layer name - which is what the list of
+# 2026-09-23 got wrong: it sent 2016 and 2018 to `oi/wms`, where only four generic coverages stand.
+# Verified against GetCapabilities of both services on 2026-10-04: OMW carries RGB for 12 .. 25,
+# OMZ for 09, 12, 15, 18, 21 and 24.
+ORTHO_WINTER_URL = "https://geo.api.vlaanderen.be/OMW/wms"
+ORTHO_SUMMER_URL = "https://geo.api.vlaanderen.be/OMZ/wms"
+ORTHO_WINTER_YEARS = tuple(range(2012, 2026))
+ORTHO_SUMMER_YEARS = (2009, 2012, 2015, 2018, 2021, 2024)
+# Which years the report prints unless the user says otherwise. Six of the twenty-one: a spread
+# over the decades is what shows change, while twenty-one sheets of the same back garden is what
+# v0.2.0 spent its whole round removing. The rest stay one checkbox away.
+ORTHO_DEFAULT_IDS = ("ortho_ogw_2013_15", "ortho_omw_2018", "ortho_omw_2025",
+                     "ortho_omz_2009", "ortho_omz_2015", "ortho_omz_2021")
+
+
+def _ortho_series(season: str, years: Iterable[int], url: str, layer_prefix: str) -> List[MapEntry]:
+    """One entry per year of an aerial photo series.
+
+    Built rather than written out twenty-one times: the only thing that differs is the year, and
+    the layer name derives from it by a rule the service itself follows. The two year tuples above
+    stay the readable part - that is the data - and `tests/core/test_catalogue_collegalijst.py`
+    checks the rule per year instead of repeating the table.
+    """
+    return [_hist(f"ortho_{layer_prefix.lower()[:3]}_{year}",
+                  f"Orthofoto {year} ({season})", url, f"{layer_prefix}{year % 100:02d}VL",
+                  "image/jpeg", scale=5000)
+            for year in years]
+
+
 CATALOGUE: List[MapEntry] = [
     # --- ligging en topografie ---
     MapEntry("grb", "ligging", "GRB-basiskaart", "https://geo.api.vlaanderen.be/GRB-basiskaart/wms", "GRB_BSK",
@@ -464,6 +550,22 @@ CATALOGUE: List[MapEntry] = [
              scale=2500),
     MapEntry("ngi_topo", "ligging", "Topografische kaart NGI (CartoWeb)", "https://cartoweb.wms.ngi.be/service", "topo",
              "Nationaal Geografisch Instituut - CartoWeb.be", licence="NGI open data", scale=10000),
+    # Drawn by one service and asked at another. `VHAWaterlopen/wms` answers GetCapabilities with
+    # no layers at all (1.1.1 and 1.3.0, live 2026-10-04), so the picture comes from the INSPIRE
+    # view service `hy/wms`; the WFS of VHAWaterlopen does work and carries the name and the
+    # category. Its geometry attribute is called SHAPE, which `dov_wfs.geometry_field` looks up.
+    # A radius, not an overlap: a watercourse is a LINE and a fifty-metre zone beside a river
+    # never touches it, which would print "geen waterlopen" next to the Leie.
+    MapEntry("waterlopen", "ligging", "Waterlopen (VHA)", "https://geo.api.vlaanderen.be/hy/wms",
+             "HY.Network", "Digitaal Vlaanderen / VMM - Vlaamse Hydrografische Atlas",
+             legend=True, opacity=0.8, backdrop=True, fact_mode="wfs",
+             wfs_url=VHA_WFS_URL, wfs_typename="VHAWaterlopen:Wlas", fact_within_m=250.0,
+             fact_fields=("NAAM", "LBLCATC", "BEHEER", "BEKNAAM"),
+             field_labels={"NAAM": "Waterloop", "LBLCATC": "Categorie", "BEHEER": "Beheerder",
+                           "BEKNAAM": "Bekken"},
+             reading_guide=GUIDE_WATERLOPEN, scale=10000,
+             empty_meaning="Binnen 250 m van de zone ligt geen waterloop uit de Vlaamse "
+                           "Hydrografische Atlas."),
     MapEntry("dhmv_hillshade", "ligging", "Digitaal Hoogtemodel Vlaanderen II - hillshade",
              "https://geo.api.vlaanderen.be/DHMV/wms", "DHMV_II_HILL_25cm", "Digitaal Vlaanderen - DHMV II",
              scale=5000),
@@ -485,6 +587,32 @@ CATALOGUE: List[MapEntry] = [
           "image/jpeg", scale=5000),
     _hist("ortho_2000_03", "Orthofoto 2000-2003", "https://geo.api.vlaanderen.be/OMW/wms", "OMWRGB00_03VL",
           "image/jpeg", scale=5000),
+    # The two yearly series. Winter first: that is the one a geotechnician reads, because bare
+    # fields show soil marks, old channels and fill that a summer crop hides. Only the years in
+    # `ORTHO_DEFAULT_IDS` reach the report unless the user ticks more (`settings.ortho_ids`).
+    _hist("ortho_ogw_2013_15", "Orthofoto 2013-2015 (winter, 10 cm)",
+          "https://geo.api.vlaanderen.be/OGW/wms", "OGWRGB13_15VL", "image/jpeg", scale=2500),
+    *_ortho_series("winter", ORTHO_WINTER_YEARS, ORTHO_WINTER_URL, "OMWRGB"),
+    *_ortho_series("zomer", ORTHO_SUMMER_YEARS, ORTHO_SUMMER_URL, "OMZRGB"),
+    # Not a map of the past itself but of what has been INVESTIGATED about it: an archeologienota
+    # beside the site means someone has already dug, and that report describes the same soil the
+    # study is about. Its own service and its own WFS (`vioe_intern:` is not public and stays out).
+    # A radius rather than an overlap, and the rows come back nearest first with their distance:
+    # a nota across the street is as telling as one inside the zone.
+    MapEntry("archeologienotas", "historisch", "Bekrachtigde archeologienota's en nota's",
+             MERCATOR_WMS_URL, "am:am_archnts",
+             "Agentschap Onroerend Erfgoed via Mercator (Digitaal Vlaanderen)",
+             licence=MERCATOR_LICENCE, legend=True, opacity=0.6,
+             backdrop=True, fact_mode="wfs", wfs_url=MERCATOR_WFS_URL,
+             wfs_typename="am:am_archnts", fact_within_m=250.0,
+             fact_fields=("naam", "type_naam", "datum_ind", "opgraving", "uri"),
+             value_labels={"opgraving": BOOLEAN_LABELS},
+             field_labels={"naam": "Nota", "type_naam": "Type", "datum_ind": "Ingediend",
+                           "opgraving": "Opgraving", "uri": "Fiche"},
+             reading_guide=GUIDE_ARCHEOLOGIE, scale=10000,
+             empty_meaning="Binnen 250 m van de zone is geen archeologienota ingediend. Dat zegt "
+                           "niets over de archeologische waarde van de grond, alleen dat er nog "
+                           "geen onderzoek is aangemeld."),
     # The `note` of a disabled entry is printed in the sources chapter, so it is text for the
     # READER: why the map is not in the study and where it can be found instead. Not a word for
     # whoever maintains the plugin - that belongs in the debt list in CLAUDE.md.
@@ -582,6 +710,43 @@ CATALOGUE: List[MapEntry] = [
              backdrop=True,
              empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
                            "fluviaal (klasse A: geen overstroming gemodelleerd)."),
+    # The channel systems behind the Scheldt dikes - breach channels, "wielen" - mapped from
+    # aerial photographs and from the records since and before 1570. A LOCAL set: 450, 55 and 6
+    # features around X 137-140 km, Y 217-222 km (live 2026-10-04), so outside that strip the
+    # three answer empty, and `empty_meaning` says that is a fact about the map and not a failure.
+    # Served by the `dijken` workspace; the global DOV WFS knows the type names, so no own wfs_url.
+    _dov("geulen_luchtfotos", "Geulenstelsel naar luchtfoto's", "dijken:geulenstelsel_naar_luchtfotos",
+         ("soort",), wfs="dijken:geulenstelsel_naar_luchtfotos", field_labels={"soort": "Soort"},
+         scale=10000, backdrop=True, guide=GUIDE_GEULEN,
+         empty_meaning=GEULEN_EMPTY),
+    _dov("geulen_sinds_1570", "Geulenstelsel sinds 1570", "dijken:geulenstelsel_sinds_1570",
+         ("periode",), wfs="dijken:geulenstelsel_sinds_1570", field_labels={"periode": "Periode"},
+         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY),
+    _dov("geulen_voor_1570", "Geulenstelsel voor 1570", "dijken:geulenstelsel_voor_1570",
+         ("periode",), wfs="dijken:geulenstelsel_voor_1570", field_labels={"periode": "Periode"},
+         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY),
+    # The third of the three flood maps. It stood in the design of 2026-09-15 and never got an
+    # entry; the service answers exactly as pluviaal and fluviaal do, `gridcode` and all (live
+    # 2026-10-04 at Oostende: gridcode 1). Only the coast carries it, hence its own empty text.
+    MapEntry("watertoets_zee", "geologie", "Watertoets - overstromingsgevoelige gebieden vanuit de zee",
+             WATERINFO_WMS_URL.format(kind="vanuit_de_zee"), "0",
+             "Vlaamse Milieumaatschappij - waterinfo.be", licence="VMM - geen beperkingen",
+             opacity=0.7, legend=True, fact_mode="gfi", fact_fields=("gridcode",),
+             value_labels={"gridcode": WATERTOETS_LABELS}, field_labels={"gridcode": "Klasse"},
+             reading_guide=GUIDE_WATERTOETS, scale=10000, backdrop=True,
+             empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
+                           "vanuit de zee. Alleen de kustvlakte en de Zeescheldevallei zijn "
+                           "hierop gemodelleerd."),
+    # The gauging stations of VMM and others. A MAP and no table: GetFeatureInfo on this ArcGIS
+    # layer answers nothing even when asked exactly on a station (live 2026-10-04 on
+    # Destelbergen/Ledebeek at X 108252, Y 194182, both finely and at 20 m per pixel), and the
+    # water LEVEL is not an attribute of the layer anyway - it is a time series behind another
+    # API. So the sheet shows which stations stand near the zone, and the reader follows them on
+    # waterinfo.be. Points, so no backdrop opacity games: it is drawn over the base map.
+    MapEntry("peilmeetstations", "geologie", "Peilmeetstations waterstand (waterinfo)",
+             "https://inspirepub.waterinfo.be/arcgis/services/meetpunten/MapServer/WMSServer", "3",
+             "Vlaamse Milieumaatschappij - waterinfo.be", licence="VMM - geen beperkingen",
+             legend=True, backdrop=True, reading_guide=GUIDE_MEETSTATIONS, scale=25000),
     _dov("erosie", "Potentiele bodemerosiekaart per perceel (2014)",
          "erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
          ("Erosieklasse_ALV", "Totale_erosie"), wfs="erosie:erosie_potentiele_bodemerosiekaart_per_perceel_2014",
