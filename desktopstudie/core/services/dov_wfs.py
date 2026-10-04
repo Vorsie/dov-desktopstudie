@@ -36,6 +36,21 @@ def feature_xy(feature: Feature) -> Tuple[float, float]:
     return float(coords[0]), float(coords[1])
 
 
+def _in_our_crs(wkt: str) -> str:
+    """The zone WKT, saying out loud which coordinate system its numbers are in.
+
+    `srsName` governs the CRS of the ANSWER. The coordinates inside a CQL filter are read in the
+    CRS of the LAYER, so a Lambert 72 polygon posed against a layer stored in Lambert 2008 lands
+    hundreds of kilometres away - and GeoServer reports that as an empty FeatureCollection, not as
+    an error. The archeologienotas (EPSG:3812) came back as "no records" with 193 of them within
+    reach; with the prefix, three within 250 m of the Gent zone (live 2026-10-04).
+
+    Every DOV layer is stored in Lambert 72, so the prefix changes nothing there - which is the
+    point: it is cheap insurance that the next foreign layer cannot fail silently.
+    """
+    return f"SRID={CRS.split(':')[-1]};{wkt}"
+
+
 class DovWfs:
     def __init__(self, client, page_size: int = 500, log: Optional[Log] = None,
                  url: str = DOV_WFS_URL):
@@ -121,7 +136,8 @@ class DovWfs:
     def within_distance(self, typename: str, zone_wkt: str, distance_m: float,
                         max_features: Optional[int] = None) -> List[Feature]:
         g = self.geometry_field(typename)
-        return self.get_features(typename, f"DWITHIN({g},{zone_wkt},{distance_m:g},meters)", max_features)
+        return self.get_features(
+            typename, f"DWITHIN({g},{_in_our_crs(zone_wkt)},{distance_m:g},meters)", max_features)
 
     def interpretation_urls(self, zone_wkt: str, distance_m: float,
                             max_features: Optional[int] = None) -> Dict[str, str]:
@@ -144,4 +160,4 @@ class DovWfs:
 
     def intersecting(self, typename: str, zone_wkt: str, max_features: Optional[int] = None) -> List[Feature]:
         g = self.geometry_field(typename)
-        return self.get_features(typename, f"INTERSECTS({g},{zone_wkt})", max_features)
+        return self.get_features(typename, f"INTERSECTS({g},{_in_our_crs(zone_wkt)})", max_features)
