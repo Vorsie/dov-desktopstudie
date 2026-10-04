@@ -82,7 +82,11 @@ class Settings:
     with_profile: bool = True
     max_features: int = 2000
     max_workers: int = 4
-    map_ids: Optional[List[str]] = None  # None = all enabled catalogue entries
+    map_ids: Optional[List[str]] = None  # None = `catalogue.default_map_ids()`
+    # Which plates of the grondmechanische kaart to print. The SHEET is not here: it follows from
+    # the zone (`_find_gmk_sheet`), because a user should not have to know that Gent and Antwerpen
+    # are cut into twenty-three sheets.
+    gmk_themes: Tuple[str, ...] = catalogue.GMK_DEFAULT_THEMES
     # Pack as many short tables and figures on one sheet as fit, instead of at most two. A layout
     # choice rather than a fetch, but it travels with the settings the dialog collects, so the
     # shell reads it in one place along with everything else the user chose. Off by default: the
@@ -139,7 +143,13 @@ class _Runner:
         # the geometry-field cache that belongs with that address.
         self._wfs_by_url = {self.wfs.url: self.wfs}
         self.xml_log = log.child("dov_xml")  # one logger for the three per-item XML parsers
-        self.result = StudyResult(zone=zone, created_at=_now(), map_ids=settings.map_ids)
+        # `None` means the default choice and not "everything": with twenty-one aerial-photo
+        # years in the catalogue, "everything" is twenty sheets nobody asked for. Written out, so
+        # a reader of studie.json sees exactly which maps this study covered.
+        self.result = StudyResult(
+            zone=zone, created_at=_now(),
+            map_ids=settings.map_ids if settings.map_ids is not None else catalogue.default_map_ids(),
+            gmk_themes=tuple(settings.gmk_themes))
         self.zone.radius_m = settings.radius_m
 
     # --- plumbing -----------------------------------------------------------------------
@@ -374,6 +384,14 @@ class _Runner:
                     rows.append(kept)
         return rows
 
+    def _wfs_for_url(self, url: str) -> DovWfs:
+        """The WFS client for one service, made once and kept."""
+        client = self._wfs_by_url.get(url)
+        if client is None:
+            client = DovWfs(self.client, log=self.log.child("dov_wfs"), url=url)
+            self._wfs_by_url[url] = client
+        return client
+
     def _wfs_for(self, entry: catalogue.MapEntry) -> DovWfs:
         """The WFS client for this map's service, made once and kept.
 
@@ -381,11 +399,7 @@ class _Runner:
         FeatureCollection, and the sheet then states an absence. So the address travels with the
         entry (`MapEntry.wfs_url`) and never comes from a constant here.
         """
-        client = self._wfs_by_url.get(entry.wfs_url)
-        if client is None:
-            client = DovWfs(self.client, log=self.log.child("dov_wfs"), url=entry.wfs_url)
-            self._wfs_by_url[entry.wfs_url] = client
-        return client
+        return self._wfs_for_url(entry.wfs_url)
 
     def _nearest_rows(self, entry: catalogue.MapEntry) -> List[dict]:
         """The features of a LINE map around the zone, nearest first, each with its distance.
@@ -438,7 +452,9 @@ class _Runner:
         of the catalogue, so the sources chapter does not shuffle itself between two runs of the
         same study. Hence the split: the threads only fetch, the main thread records.
         """
-        wanted = [e for e in catalogue.entries(only=self.result.map_ids) if e.fact_mode is not None]
+        wanted = [e for e in catalogue.entries(only=self.result.map_ids,
+                                              extra=self.result.built_maps)
+                  if e.fact_mode is not None]
         fetched: Dict[str, Any] = {}  # entry id -> rows, or the exception that explains their absence
 
         def fetch(entry: catalogue.MapEntry) -> None:
@@ -463,6 +479,37 @@ class _Runner:
 
             url = entry.wms_url if entry.fact_mode == "gfi" else entry.wfs_url
             self.guarded(f"{entry.title} (feiten)", url, record)
+
+    def _find_gmk_sheet(self) -> None:
+        """Which grondmechanische kaart sheet lies under the zone, if any.
+
+        The sheet of the REPRESENTATIVE point, following the convention the rest of the catalogue
+        already uses (`catalogue.REPRESENTATIVE_POINT`): a sheet covers ten square kilometres, so
+        a zone crossing a boundary is rare, and drawing the plates of two sheets would double
+        every sheet of this chapter for a strip of a few metres. A crossing is logged.
+
+        Zero zones is the ordinary answer - the map exists for Gent and Antwerpen and nowhere else
+        - so it costs a DEBUG line and no signalering: it is a fact about the source. A failure to
+        ASK is something else and goes through `guarded` like every other source.
+        """
+        def record() -> None:
+            feats = self._wfs_for_url(catalogue.DOV_WFS_URL).intersecting(
+                catalogue.GMK_ZONES_TYPENAME, self.zone.wkt, self.s.max_features)
+            if not feats:
+                self.log.debug("geen grondmechanische kaart voor deze zone")
+                return
+            sheets = [(f["properties"].get(catalogue.GMK_SHEET_FIELD),
+                       f["properties"].get(catalogue.GMK_NAME_FIELD)) for f in feats]
+            self.result.gmk_sheet = str(sheets[0][0] or "")
+            self.result.gmk_sheet_name = str(sheets[0][1] or "")
+            if len(sheets) > 1:
+                others = ", ".join(str(number) for number, _name in sheets[1:])
+                self.log.info(f"de zone raakt ook kaartblad {others}; het rapport toont "
+                               f"{self.result.gmk_sheet}")
+            self.log.debug(f"grondmechanische kaart: blad {self.result.gmk_sheet} "
+                            f"{self.result.gmk_sheet_name}")
+
+        self.guarded("Grondmechanische kaart (kaartblad)", catalogue.DOV_WFS_URL, record)
 
     def _truncation_signals(self) -> List[Signalering]:
         """WFS results cut off by max_features are reported, never silently dropped."""
@@ -529,6 +576,9 @@ class _Runner:
         self.guarded("Doorsnede (virtuele boringen langs de lijn)",
                      catalogue.VB_DOORPRIK_URL.format(model=self.s.model_section), self.section)
         self._step(0.7, "Kaartfeiten")
+        # Before the facts: the plates of the sheet are maps of this study like any other, and
+        # `map_facts` walks the list that includes them.
+        self._find_gmk_sheet()
         self.map_facts()
         # Figures before the checks: a figures stage that fell over is a failed source like any
         # other, and check_sources can only report it once it is in the provenance.
