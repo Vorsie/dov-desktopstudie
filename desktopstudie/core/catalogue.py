@@ -417,6 +417,14 @@ class MapEntry:
     # sheets to 62. A map that is silently off is a hole in the report, so this stays the exception
     # and `tests/core/test_catalogue_collegalijst.py` pins exactly which ids carry it.
     on_by_default: bool = True
+    # One of the plates of a grondmechanische kaart sheet: in the catalogue like every other map,
+    # but NOT in the dialog checklist. Robin: "de opdeling van de kaartbladen moet de user zich
+    # niet mee bezighouden he, dat is op basis van bevraagde zone in qgis" - so the study picks
+    # them once it knows the sheet, and the dialog offers the five THEMES instead of 115 plates.
+    # They stand in the catalogue rather than being built per run because the whole shell looks a
+    # map up by id (`catalogue.by_id`): the layout, the prefetcher and the backdrop code all do,
+    # and a map that lived only inside one result would be one half of the code cannot find.
+    per_sheet: bool = False
     # Paint this map OVER the base map instead of on white paper. True where the reader will SEE
     # that base map. Two ways that happens. A theme that covers a few percent of the sheet at most
     # - the landslides, the flood classes, PFAS - because on its own such a sheet is a white
@@ -1016,6 +1024,39 @@ GMK_SHEETS: Dict[str, Tuple[str, Dict[str, str]]] = {
 }
 
 
+def gmk_id(sheet: str, theme: str) -> str:
+    """The entry id of one plate: `gmk_22_1_6_zonering`.
+
+    Spelled once, because the series builder and the sheet lookup both have to produce the same
+    string or a looked-up sheet would select nothing.
+    """
+    return "gmk_" + sheet.replace(".", "_") + "_" + theme
+
+
+def _gmk_series() -> List[MapEntry]:
+    """Every plate of every sheet - 115 of them - as ordinary catalogue entries.
+
+    Off by default and out of the dialog (`per_sheet`): a study gets the plates of the one sheet
+    under its zone, selected by `gmk_entries` once that sheet has been looked up.
+    """
+    out = []
+    for sheet, (name, plates) in GMK_SHEETS.items():
+        for theme, label in GMK_THEMES:
+            layer = plates.get(theme)
+            if layer is None:
+                continue  # 22.1.2 Gent-Wondelgem heeft geen Kwartairbasis; die plaat bestaat niet
+            out.append(MapEntry(
+                id=gmk_id(sheet, theme), chapter="geologie",
+                title="Grondmechanische kaart " + sheet + " " + name + " - " + label,
+                wms_url=GMK_WMS_URL, wms_layer=layer,
+                attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE,
+                # A scan of the original plate carries its own legend and title block, so a
+                # GetLegendGraphic beside it would be a second legend for one map.
+                legend=False, reading_guide=GUIDE_GMK, scale=5000,
+                on_by_default=False, per_sheet=True))
+    return out
+
+
 def gmk_entries(sheet: str, themes: Iterable[str]) -> List[MapEntry]:
     """The plates of ONE grondmechanische kaart sheet, as ordinary map entries.
 
@@ -1034,22 +1075,13 @@ def gmk_entries(sheet: str, themes: Iterable[str]) -> List[MapEntry]:
     known = GMK_SHEETS.get(sheet)
     if known is None:
         return []
-    name, plates = known
+    _name, plates = known
     wanted = set(themes)
-    out = []
-    for key, label in GMK_THEMES:
-        layer = plates.get(key)
-        if key not in wanted or layer is None:
-            continue
-        out.append(MapEntry(
-            id=f"gmk_{key}", chapter="geologie",
-            title=f"Grondmechanische kaart {sheet} {name} - {label}",
-            wms_url=GMK_WMS_URL, wms_layer=layer,
-            attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE,
-            # A scan of the original plate: it carries its own legend, its own title block and its
-            # own key, so a GetLegendGraphic beside it would be a second legend for one map.
-            legend=False, reading_guide=GUIDE_GMK, scale=5000))
-    return out
+    return [by_id(gmk_id(sheet, key)) for key, _label in GMK_THEMES
+            if key in wanted and key in plates]
+
+
+CATALOGUE.extend(_gmk_series())
 
 
 def default_map_ids() -> List[str]:
@@ -1063,8 +1095,7 @@ def default_map_ids() -> List[str]:
 
 
 def entries(chapter: Optional[str] = None, enabled_only: bool = True,
-            only: Optional[Iterable[str]] = None,
-            extra: Optional[Iterable[MapEntry]] = None) -> List[MapEntry]:
+            only: Optional[Iterable[str]] = None) -> List[MapEntry]:
     """The catalogue, narrowed down. `only` is the study's map choice (`StudyResult.map_ids`):
     None means every entry that passes the other two filters, a list means exactly those ids.
 
@@ -1073,14 +1104,9 @@ def entries(chapter: Optional[str] = None, enabled_only: bool = True,
     a layer, not a request and not a sheet that says "Bron niet beschikbaar".
     """
     wanted = None if only is None else set(only)
-    found = [e for e in CATALOGUE
-             if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)
-             and (wanted is None or e.id in wanted)]
-    # `extra` are maps BUILT for this one zone - the plates of the grondmechanische kaart, whose
-    # layer name is only known once the sheet under the zone has been looked up. They are never
-    # filtered by `only`: that list is the user's checkboxes, and these did not exist when the
-    # dialog was filled.
-    return found + [e for e in (extra or []) if chapter is None or e.chapter == chapter]
+    return [e for e in CATALOGUE
+            if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)
+            and (wanted is None or e.id in wanted)]
 
 
 def by_id(map_id: str) -> MapEntry:
