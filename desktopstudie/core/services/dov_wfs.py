@@ -37,9 +37,20 @@ def feature_xy(feature: Feature) -> Tuple[float, float]:
 
 
 class DovWfs:
-    def __init__(self, client, page_size: int = 500, log: Optional[Log] = None):
+    def __init__(self, client, page_size: int = 500, log: Optional[Log] = None,
+                 url: str = DOV_WFS_URL):
+        """`url` is the service to ask; it defaults to the WFS of DOV.
+
+        Every map in the catalogue lived on that one service until the list of 2026-09-23 brought
+        two that do not: the archeologienotas stand on `geo.onroerenderfgoed.be` and the waterlopen
+        on `VHAWaterlopen`. Asked at the wrong service a feature type does not fail - GeoServer
+        answers an empty FeatureCollection - so the report would state an absence where there are
+        193 records. One client per service, which also keeps the geometry-field cache with the
+        service that answered it: the same type name on two services need not name its geometry
+        the same, and `VHAWaterlopen:Wlas` calls it SHAPE where DOV calls it geom.
+        """
         self.client = client
-        self.url = DOV_WFS_URL
+        self.url = url
         self.page_size = page_size
         self.log = log
         self._geom_cache: Dict[str, str] = {}
