@@ -18,8 +18,7 @@ from desktopstudie.core.services.dov_wfs import DOV_WFS_URL
 
 OMW_WMS = "https://geo.api.vlaanderen.be/OMW/wms"
 OMZ_WMS = "https://geo.api.vlaanderen.be/OMZ/wms"
-ERFGOED_WMS = "https://geo.onroerenderfgoed.be/geoserver/wms"
-ERFGOED_WFS = "https://geo.onroerenderfgoed.be/geoserver/wfs"
+MERCATOR = "https://www.mercator.vlaanderen.be/raadpleegdienstenmercatorpubliek"
 VHA_WFS = "https://geo.api.vlaanderen.be/VHAWaterlopen/wfs"
 # De zomerreeks is niet jaarlijks: de dienst heeft 09, 12, 15, 18, 21 en 24 en niets daartussen.
 ZOMERJAREN = (2009, 2012, 2015, 2018, 2021, 2024)
@@ -60,23 +59,30 @@ def test_de_jaarlagen_staan_niet_op_de_inspire_dienst():
         assert "/oi/wms" not in entry.wms_url, entry.id
 
 
-def test_de_archeologienotas_worden_op_de_wfs_van_onroerend_erfgoed_gevraagd():
-    """Eigen dienst, eigen WFS. Op het adres van DOV gevraagd antwoordt GeoServer leeg."""
+def test_de_archeologienotas_komen_van_mercator_en_niet_van_de_interne_dienst():
+    """De GeoServer van onroerenderfgoed.be past perfect en mag toch niet: die zegt in zijn eigen
+    GetCapabilities "Deze service is enkel bedoeld voor intern gebruik" en verwijst naar Mercator
+    (gelezen 2026-10-04). Een publieke plugin mag geen interne dienst meeleveren, wat die ook
+    bedient. Mercator publiek staat onder de Gratis Open Data Licentie Vlaanderen v1.2 en draagt
+    dezelfde records, met dezelfde veldnamen."""
     entry = c.by_id("archeologienotas")
 
-    assert entry.wms_url == ERFGOED_WMS
-    assert entry.wms_layer == "vioe_geoportaal:archeologienotas"
-    assert entry.wfs_url == ERFGOED_WFS
-    assert entry.wfs_typename == "vioe_geoportaal:archeologienotas"
+    assert entry.wms_url == MERCATOR + "/wms"
+    assert entry.wms_layer == "am:am_archnts"
+    assert entry.wfs_url == MERCATOR + "/wfs"
+    assert entry.wfs_typename == "am:am_archnts"
     assert entry.fact_mode == "wfs"
+    assert "onroerenderfgoed.be" not in entry.wms_url + entry.wfs_url
     for veld in ("naam", "type_naam", "datum_ind", "uri"):
         assert veld in entry.fact_fields, veld
 
 
-def test_de_interne_lagen_van_onroerend_erfgoed_blijven_buiten_de_catalogus():
-    """`vioe_intern:` is niet publiek; een studie mag er niet van afhangen."""
+def test_geen_enkele_kaart_hangt_aan_een_dienst_voor_intern_gebruik():
+    """`geo.onroerenderfgoed.be` verklaart zichzelf intern, en `vioe_intern:` is niet publiek."""
     for entry in c.entries():
         assert "vioe_intern" not in entry.wms_layer, entry.id
+        assert "geo.onroerenderfgoed.be" not in entry.wms_url, entry.id
+        assert "geo.onroerenderfgoed.be" not in entry.wfs_url, entry.id
 
 
 @pytest.mark.parametrize("map_id,laag", [
@@ -107,15 +113,20 @@ def test_de_waterlopen_worden_getekend_door_de_ene_dienst_en_bevraagd_bij_de_and
         assert veld in entry.fact_fields, veld
 
 
-def test_de_peilmeetstations_vragen_de_laag_met_de_waterstanden():
+def test_de_peilmeetstations_zijn_een_kaart_en_geen_tabel():
     """De dienst heeft zes genummerde lagen; 3 is "meetpunten waterstand alle", 1 en 4 zijn
     debieten en 2 en 5 pluviografen. Een nummer naast de bedoeling levert een kaart van iets
-    anders zonder dat er iets faalt."""
+    anders zonder dat er iets faalt.
+
+    Geen feitentabel, want er is niets op te halen: GetFeatureInfo op deze ArcGIS-laag antwoordt
+    niets, ook niet pal op een station (live 2026-10-04 op Destelbergen/Ledebeek, X 108252
+    Y 194182, fijn en op 20 m per pixel). Het peil zelf is trouwens geen veld van de laag maar een
+    tijdreeks achter een andere API. Het blad toont dus welke stations bij de zone staan."""
     entry = c.by_id("peilmeetstations")
 
     assert entry.wms_layer == "3"
     assert "meetpunten" in entry.wms_url
-    assert entry.fact_mode == "gfi"
+    assert entry.fact_mode is None
 
 
 def test_de_watertoets_kent_ook_de_overstroming_vanuit_de_zee():
