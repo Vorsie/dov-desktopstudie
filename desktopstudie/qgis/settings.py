@@ -13,6 +13,7 @@ from typing import Any, Callable, Optional
 
 from qgis.core import QgsSettings
 
+from ..core import catalogue
 from ..core.services.http import CACHE_MODES
 
 PREFIX = "desktopstudie"
@@ -58,6 +59,26 @@ def _mode(value: Any, default: str) -> str:
     return value if value in CACHE_MODES else default
 
 
+def _themes(value: Any, default: Any) -> tuple:
+    """The ticked plates of the grondmechanische kaart, stored as one comma-separated line.
+
+    Three states have to stay apart. Never saved - the store hands back None - is the default
+    choice. Saved empty is the empty choice: ticking everything off means no plate in the report,
+    and falling back to the default there would overrule the user.
+
+    A key that is no longer a theme is dropped. A saved preference outlives the plugin that wrote
+    it, and a renamed theme would otherwise ask for a map that does not exist.
+    """
+    if value is None:
+        return tuple(default)
+    known = {key for key, _label in catalogue.GMK_THEMES}
+    if isinstance(value, (list, tuple)):
+        parts = [str(part) for part in value]
+    else:
+        parts = str(value).split(",")
+    return tuple(part.strip() for part in parts if part.strip() in known)
+
+
 class _Field:
     """One setting: its key under the prefix, its default and how to read what the store holds."""
 
@@ -71,6 +92,10 @@ class _Field:
         return self.read(settings.store.value(f"{PREFIX}/{self.key}", None), default)
 
     def __set__(self, settings: PluginSettings, value: Any) -> None:
+        if isinstance(value, (list, tuple)):
+            # One readable line in the ini file instead of a QVariantList, and "" stays "" - which
+            # is how `_themes` tells "ticked everything off" from "never saved".
+            value = ",".join(str(part) for part in value)
         settings.store.setValue(f"{PREFIX}/{self.key}", value)
 
 
@@ -85,6 +110,7 @@ class PluginSettings:
     cache_mode = _Field("cache", DEFAULT_CACHE_MODE, _mode)
     legends = _Field("legendas", DEFAULT_LEGENDS, _flag)
     compact = _Field("compact", DEFAULT_COMPACT, _flag)
+    gmk_themes = _Field("gmk_platen", lambda: catalogue.GMK_DEFAULT_THEMES, _themes)
 
     def __init__(self, store: Optional[Any] = None):
         self.store = store if store is not None else QgsSettings()
