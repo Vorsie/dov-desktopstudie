@@ -286,6 +286,15 @@ GUIDE_MEETSTATIONS = (
     "periode van het grondonderzoek na te gaan.")
 GEULEN_EMPTY = ("De zone ligt buiten het gekarteerde gebied van deze kaart; die bestaat alleen "
                 "voor de Scheldevallei.")
+GUIDE_GMK = (
+    "De grondmechanische kaart is tussen 1964 en 1981 opgemaakt voor Gent en Antwerpen, op basis "
+    "van duizenden boringen en sonderingen, en bestaat per kaartblad uit een reeks platen. "
+    "Het blad hieronder is de scan van de originele plaat, met de legende en het titelblok van de "
+    "kaart zelf erop. "
+    "De dokumentatieplaat geeft de proeven waarop het blad rust; de andere platen geven de dikte "
+    "of de diepteligging van een laagkomplex, in meter. "
+    "De kaart is ouder dan de bebouwing van de laatste decennia: de dikte van de aangevulde en "
+    "vergraven gronden is een ondergrens, geen actuele waarde.")
 GUIDE_EROSIE = (
     "De kaart geeft per landbouwperceel hoeveel bodem er in theorie kan wegspoelen of wegschuiven. "
     "Totale erosie is het eindoordeel voluit, van verwaarloosbaar tot zeer hoog. "
@@ -401,6 +410,13 @@ class MapEntry:
     value_labels: Dict[str, Dict[str, str]] = field(default_factory=dict, compare=False, hash=False)
     field_labels: Dict[str, str] = field(default_factory=dict, compare=False, hash=False)  # fact_field -> header
     enabled: bool = True
+    # Whether the dialog ticks this map when it opens. False is not the same as `enabled=False`:
+    # the map works, it is simply not in the report unless asked for. Introduced for the twenty-one
+    # aerial-photo years, which Robin asked for "optioneel, met aanvinken" - all of them ticked
+    # would thicken every report by twenty sheets, and v0.2.0 spent its whole round going from 115
+    # sheets to 62. A map that is silently off is a hole in the report, so this stays the exception
+    # and `tests/core/test_catalogue_collegalijst.py` pins exactly which ids carry it.
+    on_by_default: bool = True
     # Paint this map OVER the base map instead of on white paper. True where the reader will SEE
     # that base map. Two ways that happens. A theme that covers a few percent of the sheet at most
     # - the landslides, the flood classes, PFAS - because on its own such a sheet is a white
@@ -503,9 +519,11 @@ def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
                     reading_guide=GUIDE_GXG, scale=25000)
 
 
-def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int) -> MapEntry:
+def _hist(map_id: str, title: str, url: str, layer: str, fmt: str = "image/png", *, scale: int,
+          on_by_default: bool = True) -> MapEntry:
     return MapEntry(id=map_id, chapter="historisch", title=title, wms_url=url, wms_layer=layer,
-                    attribution="Digitaal Vlaanderen / geopunt", image_format=fmt, scale=scale)
+                    attribution="Digitaal Vlaanderen / geopunt", image_format=fmt, scale=scale,
+                    on_by_default=on_by_default)
 
 
 # The aerial photography of Flanders, year by year. Two series, because they are flown in two
@@ -527,6 +545,12 @@ ORTHO_DEFAULT_IDS = ("ortho_ogw_2013_15", "ortho_omw_2018", "ortho_omw_2025",
                      "ortho_omz_2009", "ortho_omz_2015", "ortho_omz_2021")
 
 
+def _ortho_id(layer_prefix: str, year: int) -> str:
+    """The entry id of one year of a series. Spelled once: `ORTHO_DEFAULT_IDS` names six of them
+    and the series builder has to produce the same strings, or a default would quietly miss."""
+    return f"ortho_{layer_prefix.lower()[:3]}_{year}"
+
+
 def _ortho_series(season: str, years: Iterable[int], url: str, layer_prefix: str) -> List[MapEntry]:
     """One entry per year of an aerial photo series.
 
@@ -535,10 +559,15 @@ def _ortho_series(season: str, years: Iterable[int], url: str, layer_prefix: str
     stay the readable part - that is the data - and `tests/core/test_catalogue_collegalijst.py`
     checks the rule per year instead of repeating the table.
     """
-    return [_hist(f"ortho_{layer_prefix.lower()[:3]}_{year}",
+    return [_hist(_ortho_id(layer_prefix, year),
                   f"Orthofoto {year} ({season})", url, f"{layer_prefix}{year % 100:02d}VL",
-                  "image/jpeg", scale=5000)
+                  "image/jpeg", scale=5000,
+                  on_by_default=_ortho_id(layer_prefix, year) in ORTHO_DEFAULT_IDS)
             for year in years]
+
+
+ORTHO_WINTER_IDS = tuple(_ortho_id("OMWRGB", year) for year in ORTHO_WINTER_YEARS)
+ORTHO_SUMMER_IDS = tuple(_ortho_id("OMZRGB", year) for year in ORTHO_SUMMER_YEARS)
 
 
 CATALOGUE: List[MapEntry] = [
@@ -796,8 +825,246 @@ CATALOGUE: List[MapEntry] = [
 ]
 
 
+# --- de grondmechanische kaart ----------------------------------------------------------------
+# Drieentwintig kaartbladen met elk acht tot elf platen, alleen voor Gent en Antwerpen. De zone
+# bepaalt welk blad: `GMK_ZONES_TYPENAME` geeft bij een punt het bladnummer en de bladnaam (live
+# 2026-10-04: Gent-centrum -> 22.1.6 Gent-Sint-Pieters, Antwerpen -> 15.3.6 Antwerpen-Centrum,
+# Brugge -> nul zones). De gebruiker kiest dus geen blad, alleen thema's.
+GMK_WMS_URL = DOV_WORKSPACE_WMS_URL.format(workspace="gmk")
+GMK_ZONES_TYPENAME = "gmk:gekarteerde_zones_grondmechanischekaart"
+GMK_SHEET_FIELD = "kb_nummer"
+GMK_NAME_FIELD = "kb_naam"
+# Op THEMA en niet op plaatnummer, want dat nummer betekent per blad iets anders: Plaat X is op
+# 14.5.8 Gent-Evergem de Basis van het Kwartair, op 14.6.5 Gent-Desteldonk is dat Plaat VIII, en op
+# 22.1.4 Gent-Centrum heet ze "Basis van de kwartaire sekwentie". De labels zijn leestekst: ze
+# staan in de dialoog en op het blad.
+GMK_THEMES = (
+    ("documentatie", "Dokumentatie (boringen en sonderingen)"),
+    ("aanvulling", "Dikte van de aangevulde en vergraven gronden"),
+    ("zonering", "Zonering"),
+    ("hydrogeologie", "Hydrogeologische gegevens"),
+    ("kwartairbasis", "Basis van het Kwartair"),
+)
+# Drie van de vijf. De dokumentatieplaat zegt waarop het blad rust, de aanvullingsplaat is de
+# vraag waarmee elk grondonderzoek begint, en de zonering vat het blad samen.
+GMK_DEFAULT_THEMES = ("documentatie", "aanvulling", "zonering")
+# Blad -> (naam, thema -> laagnaam). Eenmalig geoogst uit GetCapabilities van de `gmk`-workspace op
+# 2026-10-04, zoals de woordenlijst van `lithology`: 250 rasterplaten en 396 vectorlagen zijn te
+# veel om per run op te vragen, en de namen veranderen niet.
+# De scan van de originele plaat (`_r`) waar die bestaat, de vectorlaag als terugval - 22.1.4 en
+# 22.1.6 hebben hun Kwartairbasis alleen als vector. 22.1.2 Gent-Wondelgem heeft er geen; dat
+# thema levert daar geen blad.
+GMK_SHEETS: Dict[str, Tuple[str, Dict[str, str]]] = {
+    "14.5.8": ("Gent-Evergem", {
+        "documentatie": "kb_14_5_8_p1_r",
+        "aanvulling": "kb_14_5_8_p2_r",
+        "zonering": "kb_14_5_8_p9_r",
+        "hydrogeologie": "kb_14_5_8_p8_r",
+        "kwartairbasis": "kb_14_5_8_p10_r",
+    }),
+    "14.6.5": ("Gent-Desteldonk", {
+        "documentatie": "kb_14_6_5_p1_r",
+        "aanvulling": "kb_14_6_5_p2_r",
+        "zonering": "kb_14_6_5_p9_r",
+        "hydrogeologie": "kb_14_6_5_p7_r",
+        "kwartairbasis": "kb_14_6_5_p8_r",
+    }),
+    "14.6.7": ("Gent-Oostakker", {
+        "documentatie": "kb_14_6_7_p1_r",
+        "aanvulling": "kb_14_6_7_p2_r",
+        "zonering": "kb_14_6_7_p10_r",
+        "hydrogeologie": "kb_14_6_7_p9_r",
+        "kwartairbasis": "kb_14_6_7_p8_r",
+    }),
+    "15.3.1": ("Antwerpen-Petroleumhaven", {
+        "documentatie": "kb_15_3_1_p1_r",
+        "aanvulling": "kb_15_3_1_p2_r",
+        "zonering": "kb_15_3_1_p9_r",
+        "hydrogeologie": "kb_15_3_1_p8_r",
+        "kwartairbasis": "kb_15_3_1_p10_r",
+    }),
+    "15.3.2": ("Antwerpen-Luchtbal", {
+        "documentatie": "kb_15_3_2_p1_r",
+        "aanvulling": "kb_15_3_2_p2_r",
+        "zonering": "kb_15_3_2_p9_r",
+        "hydrogeologie": "kb_15_3_2_p8_r",
+        "kwartairbasis": "kb_15_3_2_p10_r",
+    }),
+    "15.3.3": ("Zwijndrecht-Noord", {
+        "documentatie": "kb_15_3_3_p1_r",
+        "aanvulling": "kb_15_3_3_p2_r",
+        "zonering": "kb_15_3_3_p9_r",
+        "hydrogeologie": "kb_15_3_3_p8_r",
+        "kwartairbasis": "kb_15_3_3_p10_r",
+    }),
+    "15.3.4": ("Antwerpen-Noordkasteel", {
+        "documentatie": "kb_15_3_4_p1_r",
+        "aanvulling": "kb_15_3_4_p2_r",
+        "zonering": "kb_15_3_4_p10_r",
+        "hydrogeologie": "kb_15_3_4_p9_r",
+        "kwartairbasis": "kb_15_3_4_p11_r",
+    }),
+    "15.3.5": ("Zwijndrecht-Zuid", {
+        "documentatie": "kb_15_3_5_p1_r",
+        "aanvulling": "kb_15_3_5_p2_r",
+        "zonering": "kb_15_3_5_p8_r",
+        "hydrogeologie": "kb_15_3_5_p7_r",
+        "kwartairbasis": "kb_15_3_5_p9_r",
+    }),
+    "15.3.6": ("Antwerpen-Centrum", {
+        "documentatie": "kb_15_3_6_p1_r",
+        "aanvulling": "kb_15_3_6_p2_r",
+        "zonering": "kb_15_3_6_p10_r",
+        "hydrogeologie": "kb_15_3_6_p9_r",
+        "kwartairbasis": "kb_15_3_6_p11_r",
+    }),
+    "15.3.7": ("Zwijndrecht-Burcht", {
+        "documentatie": "kb_15_3_7_p1_r",
+        "aanvulling": "kb_15_3_7_p2_r",
+        "zonering": "kb_15_3_7_p8_r",
+        "hydrogeologie": "kb_15_3_7_p7_r",
+        "kwartairbasis": "kb_15_3_7_p9_r",
+    }),
+    "15.3.8": ("Hoboken", {
+        "documentatie": "kb_15_3_8_p1_r",
+        "aanvulling": "kb_15_3_8_p2_r",
+        "zonering": "kb_15_3_8_p8_r",
+        "hydrogeologie": "kb_15_3_8_p7_r",
+        "kwartairbasis": "kb_15_3_8_p9_r",
+    }),
+    "15.4.1": ("Antwerpen-Merksem-Noord", {
+        "documentatie": "kb_15_4_1_p1_r",
+        "aanvulling": "kb_15_4_1_p2_r",
+        "zonering": "kb_15_4_1_p9_r",
+        "hydrogeologie": "kb_15_4_1_p8_r",
+        "kwartairbasis": "kb_15_4_1_p10_r",
+    }),
+    "15.4.3": ("Antwerpen-Merksem-Zuid", {
+        "documentatie": "kb_15_4_3_p1_r",
+        "aanvulling": "kb_15_4_3_p2_r",
+        "zonering": "kb_15_4_3_p10_r",
+        "hydrogeologie": "kb_15_4_3_p9_r",
+        "kwartairbasis": "kb_15_4_3_p11_r",
+    }),
+    "15.4.5": ("Antwerpen-Deurne-Noord", {
+        "documentatie": "kb_15_4_5_p1_r",
+        "aanvulling": "kb_15_4_5_p2_r",
+        "zonering": "kb_15_4_5_p10_r",
+        "hydrogeologie": "kb_15_4_5_p9_r",
+        "kwartairbasis": "kb_15_4_5_p11_r",
+    }),
+    "15.4.7": ("Antwerpen-Deurne-Zuid", {
+        "documentatie": "kb_15_4_7_p1_r",
+        "aanvulling": "kb_15_4_7_p2_r",
+        "zonering": "kb_15_4_7_p8_r",
+        "hydrogeologie": "kb_15_4_7_p7_r",
+        "kwartairbasis": "kb_15_4_7_p9_r",
+    }),
+    "22.1.2": ("Gent-Wondelgem", {
+        "documentatie": "kb_22_1_2_p1_r",
+        "aanvulling": "kb_22_1_2_p2_r",
+        "zonering": "kb_22_1_2_p8_r",
+        "hydrogeologie": "kb_22_1_2_p7_r",
+    }),
+    "22.1.4": ("Gent-Centrum", {
+        "documentatie": "kb_22_1_4_p1_r",
+        "aanvulling": "kb_22_1_4_p2_r",
+        "zonering": "kb_22_1_4_p9_r",
+        "hydrogeologie": "kb_22_1_4_p8_r",
+    }),
+    "22.1.6": ("Gent-Sint-Pieters", {
+        "documentatie": "kb_22_1_6_p1_r",
+        "aanvulling": "kb_22_1_6_p2_r",
+        "zonering": "kb_22_1_6_p9_r",
+        "hydrogeologie": "kb_22_1_6_p8_r",
+    }),
+    "22.1.8": ("Gent-Zwijnaarde", {
+        "documentatie": "kb_22_1_8_p1_r",
+        "aanvulling": "kb_22_1_8_p2_r",
+        "zonering": "kb_22_1_8_p10_r",
+        "hydrogeologie": "kb_22_1_8_p9_r",
+        "kwartairbasis": "kb_22_1_8_p11_r",
+    }),
+    "22.2.1": ("Oostakker-Slotendries", {
+        "documentatie": "kb_22_2_1_p1_r",
+        "aanvulling": "kb_22_2_1_p2_r",
+        "zonering": "kb_22_2_1_p10_r",
+        "hydrogeologie": "kb_22_2_1_p9_r",
+        "kwartairbasis": "kb_22_2_1_p8_r",
+    }),
+    "22.2.3": ("Gent-Sint-Amandsberg", {
+        "documentatie": "kb_22_2_3_p1_r",
+        "aanvulling": "kb_22_2_3_p2_r",
+        "zonering": "kb_22_2_3_p8_r",
+        "hydrogeologie": "kb_22_2_3_p7_r",
+        "kwartairbasis": "kb_22_2_3_p9_r",
+    }),
+    "22.2.5": ("Gent-Gentbrugge", {
+        "documentatie": "kb_22_2_5_p1_r",
+        "aanvulling": "kb_22_2_5_p2_r",
+        "zonering": "kb_22_2_5_p9_r",
+        "hydrogeologie": "kb_22_2_5_p8_r",
+        "kwartairbasis": "kb_22_2_5_p10_r",
+    }),
+    "22.2.7": ("Merelbeke-Melle", {
+        "documentatie": "kb_22_2_7_p1_r",
+        "aanvulling": "kb_22_2_7_p2_r",
+        "zonering": "kb_22_2_7_p10_r",
+        "hydrogeologie": "kb_22_2_7_p9_r",
+        "kwartairbasis": "kb_22_2_7_p11_r",
+    }),
+}
+
+
+def gmk_entries(sheet: str, themes: Iterable[str]) -> List[MapEntry]:
+    """The plates of ONE grondmechanische kaart sheet, as ordinary map entries.
+
+    A `MapEntry` cannot carry a layer name that is only known after the zone has been looked up,
+    so these are built instead of standing in the catalogue. They are ordinary entries all the
+    same, which is the point: the pipeline, the sources chapter and the layout notice nothing.
+
+    `themes` comes from the user's checkboxes, so it arrives in whatever order they were ticked;
+    the result follows `GMK_THEMES` instead, so two runs of the same study print the same sheets
+    in the same order. A theme this sheet does not carry yields no entry - 22.1.2 has no plate for
+    the base of the Quaternary, and an empty sheet saying so is worse than no sheet.
+
+    An unknown or empty `sheet` yields nothing at all: outside Gent and Antwerpen there is no
+    grondmechanische kaart, which is a fact about the map and not a failure.
+    """
+    known = GMK_SHEETS.get(sheet)
+    if known is None:
+        return []
+    name, plates = known
+    wanted = set(themes)
+    out = []
+    for key, label in GMK_THEMES:
+        layer = plates.get(key)
+        if key not in wanted or layer is None:
+            continue
+        out.append(MapEntry(
+            id=f"gmk_{key}", chapter="geologie",
+            title=f"Grondmechanische kaart {sheet} {name} - {label}",
+            wms_url=GMK_WMS_URL, wms_layer=layer,
+            attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE,
+            # A scan of the original plate: it carries its own legend, its own title block and its
+            # own key, so a GetLegendGraphic beside it would be a second legend for one map.
+            legend=False, reading_guide=GUIDE_GMK, scale=5000))
+    return out
+
+
+def default_map_ids() -> List[str]:
+    """The maps a study runs unless the user says otherwise - what the dialog ticks when it opens.
+
+    Not simply "every enabled entry" any more: the twenty-one aerial-photo years are enabled but
+    off by default. One function, because the dialog has to tick exactly what `Settings.map_ids =
+    None` would run, and two spellings of that idea drift apart.
+    """
+    return [e.id for e in entries() if e.on_by_default]
+
+
 def entries(chapter: Optional[str] = None, enabled_only: bool = True,
-            only: Optional[Iterable[str]] = None) -> List[MapEntry]:
+            only: Optional[Iterable[str]] = None,
+            extra: Optional[Iterable[MapEntry]] = None) -> List[MapEntry]:
     """The catalogue, narrowed down. `only` is the study's map choice (`StudyResult.map_ids`):
     None means every entry that passes the other two filters, a list means exactly those ids.
 
@@ -806,9 +1073,14 @@ def entries(chapter: Optional[str] = None, enabled_only: bool = True,
     a layer, not a request and not a sheet that says "Bron niet beschikbaar".
     """
     wanted = None if only is None else set(only)
-    return [e for e in CATALOGUE
-            if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)
-            and (wanted is None or e.id in wanted)]
+    found = [e for e in CATALOGUE
+             if (chapter is None or e.chapter == chapter) and (e.enabled or not enabled_only)
+             and (wanted is None or e.id in wanted)]
+    # `extra` are maps BUILT for this one zone - the plates of the grondmechanische kaart, whose
+    # layer name is only known once the sheet under the zone has been looked up. They are never
+    # filtered by `only`: that list is the user's checkboxes, and these did not exist when the
+    # dialog was filled.
+    return found + [e for e in (extra or []) if chapter is None or e.chapter == chapter]
 
 
 def by_id(map_id: str) -> MapEntry:
