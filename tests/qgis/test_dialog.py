@@ -151,8 +151,12 @@ def test_the_form_in_xy_mode_becomes_one_request(qgs_app, tmp_path):
 
 def test_the_map_list_shows_every_entry_and_unchecking_one_narrows_the_study(qgs_app, tmp_path):
     """Alle kaarten uit de catalogus, ook de uitgeschakelde - grijs, niet aangevinkt, met hun reden
-    als tooltip. Alles aangevinkt is de standaard (None); één kaart uit, en de studie krijgt
-    precies de rest."""
+    als tooltip. De standaardkeuze aangevinkt is de standaard (None); één kaart uit, en de studie
+    krijgt precies de rest.
+
+    Twee soorten horen hier niet bij. De platen van de grondmechanische kaart staan er niet in -
+    welk kaartblad geldt volgt uit de zone - en een kaart die standaard uit staat staat er
+    ongevinkt in."""
     from qgis.PyQt.QtCore import Qt
 
     from desktopstudie.core import catalogue
@@ -161,18 +165,80 @@ def test_the_map_list_shows_every_entry_and_unchecking_one_narrows_the_study(qgs
     items = [dialog.maps_list.item(i) for i in range(dialog.maps_list.count())]
 
     assert [item.data(Qt.ItemDataRole.UserRole) for item in items] == \
-        [entry.id for entry in catalogue.entries(enabled_only=False)]
+        [entry.id for entry in catalogue.entries(enabled_only=False) if not entry.per_sheet]
     disabled = [item for item in items if item.flags() == Qt.ItemFlag.NoItemFlags]
     assert {item.data(Qt.ItemDataRole.UserRole) for item in disabled} == \
-        {entry.id for entry in catalogue.entries(enabled_only=False) if not entry.enabled}
+        {entry.id for entry in catalogue.entries(enabled_only=False)
+         if not entry.enabled and not entry.per_sheet}
     assert all(item.checkState() == Qt.CheckState.Unchecked and item.toolTip() for item in disabled)
     assert dialog.map_ids() is None
 
-    first = next(item for item in items if item not in disabled)
+    first = next(item for item in items if item.checkState() == Qt.CheckState.Checked)
     first.setCheckState(Qt.CheckState.Unchecked)
 
-    assert dialog.map_ids() == [entry.id for entry in catalogue.entries()
-                                if entry.id != first.data(Qt.ItemDataRole.UserRole)]
+    assert dialog.map_ids() == [map_id for map_id in catalogue.default_map_ids()
+                                if map_id != first.data(Qt.ItemDataRole.UserRole)]
+
+
+def test_de_platen_van_de_grondmechanische_kaart_staan_niet_in_de_kaartlijst(qgs_app, tmp_path):
+    """Robin: "de opdeling van de kaartbladen moet de user zich niet mee bezighouden he, dat is op
+    basis van bevraagde zone in qgis". Honderdvijftien platen in de vinklijst zou precies dat
+    vragen, en voor de verkeerde stad."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    ids = [dialog.maps_list.item(i).data(Qt.ItemDataRole.UserRole)
+           for i in range(dialog.maps_list.count())]
+
+    assert not [map_id for map_id in ids if map_id.startswith("gmk_")]
+
+
+def test_niet_elk_orthofotojaar_staat_aangevinkt(qgs_app, tmp_path):
+    """Eenentwintig jaren die allemaal aanstaan maken elk rapport twintig bladen dikker. Zes staan
+    aan, de rest staat in de lijst en is een klik ver."""
+    from qgis.PyQt.QtCore import Qt
+
+    from desktopstudie.core import catalogue
+
+    dialog = _dialog(tmp_path)
+    aan, uit = set(), set()
+    for i in range(dialog.maps_list.count()):
+        item = dialog.maps_list.item(i)
+        map_id = item.data(Qt.ItemDataRole.UserRole)
+        if map_id.startswith("ortho_om") or map_id.startswith("ortho_ogw"):
+            (aan if item.checkState() == Qt.CheckState.Checked else uit).add(map_id)
+
+    assert aan == set(catalogue.ORTHO_DEFAULT_IDS)
+    assert len(uit) == 15
+
+
+def test_de_platenkeuze_volgt_de_vaste_volgorde_en_gaat_mee_in_het_verzoek(qgs_app, tmp_path):
+    """Twee runs van dezelfde studie horen dezelfde bladen in dezelfde volgorde te geven, wat de
+    gebruiker ook als laatste aanvinkte."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    for i in range(dialog.gmk_list.count()):
+        item = dialog.gmk_list.item(i)
+        key = item.data(Qt.ItemDataRole.UserRole)
+        item.setCheckState(Qt.CheckState.Checked if key in ("zonering", "documentatie")
+                           else Qt.CheckState.Unchecked)
+
+    assert dialog.gmk_themes() == ("documentatie", "zonering")
+
+    _fill_xy(dialog, tmp_path)
+    assert dialog.build_request().settings.gmk_themes == ("documentatie", "zonering")
+
+
+def test_geen_enkele_plaat_aanvinken_vraagt_geen_grondmechanische_kaart(qgs_app, tmp_path):
+    """Alles afvinken is een geldige keuze en mag niet stil terugvallen op de standaard."""
+    from qgis.PyQt.QtCore import Qt
+
+    dialog = _dialog(tmp_path)
+    for i in range(dialog.gmk_list.count()):
+        dialog.gmk_list.item(i).setCheckState(Qt.CheckState.Unchecked)
+
+    assert dialog.gmk_themes() == ()
 
 
 def test_address_mode_needs_a_chosen_candidate(qgs_app, tmp_path):
