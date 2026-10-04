@@ -334,10 +334,10 @@ class StudyResult:
     def built_maps(self) -> List[Any]:
         """The maps built for THIS zone: the plates of the grondmechanische kaart sheet above.
 
-        A property and not a field, so `studie.json` keeps holding plain data - the sheet number
-        and the themes are enough to rebuild them - and every consumer gets the same list without
-        passing it around. Imported here rather than at module level: the catalogue is the layer
-        above this one.
+        They are catalogue entries like any other; this only says WHICH ones, from the sheet
+        that was looked up and the themes the user ticked. A property and not a field, so
+        `studie.json` keeps holding plain data. Imported here rather than at module level: the
+        catalogue is the layer above this one.
         """
         from . import catalogue
 

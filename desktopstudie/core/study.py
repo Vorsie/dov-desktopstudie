@@ -452,9 +452,7 @@ class _Runner:
         of the catalogue, so the sources chapter does not shuffle itself between two runs of the
         same study. Hence the split: the threads only fetch, the main thread records.
         """
-        wanted = [e for e in catalogue.entries(only=self.result.map_ids,
-                                              extra=self.result.built_maps)
-                  if e.fact_mode is not None]
+        wanted = [e for e in catalogue.entries(only=self.result.map_ids) if e.fact_mode is not None]
         fetched: Dict[str, Any] = {}  # entry id -> rows, or the exception that explains their absence
 
         def fetch(entry: catalogue.MapEntry) -> None:
@@ -506,8 +504,12 @@ class _Runner:
                 others = ", ".join(str(number) for number, _name in sheets[1:])
                 self.log.info(f"de zone raakt ook kaartblad {others}; het rapport toont "
                                f"{self.result.gmk_sheet}")
+            # The plates join the study's map choice, so every later stage - the pages, the
+            # sources, the layers, the images - finds them without knowing where they came from.
+            plates = [e.id for e in self.result.built_maps]
+            self.result.map_ids = list(self.result.map_ids or []) + plates
             self.log.debug(f"grondmechanische kaart: blad {self.result.gmk_sheet} "
-                            f"{self.result.gmk_sheet_name}")
+                            f"{self.result.gmk_sheet_name}, {len(plates)} platen")
 
         self.guarded("Grondmechanische kaart (kaartblad)", catalogue.DOV_WFS_URL, record)
 
