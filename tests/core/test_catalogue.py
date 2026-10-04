@@ -23,6 +23,14 @@ FIXTURE_FOR = {
     "watertoets_fluviaal": "watertoets_fluviaal_hit.json",
     "gxg_ghg": "gxg_ghg_hit.json",
     "gxg_glg": "gxg_glg_hit.json",
+    # De kaarten uit de collegalijst van 2026-09-23, opgenomen op 2026-10-04. De drie
+    # geulenkaarten zijn opgenomen in de Scheldevallei en niet in Gent: daarbuiten zijn ze leeg.
+    "watertoets_zee": "watertoets_zee_hit.json",
+    "waterlopen": "wfs_waterlopen_dwithin.json",
+    "archeologienotas": "wfs_archeologienotas_dwithin.json",
+    "geulen_luchtfotos": "wfs_geulen_luchtfotos_intersects.json",
+    "geulen_sinds_1570": "wfs_geulen_sinds_1570_intersects.json",
+    "geulen_voor_1570": "wfs_geulen_voor_1570_intersects.json",
 }
 
 
@@ -84,9 +92,12 @@ def test_entries_are_hashable():
 
 
 def test_entries_filter_by_chapter_and_enabled():
-    assert [e.id for e in c.entries("ligging")] == ["grb", "ortho", "ngi_topo", "dhmv_hillshade", "dhmv_dtm"]
-    assert len(c.entries("historisch")) == 7
-    assert len(c.entries("historisch", enabled_only=False)) == 9  # + ngi_hist and bommenkaart
+    assert [e.id for e in c.entries("ligging")] == ["grb", "ortho", "ngi_topo", "waterlopen",
+                                                   "dhmv_hillshade", "dhmv_dtm"]
+    # De waterlopen staan voor het hoogtemodel: hillshade en DTM horen als paar bij elkaar.
+    # 7 van voor de collegalijst, plus 21 orthofotojaren en de archeologienota's.
+    assert len(c.entries("historisch")) == 29
+    assert len(c.entries("historisch", enabled_only=False)) == 31  # + ngi_hist and bommenkaart
 
 
 def test_by_id_unknown_raises_key_error():
@@ -134,7 +145,7 @@ def test_every_dov_map_asks_the_service_of_its_own_workspace_by_the_layers_own_n
     2026-09-16: 0,03 s per map, identical GetMap and GetLegendGraphic bytes). The WFS typename
     keeps its prefix: that is the global WFS."""
     dov = [e for e in c.CATALOGUE if "dov.vlaanderen.be/geoserver" in e.wms_url]
-    assert len(dov) == 15
+    assert len(dov) == 18  # + de drie geulenkaarten uit de dijken-workspace
     for entry in dov:
         workspace = entry.wms_url.rsplit("/geoserver/", 1)[1].split("/")[0]
         assert entry.wms_url == c.DOV_WORKSPACE_WMS_URL.format(workspace=workspace), entry.id
@@ -326,7 +337,12 @@ def test_a_sparse_theme_asks_for_a_base_map_under_it_and_a_full_cover_map_does_n
     over = {e.id for e in catalogue.entries() if e.backdrop}
     assert over == {"quartair_dikte", "watertoets_pluviaal", "watertoets_fluviaal", "erosie",
                     "ovam", "grondverschuiving_gevoeligheid", "grondverschuiving_gekarteerd",
-                    "pfas_no_regret", "krimp_zwel"}
+                    "pfas_no_regret", "krimp_zwel",
+                    # Uit de collegalijst, alle vijf dun of puntvormig: lijnen van waterlopen,
+                    # vlekken van nota's, drie geulenstelsels die alleen in de Scheldevallei iets
+                    # tekenen, en punten van meetstations. Zonder ondergrond is dat een wit blad.
+                    "waterlopen", "archeologienotas", "watertoets_zee", "peilmeetstations",
+                    "geulen_luchtfotos", "geulen_sinds_1570", "geulen_voor_1570"}
     for map_id in ("grb", "ortho", "ferraris", "dhmv_dtm", "bodemkaart", "tertiair", "hcov"):
         assert not catalogue.by_id(map_id).backdrop, map_id
 
