@@ -323,6 +323,25 @@ class StudyResult:
     # the shell reads it for its layers, legends and map images - and because a reader of
     # studie.json has to be able to see which maps the study did NOT look at.
     map_ids: Optional[List[str]] = None
+    # The grondmechanische kaart sheet under this zone, looked up rather than chosen: the user
+    # should not have to know that Gent and Antwerpen are cut into twenty-three sheets. Empty
+    # outside the mapped area, which is most of Flanders. The themes are the user's checkboxes.
+    gmk_sheet: str = ""
+    gmk_sheet_name: str = ""
+    gmk_themes: Tuple[str, ...] = ()
+
+    @property
+    def built_maps(self) -> List[Any]:
+        """The maps built for THIS zone: the plates of the grondmechanische kaart sheet above.
+
+        A property and not a field, so `studie.json` keeps holding plain data - the sheet number
+        and the themes are enough to rebuild them - and every consumer gets the same list without
+        passing it around. Imported here rather than at module level: the catalogue is the layer
+        above this one.
+        """
+        from . import catalogue
+
+        return catalogue.gmk_entries(self.gmk_sheet, self.gmk_themes)
 
     def summary(self) -> Dict[str, Any]:
         return {
