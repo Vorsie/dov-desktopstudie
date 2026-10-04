@@ -172,3 +172,20 @@ def test_zonder_eigen_adres_blijft_het_de_wfs_van_dov():
     DovWfs(client).intersecting("bodemkaart:bodemtypes", ZONE)
 
     assert all(url.startswith(DOV_WFS_URL) for url in client.calls), client.calls
+
+
+def test_het_ruimtelijk_filter_zegt_in_welk_stelsel_zijn_coordinaten_staan():
+    """De archeologienota's staan native in EPSG:3812 (Lambert 2008). GeoServer leest de
+    coordinaten in een CQL-filter in het stelsel van de LAAG, niet in dat van `srsName`, dus een
+    polygoon in Lambert 72 wees daar honderden kilometers de verkeerde kant op: nul nota's binnen
+    250 m van de Gentse zone, zonder fout en zonder waarschuwing. Met `SRID=31370;` ervoor kwamen
+    er drie (live 2026-10-04). Elke laag die niet in Lambert 72 staat zou stil leeg blijven."""
+    client = _lege_dienst()
+
+    DovWfs(client).intersecting("bodemkaart:bodemtypes", ZONE)
+    DovWfs(client).within_distance("dov-pub:Boringen", ZONE, 500.0)
+
+    filters = [url for url in client.calls if "GetFeature" in url]
+    assert filters, "er is niets gevraagd"
+    for url in filters:
+        assert "SRID%3D31370%3B" in url or "SRID=31370;" in url, url
