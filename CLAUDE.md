@@ -67,6 +67,23 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 ## Harde regels
 
 - **Geen qgis-import in `core/`.** Bewaakt door `tests/core/test_no_qgis_imports.py`.
+- **Een ruimtelijk CQL-filter noemt zijn coordinatenstelsel.** GeoServer leest de coordinaten
+  binnen een CQL-filter in het stelsel van de LAAG en niet in dat van `srsName`; een polygoon in
+  Lambert 72 tegen een laag in Lambert 2008 landt honderden kilometers verderop en levert een lege
+  FeatureCollection op - geen fout. Het rapport meldt dan een afwezigheid. `dov_wfs._in_our_crs`
+  zet er `SRID=31370;` voor; elke DOV-laag staat in Lambert 72, dus daar verandert het niets, en
+  dat is het punt. Gevonden op de archeologienota's: 193 binnen bereik, nul in de tabel.
+- **Geen dienst die zichzelf intern verklaart.** `geo.onroerenderfgoed.be/geoserver` past perfect
+  op de archeologienota's en zegt in zijn eigen GetCapabilities "Deze service is enkel bedoeld
+  voor intern gebruik", met verwijzing naar Mercator. Een publieke plugin levert zo'n dienst niet
+  mee, wat die ook bedient. Lees `Fees` en `AccessConstraints` van een nieuwe dienst voor je er een
+  entry op bouwt; `tests/core/test_catalogue_collegalijst.py` houdt die host buiten de catalogus.
+- **Een kaart toevoegen is een entry in `core/catalogue.py` en niets anders.** Drie velden bepalen
+  of de gebruiker hem ziet: `enabled` (bestaat de bron), `on_by_default` (staat hij aangevinkt) en
+  `per_sheet` (staat hij uberhaupt in de vinklijst). `per_sheet` is voor de 112 platen van de
+  grondmechanische kaart: welk kaartblad geldt volgt uit de zone, niet uit een keuzelijst. Een
+  kaart die stil uitstaat is een gat in het rapport, dus `on_by_default=False` blijft de
+  uitzondering en `tests/core/test_catalogue_collegalijst.py` pint vast welke ids hem dragen.
 - **Schil-tests draaien alleen in QGIS-Python; CI in de containers.** `tests/qgis` importeert
   `qgis.core` en slaat zichzelf in een gewone venv over (`importorskip` in de conftest). Lokaal:
   `python-qgis-ltr.bat -m pytest tests/qgis`; in CI in `qgis/qgis:release-3_34` en
@@ -850,6 +867,17 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 ## Bekende architecturale schuld
 
 Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
+
+- **Vier bladen die "buiten het gekarteerde gebied" zeggen** / de drie geulenkaarten en de
+  watertoets vanuit de zee bestaan maar voor een deel van Vlaanderen, en een blad met alleen
+  `empty_meaning` erop is papier (gemeten op de Gentse zone, 2026-10-04: vier van de elf nieuwe
+  bladen leeg) / herbekijken zodra Robin het vraagt: een veld `skip_when_empty` dat zo'n blad
+  weglaat en de bron in het bronnenhoofdstuk noemt, in plaats van een leeg kaartblad te drukken.
+- **De peilmeetstations hebben geen feitentabel** / GetFeatureInfo op die ArcGIS-laag antwoordt
+  niets, ook niet pal op een station (gemeten 2026-10-04 op Destelbergen/Ledebeek, X 108252
+  Y 194182, fijn en op 20 m per pixel), en het peil zelf is geen veld van de laag maar een
+  tijdreeks achter een andere API / herbekijken als het peil in het rapport moet: dan de
+  ArcGIS-REST-query (`.../MapServer/3/query?f=json`, werkt) als een eigen `fact_mode`.
 
 - **Geen DHMV-hoogteprofiel langs de doorsnedelijn** (ontwerp §6) / `dem.py` doet alleen zonale
   statistiek op de zone (min/max/gemiddelde in de tabel Kerngegevens ligging); het maaiveld op de
