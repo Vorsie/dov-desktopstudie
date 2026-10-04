@@ -133,6 +133,11 @@ class _Runner:
         self.should_cancel = should_cancel or (lambda: False)
         self.log = log
         self.wfs = DovWfs(client, log=log.child("dov_wfs"))
+        # One WFS client per service. Almost every map stands on the WFS of DOV - that one is
+        # `self.wfs`, which the borehole, CPT and well queries use by name - but two of the maps
+        # from the list of 2026-09-23 do not, and a client carries the address it asks as well as
+        # the geometry-field cache that belongs with that address.
+        self._wfs_by_url = {self.wfs.url: self.wfs}
         self.xml_log = log.child("dov_xml")  # one logger for the three per-item XML parsers
         self.result = StudyResult(zone=zone, created_at=_now(), map_ids=settings.map_ids)
         self.zone.radius_m = settings.radius_m
@@ -369,6 +374,19 @@ class _Runner:
                     rows.append(kept)
         return rows
 
+    def _wfs_for(self, entry: catalogue.MapEntry) -> DovWfs:
+        """The WFS client for this map's service, made once and kept.
+
+        A map asked at the wrong service does not fail: GeoServer answers an empty
+        FeatureCollection, and the sheet then states an absence. So the address travels with the
+        entry (`MapEntry.wfs_url`) and never comes from a constant here.
+        """
+        client = self._wfs_by_url.get(entry.wfs_url)
+        if client is None:
+            client = DovWfs(self.client, log=self.log.child("dov_wfs"), url=entry.wfs_url)
+            self._wfs_by_url[entry.wfs_url] = client
+        return client
+
     def _nearest_rows(self, entry: catalogue.MapEntry) -> List[dict]:
         """The features of a LINE map around the zone, nearest first, each with its distance.
 
@@ -377,8 +395,8 @@ class _Runner:
         answers nothing at all. What a reader can use is the nearest contour and how far away it
         is, and that is what `MapEntry.fact_within_m` asks for.
         """
-        feats = self.wfs.within_distance(entry.wfs_typename, self.zone.wkt, entry.fact_within_m,
-                                         self.s.max_features)
+        feats = self._wfs_for(entry).within_distance(entry.wfs_typename, self.zone.wkt,
+                                                    entry.fact_within_m, self.s.max_features)
         rows = []
         without_geometry = 0
         for feature in feats:
@@ -407,7 +425,8 @@ class _Runner:
         if entry.fact_mode == "wfs":
             if entry.fact_within_m:
                 return self._nearest_rows(entry)
-            feats = self.wfs.intersecting(entry.wfs_typename, self.zone.wkt, self.s.max_features)
+            feats = self._wfs_for(entry).intersecting(entry.wfs_typename, self.zone.wkt,
+                                                     self.s.max_features)
             return [{k: f["properties"].get(k) for k in entry.fact_fields} for f in feats]
         return self._gfi_rows(entry)
 
@@ -442,7 +461,7 @@ class _Runner:
                 self.result.map_facts.append(MapFact(e.id, e.title, o))
                 self.log.debug(f"{e.id}: {len(o)} eenheden in de zone")
 
-            url = entry.wms_url if entry.fact_mode == "gfi" else catalogue.DOV_WFS_URL
+            url = entry.wms_url if entry.fact_mode == "gfi" else entry.wfs_url
             self.guarded(f"{entry.title} (feiten)", url, record)
 
     def _truncation_signals(self) -> List[Signalering]:
