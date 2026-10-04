@@ -49,6 +49,7 @@ def _client():
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
         # De kaarten uit de collegalijst van 2026-09-23. De drie geulenkaarten antwoorden hier
         # leeg: ze bestaan alleen in de Scheldevallei, en deze zone ligt in Gent.
+        ("gekarteerde_zones", b'{"type":"FeatureCollection","features":[]}'),
         ("typeNames=VHAWaterlopen", "wfs_waterlopen_dwithin.json"),
         ("typeNames=am%3Aam_archnts", "wfs_archeologienotas_dwithin.json"),
         ("typeNames=dijken", b"{\"type\":\"FeatureCollection\",\"features\":[]}"),
@@ -230,13 +231,20 @@ def test_the_chosen_maps_travel_with_the_study(gent_ring, tmp_path):
     assert data["map_ids"] == ["bodemkaart"]
 
 
-def test_without_a_choice_the_study_records_no_map_selection(gent_ring, tmp_path):
-    """Zonder keuze blijven alle ingeschakelde kaarten in het rapport, en dat is wat `None` zegt -
-    een lijst van alle ids zou een keuze suggereren die de gebruiker niet gemaakt heeft."""
+def test_without_a_choice_the_study_writes_down_the_default_selection(gent_ring, tmp_path):
+    """`None` betekende "alle ingeschakelde kaarten", en zolang die allemaal standaard aanstonden
+    was dat hetzelfde. Sinds de collegalijst staan er eenentwintig orthofotojaren in de catalogus
+    waarvan vijftien standaard uit zijn, en dan is "alles" twintig bladen die niemand vroeg.
+
+    De keuze wordt daarom uitgeschreven in het resultaat. Dat is ook wat de lezer van studie.json
+    nodig heeft: welke kaarten deze studie bekeken heeft, en dus ook welke niet."""
+    from desktopstudie.core import catalogue
+
     result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(n_section_points=2),
                        _client(), tmp_path)
 
-    assert result.map_ids is None
+    assert result.map_ids == catalogue.default_map_ids()
+    assert result.map_ids is not None
 
 
 def test_with_profile_false_skips_the_profile_query(gent_ring, tmp_path):
@@ -594,3 +602,51 @@ def _cpt_with_profile(permkey: str):
     cpt.profile = CptProfile(depth_m=[1.0, 2.0], qc_mpa=[1.0, 2.0],
                              fs_kpa=[10.0, 12.0], u_kpa=[0.0, 1.0])
     return cpt
+
+
+def test_de_studie_zoekt_het_kaartblad_van_de_grondmechanische_kaart_bij_de_zone(tmp_path, gent_ring):
+    """Robin: "de opdeling van de kaartbladen moet de user zich niet mee bezighouden he, dat is op
+    basis van bevraagde zone in qgis". De zonelaag geeft het blad, en de platen van DAT blad komen
+    als kaarten van de studie mee."""
+    # De lege zoneroute van `_client` eruit, de gevulde erachteraan: de beschrijvingsroutes
+    # vooraan moeten het DescribeFeatureType van deze laag blijven opvangen.
+    client = _client()
+    client.routes = [r for r in client.routes if r[0] != "gekarteerde_zones"]
+    client.route("gekarteerde_zones", b'''{"type":"FeatureCollection","features":[
+        {"properties":{"kb_nummer":"22.1.6","kb_naam":"Gent-Sint-Pieters"},
+         "geometry":{"type":"Polygon","coordinates":[[[104000,192000],[105000,192000],
+                                                     [105000,193000],[104000,193000],[104000,192000]]]}}]}''')
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(), client, tmp_path,
+                       log=Log("t", sink=lambda _l: None))
+
+    assert result.gmk_sheet == "22.1.6"
+    assert result.gmk_sheet_name == "Gent-Sint-Pieters"
+    plates = [e.id for e in result.built_maps]
+    assert plates == ["gmk_documentatie", "gmk_aanvulling", "gmk_zonering"]
+    assert all(e.wms_layer.startswith("kb_22_1_6_") for e in result.built_maps)
+
+
+def test_buiten_gent_en_antwerpen_blijft_de_grondmechanische_kaart_leeg(tmp_path, gent_ring):
+    """Nul zones is het gewone antwoord: de kaart bestaat alleen voor Gent en Antwerpen. Dat is
+    een feit over de bron en mag geen mislukking worden."""
+    client = _client()
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(), client, tmp_path,
+                       log=Log("t", sink=lambda _l: None))
+
+    assert result.gmk_sheet == ""
+    assert result.built_maps == []
+
+
+def test_geen_kaartkeuze_betekent_de_standaardkeuze_en_niet_alles(tmp_path, gent_ring):
+    """`map_ids=None` liet elke ingeschakelde kaart draaien. Met eenentwintig orthofotojaren in de
+    catalogus is dat twintig bladen die niemand vroeg; de dialoog vinkt zes jaren aan en de kern
+    hoort hetzelfde te doen."""
+    from desktopstudie.core import catalogue
+
+    result = study.run(StudyZone(ring=gent_ring, name="z"), study.Settings(), _client(), tmp_path,
+                       log=Log("t", sink=lambda _l: None))
+
+    assert result.map_ids == catalogue.default_map_ids()
+    assert "ortho_omw_2017" not in result.map_ids
+    assert "ortho_omw_2025" in result.map_ids

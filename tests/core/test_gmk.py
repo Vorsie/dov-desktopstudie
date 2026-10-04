@@ -95,3 +95,28 @@ def test_elke_laagnaam_hoort_bij_het_blad_waar_hij_onder_staat(nummer):
     plat = nummer.replace(".", "_")
     for _thema, laag in c.GMK_SHEETS[nummer][1].items():
         assert laag.startswith(f"kb_{plat}_"), f"{nummer}: {laag}"
+
+
+def test_de_gebouwde_platen_komen_mee_als_kaarten_van_de_studie():
+    """De platen staan niet in de catalogus, dus elke plek die de catalogus doorloopt - de
+    rapportbladen, de bronnenlijst, de lagen, de kaartbeelden - moet ze er bij krijgen. Anders
+    staat de plaat in het project maar niet in het rapport, of omgekeerd."""
+    gebouwd = c.gmk_entries("22.1.6", c.GMK_DEFAULT_THEMES)
+
+    alles = c.entries(extra=gebouwd)
+    geologie = c.entries("geologie", extra=gebouwd)
+    historisch = c.entries("historisch", extra=gebouwd)
+
+    assert [e.id for e in gebouwd] == [e.id for e in alles if e.id.startswith("gmk_")]
+    assert [e.id for e in gebouwd] == [e.id for e in geologie if e.id.startswith("gmk_")]
+    assert not [e for e in historisch if e.id.startswith("gmk_")], "een plaat hoort bij de geologie"
+
+
+def test_een_keuze_van_kaarten_laat_de_gebouwde_platen_staan():
+    """`only` is de vinklijst van de gebruiker, en daar staan de platen niet in: ze bestaan pas
+    als de zone bekend is. Een lege keuze mag ze dus niet wegfilteren."""
+    gebouwd = c.gmk_entries("15.3.6", ("zonering",))
+
+    gekozen = c.entries(only=["bodemkaart"], extra=gebouwd)
+
+    assert [e.id for e in gekozen] == ["bodemkaart", "gmk_zonering"]

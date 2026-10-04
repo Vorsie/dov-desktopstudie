@@ -145,3 +145,27 @@ def test_een_kaart_zonder_eigen_wfs_blijft_de_dov_wfs_vragen():
     for entry in c.entries():
         if entry.fact_mode == "wfs" and entry.id not in ("archeologienotas", "waterlopen"):
             assert entry.wfs_url == DOV_WFS_URL, entry.id
+
+
+def test_niet_elk_orthofotojaar_staat_standaard_aan():
+    """Robin vroeg de luchtfoto's "optioneel, met aanvinken". Eenentwintig jaren die allemaal
+    standaard aanstaan maken het rapport in een keer ruim twintig bladen dikker, en v0.2.0 ging
+    juist van 115 naar 62 bladen. Zes jaren gespreid over de decennia staan aan, de rest staat een
+    vinkje ver."""
+    aan = {e.id for e in c.entries() if e.on_by_default}
+    ortho = {e.id for e in c.entries() if e.id.startswith("ortho_om") or e.id.startswith("ortho_ogw")}
+
+    assert ortho - aan, "geen enkel orthofotojaar staat uit"
+    assert ortho & aan == set(c.ORTHO_DEFAULT_IDS)
+    assert len(c.ORTHO_DEFAULT_IDS) == 6
+
+
+def test_alles_behalve_de_extra_orthofotojaren_staat_standaard_aan():
+    """Een kaart uitzetten is een keuze; een kaart die stil uitstaat is een gat in het rapport."""
+    uit = {e.id for e in c.entries() if not e.on_by_default}
+
+    assert uit == set(c.ORTHO_WINTER_IDS + c.ORTHO_SUMMER_IDS) - set(c.ORTHO_DEFAULT_IDS)
+
+
+def test_de_standaardkeuze_is_wat_de_dialoog_aanvinkt():
+    assert c.default_map_ids() == [e.id for e in c.entries() if e.on_by_default]
