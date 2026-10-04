@@ -47,6 +47,12 @@ def _client():
         ("doorprik/g3dv3_L", "vb_g3dv3_L.json"),
         ("doorprik/g3dv3_P", "vb_g3dv3_P.json"),
         ("doorprik/hcovv2_S", "vb_hcovv2_S.json"),
+        # De kaarten uit de collegalijst van 2026-09-23. De drie geulenkaarten antwoorden hier
+        # leeg: ze bestaan alleen in de Scheldevallei, en deze zone ligt in Gent.
+        ("typeNames=VHAWaterlopen", "wfs_waterlopen_dwithin.json"),
+        ("typeNames=am%3Aam_archnts", "wfs_archeologienotas_dwithin.json"),
+        ("typeNames=dijken", b"{\"type\":\"FeatureCollection\",\"features\":[]}"),
+        ("gebieden_vanuit_de_zee", "watertoets_zee_hit.json"),
         ("gebieden_fluviaal", "watertoets_fluviaal_hit.json"),
         ("gebieden_pluviaal", "watertoets_pluviaal_empty.json"),
         ("query_layers=krimp_zwel", "gfi_krimp_zwel_hit.json"),
@@ -464,7 +470,8 @@ def test_a_line_without_geometry_is_counted_out_loud(gent_ring):
 
     runner = study._Runner.__new__(study._Runner)
     runner.zone = StudyZone(ring=gent_ring, name="z")
-    runner.wfs = _Wfs()
+    # De client hangt per dienst in `_wfs_by_url`; deze kaart staat op de WFS van DOV.
+    runner._wfs_by_url = {entry.wfs_url: _Wfs()}
     runner.s = study.Settings()
     lines = []
     runner.log = Log("test", sink=lines.append)
