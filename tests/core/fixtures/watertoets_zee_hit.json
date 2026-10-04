@@ -1,0 +1,16 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "properties": {
+    "OBJECTID": "10153",
+    "Shape": "Polygon",
+    "Id": "10153",
+    "gridcode": "1",
+    "Shape_Length": "443446.81318",
+    "Shape_Area": "40563556.439525",
+    "layerName": "overstromingsgevoelige gebieden vanuit de zee"
+   }
+  }
+ ]
+}
