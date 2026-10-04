@@ -87,6 +87,10 @@ LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter
                "tenzij u ze aanvinkt: de klassen die in de zone liggen staan al onder hun eigen "
                "kaart. In de layout zelf schakelt de variabele 'legendas' die pagina's bij het "
                "exporteren.")
+GMK_TIP = ("De grondmechanische kaart bestaat alleen voor Gent en Antwerpen, per kaartblad met een "
+           "reeks platen. Welk kaartblad onder de zone ligt zoekt de plugin zelf op; hier kies je "
+           "welke platen van dat blad in het rapport komen. De plaat is de scan van het origineel, "
+           "met de legende van de kaart zelf erop.")
 COMPACT_TIP = ("Zet zoveel korte tabellen en figuren op een blad als erop passen. Uit levert de "
                "voorspelbare opmaak: hoogstens twee stukken per blad, en kaartbladen blijven "
                "altijd alleen.")
@@ -256,6 +260,10 @@ class StudyDialog(QDialog):
         self.maps_list = QListWidget()
         self._fill_maps()
         form.addRow("Kaarten", self.maps_list)
+        self.gmk_list = QListWidget()
+        self._fill_gmk()
+        self.gmk_list.setToolTip(GMK_TIP)
+        form.addRow("Grondmechanische kaart", self.gmk_list)
         self.cache_combo = QComboBox()
         for mode in CACHE_MODES:
             self.cache_combo.addItem(CACHE_LABELS[mode], mode)
@@ -299,16 +307,46 @@ class StudyDialog(QDialog):
         layout.addWidget(button)
         return row
 
+    def _fill_gmk(self) -> None:
+        """The five plates a sheet of the grondmechanische kaart can carry, by theme.
+
+        By theme and not by plate number, because that number means something different on every
+        sheet: plate X is the base of the Quaternary on 14.5.8 Gent-Evergem and plate VIII on
+        14.6.5 Gent-Desteldonk. Which sheet applies is never asked here - the zone decides.
+
+        The map covers Gent and Antwerpen only. Outside those the list simply yields nothing, and
+        the sources chapter says so; there is no point greying the checkboxes before a zone is
+        even entered.
+        """
+        chosen = set(self.settings.gmk_themes)
+        for key, label in catalogue.GMK_THEMES:
+            item = QListWidgetItem(label)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+                          | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked if key in chosen else Qt.CheckState.Unchecked)
+            self.gmk_list.addItem(item)
+
     def _fill_maps(self) -> None:
         """Every catalogue entry, the disabled ones greyed and unchecked with their note as tooltip:
-        the reader sees that the NGI series and the bommenkaart exist and why they are not here."""
+        the reader sees that the NGI series and the bommenkaart exist and why they are not here.
+
+        Two kinds stay out of, or off in, this list. The plates of the grondmechanische kaart
+        (`per_sheet`) are not in it at all: which sheet applies follows from the zone, and a
+        hundred and fifteen plates would be a list of mostly the wrong city. And a map that is
+        `on_by_default=False` - fifteen of the twenty-one aerial-photo years - is listed unticked,
+        so it is one click away without thickening every report.
+        """
         for entry in catalogue.entries(enabled_only=False):
+            if entry.per_sheet:
+                continue
             item = QListWidgetItem(f"{entry.title} ({CHAPTER_LABELS.get(entry.chapter, entry.chapter)})")
             item.setData(Qt.ItemDataRole.UserRole, entry.id)
             if entry.enabled:
                 item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
                               | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Checked)
+                item.setCheckState(Qt.CheckState.Checked if entry.on_by_default
+                                   else Qt.CheckState.Unchecked)
             else:
                 item.setFlags(Qt.ItemFlag.NoItemFlags)
                 item.setCheckState(Qt.CheckState.Unchecked)
@@ -470,11 +508,20 @@ class StudyDialog(QDialog):
         self.section_layer_hint.setText(self._layer_state(self.section_layer_combo, "line"))
 
     def map_ids(self) -> Optional[List[str]]:
-        """None when every enabled map is checked - the core's default - else the checked ids."""
+        """None when exactly the default selection is ticked - what the core would run anyway -
+        else the ticked ids. Compared against `catalogue.default_map_ids` and not against every
+        enabled entry: since the aerial-photo years arrived, those two are not the same list."""
         checked = [self.maps_list.item(i).data(Qt.ItemDataRole.UserRole)
                    for i in range(self.maps_list.count())
                    if self.maps_list.item(i).checkState() == Qt.CheckState.Checked]
-        return None if checked == [entry.id for entry in catalogue.entries()] else checked
+        return None if checked == catalogue.default_map_ids() else checked
+
+    def gmk_themes(self) -> Tuple[str, ...]:
+        """The ticked plates of the grondmechanische kaart, in the order of `GMK_THEMES`."""
+        ticked = {self.gmk_list.item(i).data(Qt.ItemDataRole.UserRole)
+                  for i in range(self.gmk_list.count())
+                  if self.gmk_list.item(i).checkState() == Qt.CheckState.Checked}
+        return tuple(key for key, _label in catalogue.GMK_THEMES if key in ticked)
 
     def build_request(self) -> StudyRequest:
         self._notes = []  # filled by `_chosen_feature`; `start` pushes them once the run is under way
@@ -483,7 +530,7 @@ class StudyDialog(QDialog):
         settings = Settings(radius_m=self.radius_spin.value(), n_cpt_figures=self.cpt_spin.value(),
                             n_borehole_figures=self.borehole_spin.value(),
                             section_extension_m=self.extension_spin.value(), map_ids=self.map_ids(),
-                            compact=self.compact_check.isChecked())
+                            compact=self.compact_check.isChecked(), gmk_themes=self.gmk_themes())
         meta = ReportMeta(project=self.project_edit.text().strip() or zone_input.DEFAULT_PROJECT_NAME,
                           author=self.author_edit.text().strip(), company=self.company_edit.text().strip(),
                           project_number=self.number_edit.text().strip(),
@@ -509,6 +556,7 @@ class StudyDialog(QDialog):
         settings.cache_mode = self.cache_combo.currentData()
         settings.legends = self.legends_check.isChecked()
         settings.compact = self.compact_check.isChecked()
+        settings.gmk_themes = self.gmk_themes()
         settings.sync()
 
     # --- the address -------------------------------------------------------------------------------
