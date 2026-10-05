@@ -19,6 +19,13 @@ Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volge
   dialoog: alle 21 aanzetten zou elk rapport twintig bladen dikker maken.
 
 ### Opgelost
+- **Een kaart die niet over de zone gaat, krijgt geen blad meer.** De drie geulenkaarten en de
+  watertoets vanuit de zee bestaan maar voor een deel van Vlaanderen; buiten dat deel stond er een
+  blad met alleen de mededeling dat de kaart daar niet bestaat. Leegte die het ANTWOORD is
+  ("niet overstromingsgevoelig") houdt haar blad, en een bron die mislukte houdt het ook - anders
+  verbergt een dunner rapport een fout. Het bronnenhoofdstuk blijft de weggelaten kaart noemen.
+  De schil liet zo'n blad al vallen als de GetMap-tegel leeg terugkwam, maar dat werkte bij
+  toeval: een kaart met een ondergrond eronder heeft nooit een lege tegel.
 - **Een WFS-laag die niet in Lambert 72 staat, gaf stil nul rijen.** GeoServer leest de coordinaten
   van een CQL-filter in het stelsel van de LAAG en niet in dat van `srsName`, dus een polygoon in
   Lambert 72 wees honderden kilometers de verkeerde kant op - zonder fout, met een lege tabel, en
