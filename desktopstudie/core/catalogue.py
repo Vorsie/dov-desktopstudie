@@ -425,6 +425,15 @@ class MapEntry:
     # map up by id (`catalogue.by_id`): the layout, the prefetcher and the backdrop code all do,
     # and a map that lived only inside one result would be one half of the code cannot find.
     per_sheet: bool = False
+    # A map that covers only PART of Flanders: outside that part an empty answer means the map is
+    # not about this zone, and a sheet carrying nothing but `empty_meaning` is paper. Robin, on
+    # seeing four of them in the Gent report: "natuurlijk moeten die niet opgenomen worden als er
+    # geen data is".
+    # Per map and not a rule over every empty table, because for most maps emptiness IS the
+    # answer: the watertoets is modelled for the whole of Flanders, so no row there means "not
+    # flood-prone", which is what the reader came for. A failed source keeps its sheet too - that
+    # one has to stay visible - and `model.printed_maps` tells the two apart.
+    skip_when_empty: bool = False
     # Paint this map OVER the base map instead of on white paper. True where the reader will SEE
     # that base map. Two ways that happens. A theme that covers a few percent of the sheet at most
     # - the landslides, the flood classes, PFAS - because on its own such a sheet is a white
@@ -491,7 +500,8 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
          field_labels: Optional[Dict[str, str]] = None, *, scale: int, style: str = "",
          guide: str = "", backdrop: bool = False, within_m: Optional[float] = None,
          empty_meaning: str = "", sld_body: str = "", gfi: str = "",
-         class_key: bool = False, gfi_m_per_pixel: float = 0.0) -> MapEntry:
+         class_key: bool = False, gfi_m_per_pixel: float = 0.0,
+         skip_when_empty: bool = False) -> MapEntry:
     """One DOV map. `wfs` asks a separate feature type for the facts; `gfi` (an INFO_FORMAT) asks
     the drawn map itself. A map whose value IS the colour has to use `gfi`: a neighbouring feature
     type can be an index of something else entirely and then answers nothing where the map is
@@ -505,7 +515,7 @@ def _dov(map_id: str, title: str, layer: str, fields: Tuple[str, ...] = (), wfs:
                     fact_fields=fields, value_labels=labels or {}, field_labels=field_labels or {},
                     reading_guide=guide, scale=scale, backdrop=backdrop, fact_within_m=within_m,
                     empty_meaning=empty_meaning, sld_body=sld_body, class_key=class_key,
-                    gfi_m_per_pixel=gfi_m_per_pixel)
+                    gfi_m_per_pixel=gfi_m_per_pixel, skip_when_empty=skip_when_empty)
 
 
 def _gxg(map_id: str, title: str, layer: str, level: str) -> MapEntry:
@@ -755,13 +765,15 @@ CATALOGUE: List[MapEntry] = [
     _dov("geulen_luchtfotos", "Geulenstelsel naar luchtfoto's", "dijken:geulenstelsel_naar_luchtfotos",
          ("soort",), wfs="dijken:geulenstelsel_naar_luchtfotos", field_labels={"soort": "Soort"},
          scale=10000, backdrop=True, guide=GUIDE_GEULEN,
-         empty_meaning=GEULEN_EMPTY),
+         empty_meaning=GEULEN_EMPTY, skip_when_empty=True),
     _dov("geulen_sinds_1570", "Geulenstelsel sinds 1570", "dijken:geulenstelsel_sinds_1570",
          ("periode",), wfs="dijken:geulenstelsel_sinds_1570", field_labels={"periode": "Periode"},
-         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY),
+         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY,
+         skip_when_empty=True),
     _dov("geulen_voor_1570", "Geulenstelsel voor 1570", "dijken:geulenstelsel_voor_1570",
          ("periode",), wfs="dijken:geulenstelsel_voor_1570", field_labels={"periode": "Periode"},
-         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY),
+         scale=10000, backdrop=True, guide=GUIDE_GEULEN, empty_meaning=GEULEN_EMPTY,
+         skip_when_empty=True),
     # The third of the three flood maps. It stood in the design of 2026-09-15 and never got an
     # entry; the service answers exactly as pluviaal and fluviaal do, `gridcode` and all (live
     # 2026-10-04 at Oostende: gridcode 1). Only the coast carries it, hence its own empty text.
@@ -770,7 +782,7 @@ CATALOGUE: List[MapEntry] = [
              "Vlaamse Milieumaatschappij - waterinfo.be", licence="VMM - geen beperkingen",
              opacity=0.7, legend=True, fact_mode="gfi", fact_fields=("gridcode",),
              value_labels={"gridcode": WATERTOETS_LABELS}, field_labels={"gridcode": "Klasse"},
-             reading_guide=GUIDE_WATERTOETS, scale=10000, backdrop=True,
+             reading_guide=GUIDE_WATERTOETS, scale=10000, backdrop=True, skip_when_empty=True,
              empty_meaning="De bevraagde punten liggen niet in overstromingsgevoelig gebied "
                            "vanuit de zee. Alleen de kustvlakte en de Zeescheldevallei zijn "
                            "hierop gemodelleerd."),
