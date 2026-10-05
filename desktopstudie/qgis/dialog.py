@@ -89,8 +89,8 @@ LEGENDS_TIP = ("Elke kaart met een legenda krijgt een eigen legendapagina achter
                "exporteren.")
 GMK_TIP = ("De grondmechanische kaart bestaat alleen voor Gent en Antwerpen, per kaartblad met een "
            "reeks platen. Welk kaartblad onder de zone ligt zoekt de plugin zelf op; hier kies je "
-           "welke platen van dat blad in het rapport komen. De plaat is de scan van het origineel, "
-           "met de legende van de kaart zelf erop.")
+           "welke platen van dat blad in het rapport komen. Elk blad is een uitsnede uit de scan "
+           "van de originele plaat, op de zone.")
 COMPACT_TIP = ("Zet zoveel korte tabellen en figuren op een blad als erop passen. Uit levert de "
                "voorspelbare opmaak: hoogstens twee stukken per blad, en kaartbladen blijven "
                "altijd alleen.")
