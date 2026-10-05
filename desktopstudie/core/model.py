@@ -8,7 +8,7 @@ import pathlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from . import geometry
 
@@ -371,6 +371,29 @@ def facts_of(result: StudyResult, map_id: str) -> Optional[List[Dict[str, Any]]]
     beschikbaar" for the second, while the rules only care whether there is a row.
     """
     return next((fact.rows for fact in result.map_facts if fact.map_id == map_id), None)
+
+
+def printed_maps(result: StudyResult, entries: Sequence[Any]) -> List[Any]:
+    """Of the maps this study covers, the ones that still earn a sheet.
+
+    One kind drops out: a map that covers only part of Flanders (`MapEntry.skip_when_empty`) and
+    answered nothing. Outside its mapped area such a sheet carries no map and no table, only the
+    sentence that the map is not about this zone - four of them in the Gent report, which is what
+    Robin was looking at when he said they should not be there.
+
+    Two kinds stay, and the difference is `facts_of`:
+
+    - `[]` on a map that is modelled for the whole of Flanders is the ANSWER. "Niet
+      overstromingsgevoelig" is what the reader came for, so that sheet stays, and which maps
+      those are is a judgement the catalogue makes per map rather than a rule applied here.
+    - `None` means the source was never asked or did not answer. That sheet stays too and says
+      "Bron niet beschikbaar"; leaving it out would hide a failure behind a thinner report.
+
+    The sources chapter walks the full list and not this one, so a dropped map is still named
+    there with its licence: left out of the report, never disappeared from it.
+    """
+    return [entry for entry in entries
+            if not (getattr(entry, "skip_when_empty", False) and facts_of(result, entry.id) == [])]
 
 
 def _jsonable(value: Any) -> Any:
