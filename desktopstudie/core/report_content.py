@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple, Union
 
 from . import catalogue, lithology
 from .catalogue import MODEL_TITLES
-from .model import StudyResult, facts_of, plain_reason
+from .model import StudyResult, facts_of, plain_reason, printed_maps
 from .services.http import short_url
 
 FACT_DECIMALS = 2  # what a measured depth, thickness or standard deviation is worth on paper
@@ -652,7 +652,7 @@ def _chapter_geologie(result: StudyResult, report_images: Dict[str, str]) -> Cha
     `MapFact.rows` in studie.json still carry every row exactly as the service gave them.
     """
     geo = Chapter(3, "Geologie en bodem")
-    for entry in catalogue.entries("geologie", only=result.map_ids):
+    for entry in printed_maps(result, catalogue.entries("geologie", only=result.map_ids)):
         page = MapPage(entry.id, entry.title, legend=entry.legend, scale=entry.scale,
                        note=entry.note)
         if entry.ramp:
