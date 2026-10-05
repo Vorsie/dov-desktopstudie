@@ -289,8 +289,8 @@ GEULEN_EMPTY = ("De zone ligt buiten het gekarteerde gebied van deze kaart; die 
 GUIDE_GMK = (
     "De grondmechanische kaart is tussen 1964 en 1981 opgemaakt voor Gent en Antwerpen, op basis "
     "van duizenden boringen en sonderingen, en bestaat per kaartblad uit een reeks platen. "
-    "Het blad hieronder is de scan van de originele plaat, met de legende en het titelblok van de "
-    "kaart zelf erop. "
+    "Het blad hieronder is een uitsnede uit de scan van de originele plaat, op de zone; de "
+    "legende en het titelblok staan op de volledige plaat, te raadplegen via DOV. "
     "De dokumentatieplaat geeft de proeven waarop het blad rust; de andere platen geven de dikte "
     "of de diepteligging van een laagkomplex, in meter. "
     "De kaart is ouder dan de bebouwing van de laatste decennia: de dikte van de aangevulde en "
@@ -1062,8 +1062,9 @@ def _gmk_series() -> List[MapEntry]:
                 title="Grondmechanische kaart " + sheet + " " + name + " - " + label,
                 wms_url=GMK_WMS_URL, wms_layer=layer,
                 attribution="Databank Ondergrond Vlaanderen (DOV)", licence=DOV_LICENCE,
-                # A scan of the original plate carries its own legend and title block, so a
-                # GetLegendGraphic beside it would be a second legend for one map.
+                # A scan of an original plate: there is no GetLegendGraphic to ask for, and the
+                # plate carries its own key - on the FULL sheet, which the reading guide points at,
+                # because the frame here is cropped to the zone.
                 legend=False, reading_guide=GUIDE_GMK, scale=5000,
                 on_by_default=False, per_sheet=True))
     return out
