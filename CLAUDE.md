@@ -84,6 +84,14 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
   grondmechanische kaart: welk kaartblad geldt volgt uit de zone, niet uit een keuzelijst. Een
   kaart die stil uitstaat is een gat in het rapport, dus `on_by_default=False` blijft de
   uitzondering en `tests/core/test_catalogue_collegalijst.py` pint vast welke ids hem dragen.
+- **Een leeg antwoord kost alleen een blad bij een kaart die over een DEEL van Vlaanderen gaat.**
+  `skip_when_empty` staat op de drie geulenkaarten en de watertoets vanuit de zee; daarbuiten is
+  leegte het antwoord ("niet overstromingsgevoelig") en blijft het blad staan. Een bron die
+  MISLUKTE houdt haar blad ook: dat moet zichtbaar blijven. `model.printed_maps` houdt die drie
+  gevallen apart (`facts_of` geeft `None` tegen `[]`), en het bronnenhoofdstuk noemt een
+  weggelaten kaart gewoon verder - weggelaten mag geen verdwijnen worden.
+  Let op: de schil liet zo'n blad soms al vallen omdat de GetMap-tegel leeg terugkwam. Dat werkte
+  bij toeval en niet bij een kaart met een ondergrond eronder; de beslissing hoort bij de data.
 - **Schil-tests draaien alleen in QGIS-Python; CI in de containers.** `tests/qgis` importeert
   `qgis.core` en slaat zichzelf in een gewone venv over (`importorskip` in de conftest). Lokaal:
   `python-qgis-ltr.bat -m pytest tests/qgis`; in CI in `qgis/qgis:release-3_34` en
@@ -868,11 +876,6 @@ geopende `QgsProject` ziet niemand) en de cache in `<out>/data/cache`.
 
 Formaat per item: *wat / waarom uitgesteld / wanneer herbekijken*.
 
-- **Vier bladen die "buiten het gekarteerde gebied" zeggen** / de drie geulenkaarten en de
-  watertoets vanuit de zee bestaan maar voor een deel van Vlaanderen, en een blad met alleen
-  `empty_meaning` erop is papier (gemeten op de Gentse zone, 2026-10-04: vier van de elf nieuwe
-  bladen leeg) / herbekijken zodra Robin het vraagt: een veld `skip_when_empty` dat zo'n blad
-  weglaat en de bron in het bronnenhoofdstuk noemt, in plaats van een leeg kaartblad te drukken.
 - **De peilmeetstations hebben geen feitentabel** / GetFeatureInfo op die ArcGIS-laag antwoordt
   niets, ook niet pal op een station (gemeten 2026-10-04 op Destelbergen/Ledebeek, X 108252
   Y 194182, fijn en op 20 m per pixel), en het peil zelf is geen veld van de laag maar een
