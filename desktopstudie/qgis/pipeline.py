@@ -49,7 +49,7 @@ from qgis.core import QgsMapLayer, QgsProject
 from ..core import catalogue, checks
 from ..core.catalogue import BASE_MAP_ID, DHMV_WCS_URL
 from ..core.logging_util import Log
-from ..core.model import StudyResult, StudyZone, record_source
+from ..core.model import StudyResult, StudyZone, printed_maps, record_source
 from ..core.parallel import Cancelled, stop_if
 from ..core.report_content import (
     MapPage,
@@ -324,8 +324,13 @@ def _map_layers_into_groups(project: QgsProject, result: StudyResult, log: Log, 
 
 def _fetch_legends(result: StudyResult, out_dir: Path, client: HttpClient, log: Log,
                    should_cancel) -> Dict[str, Path]:
-    """Every legend image of a CHOSEN map, with the misses recorded as failed sources."""
-    chosen = catalogue.entries(only=result.map_ids)
+    """Every legend image of a CHOSEN map, with the misses recorded as failed sources.
+
+    `printed_maps` and not the bare choice: a regional map that answered nothing loses its sheet,
+    and fetching a legend for a sheet that will not be printed would both cost a request and
+    record a failed source for a legend nobody was going to see.
+    """
+    chosen = printed_maps(result, catalogue.entries(only=result.map_ids))
     images, _missing = prefetch.prepare_legends(chosen, out_dir, client,
                                                   log.child("legendas"), should_cancel)
     for entry in chosen:
@@ -388,13 +393,15 @@ def _sheets_of(targets: Dict[str, str]) -> Dict[str, str]:
 
 def _ramp_entries(result: StudyResult):
     """The catalogue entries whose legend is a colour bar, as far as this study chose them."""
-    return [entry for entry in catalogue.entries(only=result.map_ids) if entry.ramp]
+    return [entry for entry in printed_maps(result, catalogue.entries(only=result.map_ids))
+            if entry.ramp]
 
 
 def _class_key_entries(result: StudyResult):
     """The catalogue entries whose legend is a short list of classes, as far as this study chose
     them."""
-    return [entry for entry in catalogue.entries(only=result.map_ids) if entry.class_key]
+    return [entry for entry in printed_maps(result, catalogue.entries(only=result.map_ids))
+            if entry.class_key]
 
 
 def _fetch_class_keys(result: StudyResult, entries, out_dir: Path, client: HttpClient,
