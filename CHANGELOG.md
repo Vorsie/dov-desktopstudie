@@ -2,7 +2,7 @@
 
 Formaat: [Keep a Changelog](https://keepachangelog.com/nl/1.1.0/). Versies volgen SemVer.
 
-## [Niet uitgebracht]
+## [0.5.0] - 2026-10-06
 
 ### Toegevoegd
 - **De kaartlagen uit de collegalijst** (cursus grondonderzoek, doorgestuurd 2026-09-23): 21
